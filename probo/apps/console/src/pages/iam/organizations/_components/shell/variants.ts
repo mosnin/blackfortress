@@ -55,7 +55,7 @@ export const navRail = tv({
     item: [
       "flex h-10 w-full cursor-pointer items-center gap-2 rounded-3 text-sand-11 outline-none transition-colors",
       "hover:bg-sand-3 hover:text-sand-12",
-      "focus-visible:ring-2 focus-visible:ring-sand-8",
+      "focus-visible:ring-2 focus-visible:ring-gold-9",
     ],
     // overflow-x is pinned because `overflow-y-auto` alone would compute the
     // other axis to `auto` too, and items are wider than the collapsed rail.

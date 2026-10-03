@@ -103,7 +103,7 @@ function RiskOverviewBadge({
       <div
         className={clsx(
           getColor(score),
-          "py-2 text-sm font-semibold rounded-lg text-txt-invert text-center",
+          "py-2 text-sm font-semibold rounded-lg text-invert text-center",
         )}
       >
         {textCb(t).find(i => i.value === score)?.label}

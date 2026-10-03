@@ -33,7 +33,7 @@ export const segmentedControl = tv({
       "min-w-0 cursor-pointer select-none rounded-3 border border-sand-a6 bg-sand-1 px-4 py-3.5",
       "text-center text-2 font-medium text-sand-12 outline-none transition-colors",
       "hover:border-sand-a8",
-      "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+      "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
       "data-pressed:border-sand-a12",
       "data-disabled:pointer-events-none data-disabled:opacity-50",
     ],

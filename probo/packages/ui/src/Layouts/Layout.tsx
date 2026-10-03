@@ -31,7 +31,7 @@ import {
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 
-import { Logo } from "../Atoms/Logo/Logo";
+import { BlackFortressLogo } from "../v2/BlackFortressLogo/BlackFortressLogo";
 import { Sidebar } from "../Atoms/Sidebar/Sidebar";
 import { Toasts } from "../Atoms/Toasts/Toasts";
 import { ConfirmDialog } from "../Molecules/Dialog/ConfirmDialog";
@@ -66,7 +66,7 @@ export function Layout({
       <div className="text-txt-primary bg-level-0 min-h-screen">
         <header className="fixed top-0 z-[2] left-0 right-0 px-4 flex items-center border-b border-border-solid h-12 bg-level-0">
           <Link to="/">
-            <Logo className="w-12 h-5" />
+            <BlackFortressLogo className="h-5 w-auto text-txt-primary" />
           </Link>
           {headerLeading && (
             <>

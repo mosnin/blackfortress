@@ -25,7 +25,7 @@ import { tv } from "tailwind-variants/lite";
 export const drawer = tv({
   slots: {
     backdrop: [
-      "fixed inset-0 z-4 bg-sand-12/40",
+      "fixed inset-0 z-4 bg-black/70 backdrop-blur-[2px]",
       "transition-opacity duration-200",
       "data-starting-style:opacity-0 data-ending-style:opacity-0",
     ],

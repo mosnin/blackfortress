@@ -33,7 +33,7 @@ export const tabsTab = tv({
     "relative flex h-full cursor-pointer items-center justify-center gap-2 px-2 py-4 text-2 text-sand-a11",
     "select-none outline-none transition-colors",
     "hover:text-sand-12",
-    "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+    "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
     "data-active:font-medium data-active:text-sand-12",
     "data-disabled:pointer-events-none data-disabled:opacity-50",
   ],

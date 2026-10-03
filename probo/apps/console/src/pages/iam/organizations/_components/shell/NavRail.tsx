@@ -260,7 +260,7 @@ export function NavRail({ organizationKey, slackbotAvailable }: NavRailProps) {
   const { t } = useTranslation();
   const organizationId = useOrganizationId();
   const organization = useFragment(navRailFragment, organizationKey);
-  const { displayMode, toggleDisplayMode } = useDisplayMode();
+  const { displayMode, toggleDisplayMode, canToggleDisplayMode } = useDisplayMode();
 
   const permissions = useFragment<navPermissions_organization$key>(
     navPermissionsFragment,
@@ -355,16 +355,18 @@ export function NavRail({ organizationKey, slackbotAvailable }: NavRailProps) {
           )}
         </div>
 
-        <NavRailItem
-          icon={displayMode === "dark" ? SunIcon : MoonIcon}
-          label={
-            displayMode === "dark"
-              ? t("nav.switchToLightMode")
-              : t("nav.switchToDarkMode")
-          }
-          onClick={toggleDisplayMode}
-          weight="regular"
-        />
+        {canToggleDisplayMode && (
+          <NavRailItem
+            icon={displayMode === "dark" ? SunIcon : MoonIcon}
+            label={
+              displayMode === "dark"
+                ? t("nav.switchToLightMode")
+                : t("nav.switchToDarkMode")
+            }
+            onClick={toggleDisplayMode}
+            weight="regular"
+          />
+        )}
         <NavRailItem
           icon={LifebuoyIcon}
           label={t("nav.help")}

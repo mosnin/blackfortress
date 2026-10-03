@@ -24,12 +24,12 @@ export const editableAvatarButton = tv({
   slots: {
     root: [
       "group relative inline-flex shrink-0 cursor-pointer outline-none",
-      "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+      "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
     ],
     frame: "relative overflow-hidden",
     overlay: [
       "pointer-events-none absolute inset-0 flex items-center justify-center",
-      "bg-sand-12/50 text-sand-1 opacity-0 transition-opacity",
+      "bg-black/60 text-sand-12 opacity-0 transition-opacity",
       "group-hover:opacity-100 group-focus-visible:opacity-100",
     ],
     badge: [

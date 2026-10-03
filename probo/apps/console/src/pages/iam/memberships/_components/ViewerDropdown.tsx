@@ -68,7 +68,7 @@ interface ViewerDropdownProps {
 
 export function ViewerDropdown({ identityKey }: ViewerDropdownProps) {
   const { t } = useTranslation();
-  const { displayMode, toggleDisplayMode } = useDisplayMode();
+  const { displayMode, toggleDisplayMode, canToggleDisplayMode } = useDisplayMode();
 
   const { canListOAuth2AccessTokens, email, fullName }
     = useFragment<ViewerDropdownFragment$key>(fragment, identityKey);
@@ -125,14 +125,16 @@ export function ViewerDropdown({ identityKey }: ViewerDropdownProps) {
             {t("viewerDropdown.actions.oauthTokens")}
           </DropdownItem>
         )}
-        <DropdownItem
-          iconStart={displayMode === "dark" ? <SunIcon /> : <MoonIcon />}
-          onClick={toggleDisplayMode}
-        >
-          {displayMode === "dark"
-            ? t("nav.switchToLightMode")
-            : t("nav.switchToDarkMode")}
-        </DropdownItem>
+        {canToggleDisplayMode && (
+          <DropdownItem
+            iconStart={displayMode === "dark" ? <SunIcon /> : <MoonIcon />}
+            onClick={toggleDisplayMode}
+          >
+            {displayMode === "dark"
+              ? t("nav.switchToLightMode")
+              : t("nav.switchToDarkMode")}
+          </DropdownItem>
+        )}
         <DropdownItem iconStart={<QuestionIcon />} render={<a href="mailto:support@probo.com" />}>
           {t("viewerDropdown.actions.help")}
         </DropdownItem>

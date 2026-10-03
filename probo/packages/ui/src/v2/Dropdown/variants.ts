@@ -58,7 +58,7 @@ export const dropdownItem = tv({
   },
   compoundVariants: [
     // accent
-    { variant: "solid", color: "accent", class: "data-highlighted:bg-gold-9 data-highlighted:text-white" },
+    { variant: "solid", color: "accent", class: "data-highlighted:bg-gold-9 data-highlighted:text-gold-contrast" },
     { variant: "soft", color: "accent", class: "data-highlighted:bg-gold-4 data-highlighted:text-gold-12" },
     { color: "accent", highContrast: true, class: "text-sand-12" },
     // error

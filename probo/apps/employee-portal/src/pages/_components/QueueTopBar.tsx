@@ -20,7 +20,6 @@
 
 import { CaretLeftIcon, CaretRightIcon, XIcon } from "@phosphor-icons/react";
 import { Button } from "@probo/ui/src/v2/Button/Button";
-import { useDisplayMode } from "@probo/ui/src/v2/displayMode/useDisplayMode";
 import { IconButton } from "@probo/ui/src/v2/IconButton/IconButton";
 import { Text } from "@probo/ui/src/v2/typography/Text";
 import { useTranslation } from "react-i18next";
@@ -35,10 +34,8 @@ import { queueTopBar } from "./variants";
 export function QueueTopBar() {
   const { t } = useTranslation();
   const { documentId } = useParams();
-  const { displayMode } = useDisplayMode();
   const { snapshot, advancing, goTo, goForward, close } = useDocumentQueue();
   const slots = queueTopBar();
-  const island = displayMode === "dark" ? "light" : "dark";
 
   if (snapshot == null || documentId == null) {
     return null;
@@ -55,9 +52,7 @@ export function QueueTopBar() {
 
   return (
     <header
-      className={slots.bar({
-        className: island === "dark" ? "dark scheme-dark" : "light scheme-light",
-      })}
+      className={slots.bar({ className: "dark scheme-dark" })}
     >
       <div className={slots.start()}>
         <div className={slots.controls()}>

@@ -25,7 +25,7 @@ export const imageDropzone = tv({
     root: [
       "group relative flex items-center justify-center overflow-hidden rounded-4 border border-dashed",
       "border-sand-6 bg-sand-2 outline-none transition-colors",
-      "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1",
+      "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1",
     ],
     image: "pointer-events-none absolute inset-0 size-full object-contain p-2",
     placeholder: "flex flex-col items-center gap-1 px-3 text-center",

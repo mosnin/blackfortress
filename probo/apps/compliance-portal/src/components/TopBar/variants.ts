@@ -47,6 +47,6 @@ export const topBarUserMenuTrigger = tv({
     "flex h-8 items-center gap-2 rounded-full py-1 pr-2.5 pl-1",
     "cursor-pointer outline-none transition-colors select-none",
     "hover:bg-sand-3 data-popup-open:bg-sand-3",
-    "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+    "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
   ],
 });

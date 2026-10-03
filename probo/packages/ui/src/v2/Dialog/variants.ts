@@ -27,7 +27,7 @@ import { tv } from "tailwind-variants/lite";
 export const dialog = tv({
   slots: {
     backdrop: [
-      "fixed inset-0 z-4 bg-sand-12/40",
+      "fixed inset-0 z-4 bg-black/70 backdrop-blur-[2px]",
       "transition-opacity duration-150",
       "data-starting-style:opacity-0 data-ending-style:opacity-0",
     ],
@@ -35,7 +35,7 @@ export const dialog = tv({
       "fixed left-1/2 z-5 -translate-x-1/2",
       "flex w-[calc(100vw-2rem)] max-w-150 flex-col gap-4",
       "max-h-[calc(100vh-2rem)] overflow-x-clip",
-      "rounded-5 border border-sand-6 bg-sand-1 py-6 shadow-6 outline-none",
+      "rounded-5 border border-sand-6 bg-sand-2 py-6 shadow-6 outline-none",
       "transition-all duration-150",
       "data-starting-style:scale-95 data-starting-style:opacity-0",
       "data-ending-style:scale-95 data-ending-style:opacity-0",
@@ -68,6 +68,6 @@ export const dialog = tv({
 export const dialogSkeleton = tv({
   base: [
     "flex w-full max-w-150 flex-col gap-4",
-    "rounded-5 border border-sand-6 bg-sand-1 py-6 shadow-6",
+    "rounded-5 border border-sand-6 bg-sand-2 py-6 shadow-6",
   ],
 });

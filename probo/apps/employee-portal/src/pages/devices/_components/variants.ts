@@ -33,7 +33,7 @@ export const progressStep = tv({
   slots: {
     root: [
       "flex w-full items-start gap-3 rounded-5 p-3 text-left",
-      "outline-none focus-visible:ring-2 focus-visible:ring-sand-8",
+      "outline-none focus-visible:ring-2 focus-visible:ring-gold-9",
     ],
     badge: "flex size-5 shrink-0 items-center justify-center rounded-full text-1 font-bold",
     icon: "size-3.5",

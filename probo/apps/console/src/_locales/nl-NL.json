@@ -1889,7 +1889,7 @@
     },
     "unavailable": {
       "title": "Registratie niet beschikbaar",
-      "description": "Nieuwe accountregistratie is momenteel uitgeschakeld. Neem contact op met uw beheerder of met Probo voor hulp."
+      "description": "Nieuwe accountregistratie is momenteel uitgeschakeld. Neem contact op met uw beheerder of met Black Fortress voor hulp."
     },
     "fields": {
       "fullName": "Volledige naam",
@@ -1979,7 +1979,7 @@
       "description": "Gebruik uw e-mailadres of een gekoppeld account om door te gaan"
     },
     "or": "Of",
-    "newToProbo": "Nieuw bij Probo?",
+    "newToProbo": "Nieuw bij Black Fortress?",
     "actions": {
       "usePassword": "Een wachtwoord gebruiken",
       "createAccount": "Account aanmaken"
@@ -2064,7 +2064,7 @@
     "pageTitle": "Nieuwe OAuth-token",
     "breadcrumb": "Nieuwe token",
     "title": "Nieuwe OAuth-token",
-    "description": "Maak een bearer-token aan met beperkte toegang tot de Probo API.",
+    "description": "Maak een bearer-token aan met beperkte toegang tot de Black Fortress API.",
     "messages": {
       "created": "OAuth-token succesvol aangemaakt."
     },
@@ -2338,7 +2338,7 @@
       "deactivated": "Gedeactiveerd",
       "allRoles": "Alle rollen",
       "allTypes": "Alle gebruikerstypen",
-      "role": "Probo-rol",
+      "role": "Black Fortress-rol",
       "type": "Gebruikertype"
     }
   },
@@ -2386,7 +2386,7 @@
     "fields": {
       "fullName": "Volledige naam",
       "emailAddress": "E-mailadres",
-      "role": "Probo-rol",
+      "role": "Black Fortress-rol",
       "type": "Gebruikertype",
       "position": "Functie",
       "positionPlaceholder": "bijv. CEO, CFO, enz.",
@@ -2483,14 +2483,14 @@
   "slackBotSettingsPage": {
     "title": "SlackBot",
     "connectionTitle": "Slack",
-    "emptyDescription": "Installeer de Probo Slack-app om meldingen te ontvangen",
-    "installed": "De Probo Slack-app is geïnstalleerd",
-    "uninstallConfirmation": "De Probo Slack-app verwijderen? Probo ontvangt dan geen Slack-gebeurtenissen meer en stuurt geen meldingen meer naar deze werkruimte.",
+    "emptyDescription": "Installeer de Black Fortress Slack-app om meldingen te ontvangen",
+    "installed": "De Black Fortress Slack-app is geïnstalleerd",
+    "uninstallConfirmation": "De Black Fortress Slack-app verwijderen? Black Fortress ontvangt dan geen Slack-gebeurtenissen meer en stuurt geen meldingen meer naar deze werkruimte.",
     "messages": {
-      "uninstalled": "De Probo Slack-app is verwijderd"
+      "uninstalled": "De Black Fortress Slack-app is verwijderd"
     },
     "errors": {
-      "uninstall": "De Probo Slack-app kon niet worden verwijderd"
+      "uninstall": "De Black Fortress Slack-app kon niet worden verwijderd"
     },
     "actions": {
       "install": "Installeren",
@@ -2812,17 +2812,17 @@
     "organizations": {
       "empty": {
         "title": "{{provider}} heeft geen organisaties geretourneerd",
-        "description": "De organisatie heeft Probo's toegang mogelijk nog niet goedgekeurd, of het gekoppelde account is een persoonlijk account in plaats van een organisatie. Het hieronder invoeren van een slug werkt alleen zodra Probo toegang heeft.",
-        "remediation": "Bekijk de toegang van Probo",
+        "description": "De organisatie heeft Black Fortress's toegang mogelijk nog niet goedgekeurd, of het gekoppelde account is een persoonlijk account in plaats van een organisatie. Het hieronder invoeren van een slug werkt alleen zodra Black Fortress toegang heeft.",
+        "remediation": "Bekijk de toegang van Black Fortress",
         "manualLabel": "Voer de organisatieslug handmatig in"
       },
       "unavailable": {
         "reconnectTitle": "{{provider}} is niet verbonden",
         "credentialsTitle": "De inloggegevens van {{provider}} zijn ongeldig",
         "reconnectDescription": "Verbind deze bron opnieuw om de toegang tot organisaties te herstellen.",
-        "credentialsDescription": "Probo kan deze bron niet lezen met de huidige inloggegevens. Controleer de inloggegevens en de rechten die ze bij {{provider}} hebben.",
+        "credentialsDescription": "Black Fortress kan deze bron niet lezen met de huidige inloggegevens. Controleer de inloggegevens en de rechten die ze bij {{provider}} hebben.",
         "notAuthorizedTitle": "{{provider}} heeft dit verzoek geweigerd",
-        "notAuthorizedDescription": "{{provider}} accepteert de inloggegevens, maar weigerde het verzoek van Probo. Controleer de instellingen die voor deze bron zijn ingevoerd, de rechten die deze inloggegevens bij {{provider}} hebben en of uw abonnement de API bevat die Probo gebruikt."
+        "notAuthorizedDescription": "{{provider}} accepteert de inloggegevens, maar weigerde het verzoek van Black Fortress. Controleer de instellingen die voor deze bron zijn ingevoerd, de rechten die deze inloggegevens bij {{provider}} hebben en of uw abonnement de API bevat die Black Fortress gebruikt."
       }
     }
   },
@@ -3162,7 +3162,7 @@
     "errors": {
       "roleArn": "Voer een geldige IAM-rol-ARN in.",
       "create": "Aanmaken van de connector mislukt. Controleer de rol-ARN en probeer het opnieuw.",
-      "disconnected": "Probo kon de auditrol niet aannemen. Controleer of de stack in dit account is uitgerold en of de issuer en het subject overeenkomen met de waarden die tijdens de installatie zijn getoond.",
+      "disconnected": "Black Fortress kon de auditrol niet aannemen. Controleer of de stack in dit account is uitgerold en of de issuer en het subject overeenkomen met de waarden die tijdens de installatie zijn getoond.",
       "delete": "Kan de connector niet verwijderen. Probeer het opnieuw.",
       "source": "Aanmaken van toegangsbron mislukt",
       "copy": "Kopieer de waarde handmatig."
@@ -6096,7 +6096,7 @@
   },
   "devices": {
     "title": "Apparaten",
-    "description": "Beheer computers die zijn geregistreerd met de Probo posture agent.",
+    "description": "Beheer computers die zijn geregistreerd met de Black Fortress posture agent.",
     "empty": "Nog geen apparaten geregistreerd",
     "actions": {
       "add": "Apparaat toevoegen",

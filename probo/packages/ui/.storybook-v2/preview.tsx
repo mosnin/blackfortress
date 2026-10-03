@@ -29,7 +29,7 @@ const preview: Preview = {
   globalTypes: {
     theme: {
       description: "v2 color theme",
-      defaultValue: "light",
+      defaultValue: "dark",
       toolbar: {
         title: "Theme",
         icon: "circlehollow",

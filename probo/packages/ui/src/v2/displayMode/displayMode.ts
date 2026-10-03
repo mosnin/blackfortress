@@ -22,43 +22,33 @@ export type DisplayMode = "light" | "dark";
 
 type Listener = () => void;
 
-// Tab-scoped override. Null means follow the OS preference. Never persisted.
-let override: DisplayMode | null = null;
-const listeners = new Set<Listener>();
-let initialized = false;
+// Black Fortress ships a single dark theme. The display-mode API is kept so
+// existing callers (theme toggles in menus) keep compiling, but every mode
+// resolves to "dark" and toggling is a no-op.
+const FORCED_DISPLAY_MODE: DisplayMode = "dark";
 
-function getSystemDisplayMode(): DisplayMode {
-  if (typeof window === "undefined" || !window.matchMedia) {
-    return "light";
-  }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
+const listeners = new Set<Listener>();
 
 export function getDisplayMode(): DisplayMode {
-  return override ?? getSystemDisplayMode();
+  return FORCED_DISPLAY_MODE;
 }
 
-function applyDisplayMode(mode: DisplayMode): void {
+function applyDisplayMode(): void {
   if (typeof document === "undefined") {
     return;
   }
-  document.documentElement.classList.toggle("dark", mode === "dark");
+  document.documentElement.classList.add("dark");
 }
 
-function notify(): void {
+export function setDisplayMode(_mode: DisplayMode): void {
+  applyDisplayMode();
   for (const listener of listeners) {
     listener();
   }
 }
 
-export function setDisplayMode(mode: DisplayMode): void {
-  override = mode;
-  applyDisplayMode(mode);
-  notify();
-}
-
 export function toggleDisplayMode(): void {
-  setDisplayMode(getDisplayMode() === "dark" ? "light" : "dark");
+  setDisplayMode(FORCED_DISPLAY_MODE);
 }
 
 export function subscribeDisplayMode(listener: Listener): () => void {
@@ -69,23 +59,5 @@ export function subscribeDisplayMode(listener: Listener): () => void {
 }
 
 export function initDisplayMode(): void {
-  if (typeof window === "undefined" || !window.matchMedia) {
-    return;
-  }
-
-  applyDisplayMode(getDisplayMode());
-
-  if (initialized) {
-    return;
-  }
-  initialized = true;
-
-  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-  mediaQuery.addEventListener("change", () => {
-    if (override != null) {
-      return;
-    }
-    applyDisplayMode(getDisplayMode());
-    notify();
-  });
+  applyDisplayMode();
 }

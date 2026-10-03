@@ -27,7 +27,7 @@ export const button = tv({
   base: [
     "inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap",
     "cursor-pointer outline-none transition-colors select-none",
-    "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+    "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
     "disabled:pointer-events-none disabled:opacity-50",
   ],
   variants: {
@@ -73,17 +73,19 @@ export const button = tv({
     // apply (tailwind-variants/lite has no merge — both would emit and a static
     // text-white would win, breaking dark mode).
     { variant: ["solid", "classic"], color: "neutral", highContrast: false, class: "bg-sand-9 text-white hover:bg-sand-10" },
-    { variant: ["solid", "classic"], color: "gold", highContrast: false, class: "bg-gold-9 text-white hover:bg-gold-10" },
+    { variant: ["solid", "classic"], color: "gold", highContrast: false, class: "bg-gold-9 text-gold-contrast hover:bg-gold-10 active:bg-gold-pressed" },
     { variant: ["solid", "classic"], color: "red", highContrast: false, class: "bg-red-9 text-white hover:bg-red-10" },
     { variant: ["solid", "classic"], color: "green", highContrast: false, class: "bg-green-9 text-white hover:bg-green-10" },
-    { variant: ["solid", "classic"], color: "amber", highContrast: false, class: "bg-amber-9 text-amber-12 hover:bg-amber-10" },
-    { variant: ["solid", "classic"], color: "sky", highContrast: false, class: "bg-sky-9 text-sky-12 hover:bg-sky-10" },
+    { variant: ["solid", "classic"], color: "amber", highContrast: false, class: "bg-amber-9 text-black hover:bg-amber-10" },
+    { variant: ["solid", "classic"], color: "sky", highContrast: false, class: "bg-sky-9 text-black hover:bg-sky-10" },
     { variant: ["solid", "classic"], color: "indigo", highContrast: false, class: "bg-indigo-9 text-white hover:bg-indigo-10" },
     { variant: ["solid", "classic", "soft", "ghost"], class: "border-transparent" },
     // classic adds elevation over solid
     { variant: "classic", class: "shadow-2" },
     // solid high-contrast: step-12 background, step-1 text
-    { variant: ["solid", "classic"], color: "neutral", highContrast: true, class: "bg-sand-12 text-sand-1 hover:bg-sand-12" },
+    // Black Fortress: the high-contrast neutral solid is the primary CTA, so it
+    // takes the lime accent with black text.
+    { variant: ["solid", "classic"], color: "neutral", highContrast: true, class: "bg-gold-9 text-gold-contrast hover:bg-gold-10 active:bg-gold-pressed" },
     { variant: ["solid", "classic"], color: "gold", highContrast: true, class: "bg-gold-12 text-gold-1 hover:bg-gold-12" },
     { variant: ["solid", "classic"], color: "red", highContrast: true, class: "bg-red-12 text-red-1 hover:bg-red-12" },
     { variant: ["solid", "classic"], color: "green", highContrast: true, class: "bg-green-12 text-green-1 hover:bg-green-12" },

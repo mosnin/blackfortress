@@ -159,7 +159,7 @@ export const code = tv({
   compoundVariants: [
     { variant: "soft", highContrast: false, class: "bg-gold-3 text-gold-11" },
     { variant: "soft", highContrast: true, class: "bg-gold-3 text-gold-12" },
-    { variant: "solid", highContrast: false, class: "bg-gold-9 text-white" },
+    { variant: "solid", highContrast: false, class: "bg-gold-9 text-gold-contrast" },
     { variant: "solid", highContrast: true, class: "bg-gold-12 text-gold-1" },
     { variant: "outline", highContrast: false, class: "border-gold-6 text-gold-11" },
     { variant: "outline", highContrast: true, class: "border-gold-6 text-gold-12" },

@@ -23,13 +23,13 @@ import { tv, type VariantProps } from "tailwind-variants";
 
 import { Card } from "../Atoms/Card/Card";
 import { IconChevronDown } from "../Atoms/Icons";
-import { Logo } from "../Atoms/Logo/Logo";
+import { BlackFortressLogo } from "../v2/BlackFortressLogo/BlackFortressLogo";
 
 const errorLayout = tv({
   slots: {
     root: "w-full flex items-center justify-center px-6 py-16 bg-level-0 text-txt-primary",
     card: "w-full max-w-md flex flex-col items-center text-center px-8 py-10",
-    brand: "w-[110px] mb-8",
+    brand: "h-6 w-auto mb-8 text-txt-primary",
     title: "text-xl font-semibold tracking-tight",
     description: "text-sm text-txt-secondary mt-2 leading-relaxed max-w-xs",
     details: "mt-6 w-full border-t border-border-mid pt-6",
@@ -84,7 +84,7 @@ export function ErrorLayout({
     <div className={classNames.root()}>
       <Card className={classNames.card()}>
         {showLogo && (
-          <Logo withPicto className={classNames.brand()} />
+          <BlackFortressLogo className={classNames.brand()} />
         )}
         <h1 className={classNames.title()}>{title}</h1>
         {description && (

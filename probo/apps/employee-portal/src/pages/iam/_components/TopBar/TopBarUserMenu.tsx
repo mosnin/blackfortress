@@ -69,7 +69,7 @@ interface TopBarUserMenuProps {
 
 export function TopBarUserMenu({ identityKey }: TopBarUserMenuProps) {
   const { t } = useTranslation();
-  const { displayMode, toggleDisplayMode } = useDisplayMode();
+  const { displayMode, toggleDisplayMode, canToggleDisplayMode } = useDisplayMode();
 
   const { canListOAuth2AccessTokens, email, fullName }
     = useFragment(topBarUserMenuFragment, identityKey);
@@ -127,14 +127,16 @@ export function TopBarUserMenu({ identityKey }: TopBarUserMenuProps) {
             {t("userMenu.oauthTokens")}
           </DropdownItem>
         )}
-        <DropdownItem
-          iconStart={displayMode === "dark" ? <SunIcon /> : <MoonIcon />}
-          onClick={toggleDisplayMode}
-        >
-          {displayMode === "dark"
-            ? t("userMenu.switchToLightMode")
-            : t("userMenu.switchToDarkMode")}
-        </DropdownItem>
+        {canToggleDisplayMode && (
+          <DropdownItem
+            iconStart={displayMode === "dark" ? <SunIcon /> : <MoonIcon />}
+            onClick={toggleDisplayMode}
+          >
+            {displayMode === "dark"
+              ? t("userMenu.switchToLightMode")
+              : t("userMenu.switchToDarkMode")}
+          </DropdownItem>
+        )}
         <DropdownItem iconStart={<QuestionIcon />} render={<a href="mailto:support@probo.com" />}>
           {t("userMenu.help")}
         </DropdownItem>

@@ -28,7 +28,7 @@ export const selectTrigger = tv({
     trigger: [
       "flex w-full items-center justify-between rounded-2 text-sand-12",
       "cursor-pointer outline-none transition-colors",
-      "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+      "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
       "data-disabled:pointer-events-none data-disabled:opacity-50 data-placeholder:text-sand-a10",
     ],
     value: "min-w-0 flex-1 truncate text-left",

@@ -304,7 +304,7 @@ function RisksChartCell({
   const { t } = useTranslation();
   const level = getRiskScoreLevel(impact * likelihood, matrixSize);
   const baseClass
-    = "flex items-center justify-center aspect-square rounded-xl text-txt-invert text-sm font-semibold";
+    = "flex items-center justify-center aspect-square rounded-xl text-invert text-sm font-semibold";
   const selectedClass = selected
     ? "outline-2 outline-offset-2 outline-txt-primary"
     : undefined;

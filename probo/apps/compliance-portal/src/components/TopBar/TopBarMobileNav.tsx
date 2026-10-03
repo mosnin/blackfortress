@@ -88,7 +88,7 @@ export function TopBarMobileNav({ identityKey, compliancePortalKey }: TopBarMobi
   const { pathname } = useLocation();
   const { openSubscribe, isSubscribed, unsubscribe, isUnsubscribing } = useSubscribeDialog();
   const [signOut, isSigningOut] = useSignOut();
-  const { displayMode, toggleDisplayMode } = useDisplayMode();
+  const { displayMode, toggleDisplayMode, canToggleDisplayMode } = useDisplayMode();
   const [open, setOpen] = useState(false);
   // Select menus portal to body at z-3 by default (under the drawer at z-5).
   // Mount them on the drawer Viewport — not the swipe Popup, which keeps a CSS
@@ -225,20 +225,22 @@ export function TopBarMobileNav({ identityKey, compliancePortalKey }: TopBarMobi
                   >
                     {isSubscribed ? t("userMenu.subscribed") : t("userMenu.subscribe")}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    color="gold"
-                    size={3}
-                    className="w-full justify-start"
-                    iconStart={displayMode === "dark" ? <SunIcon /> : <MoonIcon />}
-                    onClick={() => {
-                      toggleDisplayMode();
-                    }}
-                  >
-                    {displayMode === "dark"
-                      ? t("userMenu.switchToLightMode")
-                      : t("userMenu.switchToDarkMode")}
-                  </Button>
+                  {canToggleDisplayMode && (
+                    <Button
+                      variant="ghost"
+                      color="gold"
+                      size={3}
+                      className="w-full justify-start"
+                      iconStart={displayMode === "dark" ? <SunIcon /> : <MoonIcon />}
+                      onClick={() => {
+                        toggleDisplayMode();
+                      }}
+                    >
+                      {displayMode === "dark"
+                        ? t("userMenu.switchToLightMode")
+                        : t("userMenu.switchToDarkMode")}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     color="red"

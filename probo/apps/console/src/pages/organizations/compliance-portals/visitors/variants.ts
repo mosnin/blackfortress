@@ -152,8 +152,8 @@ export const addVisitorPopover = tv({
     item: [
       "group flex w-full cursor-pointer items-center gap-2 rounded-2 text-left outline-none select-none",
       "px-3 py-1.5 text-2 text-sand-12",
-      "hover:bg-gold-9 hover:text-white",
-      "focus-visible:bg-gold-9 focus-visible:text-white",
+      "hover:bg-gold-9 hover:text-gold-contrast",
+      "focus-visible:bg-gold-9 focus-visible:text-gold-contrast",
       "disabled:pointer-events-none disabled:hover:bg-transparent disabled:hover:text-sand-12",
     ],
     empty: "px-3 py-1 text-1 font-medium text-sand-11",

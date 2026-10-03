@@ -33,6 +33,7 @@ export {
 // Atoms
 export * from "./Atoms/Icons";
 export { Logo } from "./Atoms/Logo/Logo";
+export { BlackFortressLogo } from "./v2/BlackFortressLogo/BlackFortressLogo";
 export { FrameworkLogo } from "./Atoms/FrameworkLogo/FrameworkLogo";
 export { SidebarItem } from "./Atoms/Sidebar/SidebarItem";
 export { Button } from "./Atoms/Button/Button";

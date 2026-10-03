@@ -26,7 +26,7 @@ export const textField = tv({
   slots: {
     root: [
       "flex items-center gap-2 rounded-2 text-2 text-sand-12 transition-colors",
-      "focus-within:ring-2 focus-within:ring-sand-8 focus-within:ring-offset-1 focus-within:ring-offset-sand-1",
+      "focus-within:ring-2 focus-within:ring-gold-9 focus-within:ring-offset-1 focus-within:ring-offset-sand-1",
       "has-[input:disabled]:pointer-events-none has-[input:disabled]:opacity-50",
     ],
     icon: "flex size-4 shrink-0 items-center justify-center text-sand-a9 [&_svg]:size-4",
@@ -57,7 +57,7 @@ export const textArea = tv({
   slots: {
     root: [
       "flex rounded-2 text-2 text-sand-12 transition-colors",
-      "focus-within:ring-2 focus-within:ring-sand-8 focus-within:ring-offset-1 focus-within:ring-offset-sand-1",
+      "focus-within:ring-2 focus-within:ring-gold-9 focus-within:ring-offset-1 focus-within:ring-offset-sand-1",
       "has-[textarea:disabled]:pointer-events-none has-[textarea:disabled]:opacity-50",
     ],
     textarea: [
@@ -106,13 +106,13 @@ export const dateField = tv({
     root: "w-full",
     surface: [
       "flex min-w-0 w-full items-center gap-2 rounded-2 text-2 text-sand-12 transition-colors",
-      "focus-within:ring-2 focus-within:ring-sand-8 focus-within:ring-offset-1 focus-within:ring-offset-sand-1",
+      "focus-within:ring-2 focus-within:ring-gold-9 focus-within:ring-offset-1 focus-within:ring-offset-sand-1",
       "has-[input:disabled]:pointer-events-none has-[input:disabled]:opacity-50",
     ],
     iconTrigger: [
       "flex size-4 shrink-0 items-center justify-center border-0 bg-transparent p-0",
       "cursor-pointer text-sand-a9 outline-none [&_svg]:size-4 hover:text-sand-12",
-      "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+      "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
       "data-disabled:pointer-events-none data-disabled:opacity-50",
     ],
     input: [
@@ -122,7 +122,7 @@ export const dateField = tv({
     clear: [
       "flex size-6 shrink-0 items-center justify-center rounded-2 border-0 bg-transparent p-0",
       "cursor-pointer text-sand-a9 outline-none [&_svg]:size-4 hover:text-sand-12 hover:bg-sand-3",
-      "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+      "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
     ],
     calendar: "flex w-72 flex-col gap-2",
     header: "flex items-center gap-1",
@@ -152,7 +152,7 @@ export const dateFieldDay = tv({
   base: [
     "flex size-8 items-center justify-center rounded-2 text-2 text-sand-12",
     "cursor-pointer outline-none hover:bg-sand-4",
-    "focus-visible:ring-2 focus-visible:ring-sand-8",
+    "focus-visible:ring-2 focus-visible:ring-gold-9",
     "disabled:pointer-events-none disabled:opacity-50",
   ],
   variants: {

@@ -30,12 +30,14 @@ import {
 export function useDisplayMode(): {
   displayMode: DisplayMode;
   toggleDisplayMode: () => void;
+  // Black Fortress is dark-only; callers hide their theme toggle on false.
+  canToggleDisplayMode: boolean;
 } {
   const displayMode = useSyncExternalStore(
     subscribeDisplayMode,
     getDisplayMode,
-    () => "light" as const,
+    () => "dark" as const,
   );
 
-  return { displayMode, toggleDisplayMode };
+  return { displayMode, toggleDisplayMode, canToggleDisplayMode: false };
 }

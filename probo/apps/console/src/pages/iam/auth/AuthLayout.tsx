@@ -18,8 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import { BlackFortressLogo } from "@probo/ui/src/v2/BlackFortressLogo/BlackFortressLogo";
 import { Card } from "@probo/ui/src/v2/Card/Card";
-import { ProboLogo } from "@probo/ui/src/v2/ProboLogo/ProboLogo";
 import type { PropsWithChildren } from "react";
 import { Outlet, useSearchParams } from "react-router";
 
@@ -35,11 +35,11 @@ export default function AuthLayout(props: PropsWithChildren) {
   const slots = authLayout();
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-sand-2 p-4">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-sand-1 p-4">
       <div className={slots.column()}>
         {!isAuthorizeFlow && (
           <div className={slots.header()}>
-            <ProboLogo className="h-6 w-auto text-sand-12" />
+            <BlackFortressLogo className="h-7 w-auto text-sand-12" />
           </div>
         )}
         <div className={slots.stack()}>

@@ -18,13 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// FOUC guard: apply the OS preference before JS bundles load. Runtime
-// overrides (and further system-preference changes) are owned by
-// @probo/hooks initDisplayMode once the app boots.
+// FOUC guard: Black Fortress is dark-only, so force the dark theme class
+// before JS bundles load (initDisplayMode keeps it applied at runtime).
 (function () {
-  if (!window.matchMedia) return;
-  document.documentElement.classList.toggle(
-    "dark",
-    window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
+  document.documentElement.classList.add("dark");
 })();

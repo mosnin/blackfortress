@@ -73,7 +73,7 @@ export function TopBarUserMenu({ identityKey }: TopBarUserMenuProps) {
   const identity = useFragment(topBarUserMenuFragment, identityKey);
   const { openSubscribe, isSubscribed, unsubscribe, isUnsubscribing } = useSubscribeDialog();
   const [signOut, isSigningOut] = useSignOut();
-  const { displayMode, toggleDisplayMode } = useDisplayMode();
+  const { displayMode, toggleDisplayMode, canToggleDisplayMode } = useDisplayMode();
   const locale = useLocale();
   const [changeLocale, isChangingLocale] = useChangeLocale();
 
@@ -127,14 +127,16 @@ export function TopBarUserMenu({ identityKey }: TopBarUserMenuProps) {
         >
           {isSubscribed ? t("userMenu.subscribed") : t("userMenu.subscribe")}
         </DropdownItem>
-        <DropdownItem
-          iconStart={displayMode === "dark" ? <SunIcon /> : <MoonIcon />}
-          onClick={toggleDisplayMode}
-        >
-          {displayMode === "dark"
-            ? t("userMenu.switchToLightMode")
-            : t("userMenu.switchToDarkMode")}
-        </DropdownItem>
+        {canToggleDisplayMode && (
+          <DropdownItem
+            iconStart={displayMode === "dark" ? <SunIcon /> : <MoonIcon />}
+            onClick={toggleDisplayMode}
+          >
+            {displayMode === "dark"
+              ? t("userMenu.switchToLightMode")
+              : t("userMenu.switchToDarkMode")}
+          </DropdownItem>
+        )}
         <DropdownSubmenu>
           <DropdownSubmenuTrigger iconStart={<GlobeIcon />}>
             {t("locale.label")}

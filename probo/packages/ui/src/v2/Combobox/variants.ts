@@ -27,7 +27,7 @@ export const comboboxInputGroup = tv({
   base: [
     "flex min-h-8 w-full flex-wrap items-center gap-1.5 rounded-2 border border-sand-a5 bg-sand-1 px-2 py-1 text-2 text-sand-12",
     "transition-colors",
-    "focus-within:ring-2 focus-within:ring-sand-8 focus-within:ring-offset-1 focus-within:ring-offset-sand-1",
+    "focus-within:ring-2 focus-within:ring-gold-9 focus-within:ring-offset-1 focus-within:ring-offset-sand-1",
     "data-disabled:pointer-events-none data-disabled:opacity-50",
   ],
 });

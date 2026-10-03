@@ -28,7 +28,7 @@ export const link = tv({
   base: [
     "inline-flex items-center underline-offset-2",
     "cursor-pointer outline-none transition-colors",
-    "focus-visible:rounded-1 focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+    "focus-visible:rounded-1 focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
   ],
   variants: {
     size: {

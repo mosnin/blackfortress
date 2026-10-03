@@ -46,7 +46,7 @@ export const toaster = tv({
     description: "text-1",
     close: [
       "-mr-1 -mt-1 shrink-0 rounded-2 p-1 opacity-70 outline-none transition-opacity hover:opacity-100 [&_svg]:size-4",
-      "focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+      "focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
     ],
   },
   variants: {

@@ -27,7 +27,7 @@ export const collapsible = tv({
     trigger: [
       "appearance-none cursor-pointer border-0 bg-transparent p-0 text-inherit",
       "outline-none",
-      "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+      "focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
     ],
     panel: [
       "h-(--collapsible-panel-height) overflow-hidden",

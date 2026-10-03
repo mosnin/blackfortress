@@ -22,9 +22,9 @@ import { useEffect } from "react";
 
 export function usePageTitle(title: string) {
     useEffect(() => {
-        document.title = title + " - Probo";
+        document.title = title + " - Black Fortress";
         return () => {
-            document.title = "Probo";
+            document.title = "Black Fortress";
         };
     }, [title]);
 }

@@ -34,7 +34,7 @@ export const table = tv({
     rowHeader: "font-normal",
     sortButton: [
       "inline-flex max-w-full items-center gap-1 appearance-none border-0 bg-transparent p-0 font-inherit text-sand-11 cursor-pointer",
-      "outline-none focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+      "outline-none focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
     ],
     sortIcon: "shrink-0",
   },
@@ -144,6 +144,6 @@ export const tableLink = tv({
   base: [
     "min-w-0 pointer-events-auto",
     "after:absolute after:inset-0 after:content-['']",
-    "outline-none focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+    "outline-none focus-visible:ring-2 focus-visible:ring-gold-9 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
   ],
 });

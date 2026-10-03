@@ -176,9 +176,9 @@ export const documentListSection = tv({
 
 export const queueTopBar = tv({
   slots: {
-    // Inverse theme island: .dark / .light + color-scheme are set on the
-    // header so stock outline buttons resolve the opposite scale.
-    bar: "flex h-14 shrink-0 items-center justify-between bg-sand-1 px-8",
+    // Black Fortress is dark-only, so the former inverse-theme island is a
+    // raised surface separated from the document by a border.
+    bar: "flex h-14 shrink-0 items-center justify-between border-b border-sand-6 bg-sand-2 px-8",
     start: "flex min-w-0 items-center gap-6",
     controls: "flex items-center gap-2",
     progress: "truncate",
