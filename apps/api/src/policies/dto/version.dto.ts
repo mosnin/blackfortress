@@ -1,0 +1,92 @@
+import { ApiProperty, ApiSchema } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { IsArray, IsBoolean, IsOptional, IsString } from 'class-validator';
+
+// A second class named `CreateVersionDto` exists in tasks/automations with a
+// different, REQUIRED shape (version! + scriptKey!). Without a distinct OpenAPI
+// component name the two collide, and the automations shape overwrites this
+// one — which broke the create-policy-version MCP tool (it demanded fields the
+// policies endpoint's ValidationPipe then rejected with 400). Keep this name.
+@ApiSchema({ name: 'CreatePolicyVersionDto' })
+export class CreateVersionDto {
+  @ApiProperty({
+    description: 'Optional version ID to base the new version on',
+    required: false,
+    example: 'pv_abc123def456',
+  })
+  @IsOptional()
+  @IsString()
+  sourceVersionId?: string;
+
+  @ApiProperty({
+    description: 'Optional changelog to associate with the new version',
+    required: false,
+    example: 'Initial draft for quarterly updates',
+  })
+  @IsOptional()
+  @IsString()
+  changelog?: string;
+}
+
+export class UpdateVersionContentDto {
+  @ApiProperty({
+    description:
+      'Content of the policy version as TipTap JSON (array of nodes)',
+    example: [
+      {
+        type: 'heading',
+        attrs: { level: 2, textAlign: null },
+        content: [{ type: 'text', text: 'Purpose' }],
+      },
+    ],
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+  })
+  @IsArray()
+  // Return the raw source value. Under the global ValidationPipe's implicit
+  // conversion, class-transformer coerces each TipTap node toward the reflected
+  // Array design-type of `content`, mangling `[{...}, {...}]` into `[[], []]`.
+  // The transform runs after that coercion, so `value` is already mangled —
+  // `obj.content` is the untouched original. Do not revert this to `value`.
+  @Transform(({ obj }) => obj.content)
+  content: unknown[];
+}
+
+export class PublishVersionDto {
+  @ApiProperty({
+    description:
+      'Version ID to publish. PASS THIS after update-version to publish your edits — omitting it publishes stale draftContent (loses your changes).',
+    required: false,
+    example: 'pv_abc123def456',
+  })
+  @IsOptional()
+  @IsString()
+  versionId?: string;
+
+  @ApiProperty({
+    description: 'Whether to set this version as the active version',
+    required: false,
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  setAsActive?: boolean;
+
+  @ApiProperty({
+    description: 'Optional changelog to associate with the published version',
+    required: false,
+    example: 'Updated access controls section',
+  })
+  @IsOptional()
+  @IsString()
+  changelog?: string;
+}
+
+export class SubmitForApprovalDto {
+  @ApiProperty({
+    description: 'Member ID of the approver',
+    example: 'mem_abc123def456',
+  })
+  @IsString()
+  approverId: string;
+}

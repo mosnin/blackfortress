@@ -1,0 +1,35 @@
+{
+  "slug": "cloudsmith",
+  "name": "Cloudsmith",
+  "description": "Monitor Cloudsmith artifact repository access and package security for software supply chain compliance",
+  "category": "Development",
+  "docsUrl": "https://help.cloudsmith.io/docs/api",
+  "baseUrl": "https://api.cloudsmith.io/",
+  "authConfig": {
+    "type": "api_key",
+    "config": {}
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "cloudsmith_org_access",
+      "name": "Cloudsmith Organization Access & Repositories",
+      "description": "Inventories Cloudsmith organizations the API key has access to, lists members with roles and 2FA status, and enumerates repositories with visibility.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "cloudsmith_app_availability",
+      "name": "Cloudsmith API Availability",
+      "description": "Verifies the Cloudsmith API key is valid and reports the authenticated user and accessible organizations.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

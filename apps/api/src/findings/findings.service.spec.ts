@@ -1,0 +1,231 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+
+jest.mock('@trycompai/company', () => ({
+  toDbEvidenceFormType: (v: string) => v,
+  toExternalEvidenceFormType: (v: string | null) => v,
+}));
+
+jest.mock('../timelines/timelines.service', () => ({
+  TimelinesService: jest.fn(),
+}));
+
+jest.mock('../frameworks/frameworks-timeline.helper', () => ({
+  checkAutoCompletePhases: jest.fn().mockResolvedValue(undefined),
+}));
+
+const mockDb = {
+  task: { findFirst: jest.fn() },
+  evidenceSubmission: { findFirst: jest.fn(), findUnique: jest.fn() },
+  policy: { findFirst: jest.fn() },
+  vendor: { findFirst: jest.fn() },
+  risk: { findFirst: jest.fn() },
+  member: { findFirst: jest.fn(), findUnique: jest.fn() },
+  device: { findFirst: jest.fn(), findUnique: jest.fn() },
+  user: { findUnique: jest.fn() },
+  findingTemplate: { findUnique: jest.fn() },
+  finding: {
+    findFirst: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
+};
+
+jest.mock('@db', () => ({
+  db: mockDb,
+  FindingArea: { people: 'people', documents: 'documents', compliance: 'compliance' },
+  FindingStatus: {
+    open: 'open',
+    ready_for_review: 'ready_for_review',
+    needs_revision: 'needs_revision',
+    closed: 'closed',
+  },
+  FindingType: {
+    soc2: 'soc2',
+    iso27001: 'iso27001',
+    pci_dss: 'pci_dss',
+    hipaa: 'hipaa',
+    gdpr: 'gdpr',
+    iso9001: 'iso9001',
+    iso42001: 'iso42001',
+  },
+  FindingSeverity: {
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    critical: 'critical',
+  },
+}));
+
+import { FindingsService } from './findings.service';
+
+describe('FindingsService.create (target validator)', () => {
+  const auditService = {};
+  const notifier = { notifyFindingCreated: jest.fn() };
+  const svc = new FindingsService(
+    auditService as never,
+    notifier as never,
+    {} as never,
+  );
+  const baseDto = { content: 'Example finding' };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('rejects when no target and no area is provided', async () => {
+    await expect(
+      svc.create('org_1', 'mem_1', 'usr_1', { ...baseDto }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects when more than one target is provided', async () => {
+    await expect(
+      svc.create('org_1', 'mem_1', 'usr_1', {
+        ...baseDto,
+        taskId: 'tsk_1',
+        policyId: 'pol_1',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('404s when the referenced task is not in the org', async () => {
+    mockDb.task.findFirst.mockResolvedValue(null);
+
+    await expect(
+      svc.create('org_1', 'mem_1', 'usr_1', {
+        ...baseDto,
+        taskId: 'tsk_missing',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('creates a finding for a valid policy target', async () => {
+    mockDb.policy.findFirst.mockResolvedValue({ id: 'pol_1', name: 'Access Policy' });
+    mockDb.finding.create.mockResolvedValue({
+      id: 'fnd_new',
+      content: 'Example finding',
+      createdBy: null,
+      createdByAdmin: null,
+    });
+
+    const result = await svc.create('org_1', 'mem_1', 'usr_1', {
+      ...baseDto,
+      policyId: 'pol_1',
+    });
+
+    expect(mockDb.policy.findFirst).toHaveBeenCalledWith({
+      where: { id: 'pol_1', organizationId: 'org_1' },
+      select: { id: true, name: true },
+    });
+    expect(mockDb.finding.create).toHaveBeenCalled();
+    const createArgs = mockDb.finding.create.mock.calls[0][0];
+    expect(createArgs.data.policyId).toBe('pol_1');
+    expect(createArgs.data.organizationId).toBe('org_1');
+    expect(result.id).toBe('fnd_new');
+  });
+
+  it('accepts area-only findings without a specific target', async () => {
+    mockDb.finding.create.mockResolvedValue({
+      id: 'fnd_area',
+      content: 'Example finding',
+      createdBy: null,
+      createdByAdmin: null,
+    });
+
+    await svc.create('org_1', 'mem_1', 'usr_1', {
+      ...baseDto,
+      area: 'people' as never,
+    });
+
+    const createArgs = mockDb.finding.create.mock.calls[0][0];
+    expect(createArgs.data.area).toBe('people');
+    expect(createArgs.data.taskId).toBeNull();
+  });
+});
+
+describe('FindingsService.update (status transition rules)', () => {
+  const auditService = {
+    logFindingStatusChanged: jest.fn(),
+    logFindingContentChanged: jest.fn(),
+    logFindingTypeChanged: jest.fn(),
+  };
+  const notifier = {
+    notifyFindingCreated: jest.fn(),
+    notifyStatusChanged: jest.fn(),
+  };
+  const svc = new FindingsService(auditService as never, notifier as never, {} as never);
+  const existingFinding = {
+    id: 'fnd_1',
+    organizationId: 'org_1',
+    content: 'Test finding',
+    status: 'open',
+    type: 'soc2',
+    severity: 'medium',
+    revisionNote: null,
+    area: null,
+    taskId: null,
+    policyId: null,
+    vendorId: null,
+    riskId: null,
+    memberId: null,
+    deviceId: null,
+    evidenceSubmissionId: null,
+    evidenceFormType: null,
+    createdBy: null,
+    createdByAdmin: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDb.finding.findFirst.mockResolvedValue(existingFinding);
+    mockDb.finding.update.mockResolvedValue({
+      ...existingFinding,
+      createdBy: null,
+      createdByAdmin: null,
+    });
+    mockDb.user.findUnique.mockResolvedValue({
+      name: 'Test User',
+      email: 'test@example.com',
+    });
+  });
+
+  it('allows ready_for_review regardless of canCreateFindings', async () => {
+    await svc.update('org_1', 'fnd_1', { status: 'ready_for_review' as never }, false, false, 'usr_1', 'mem_1');
+    expect(mockDb.finding.update).toHaveBeenCalled();
+  });
+
+  it('blocks needs_revision without canCreateFindings', async () => {
+    await expect(
+      svc.update('org_1', 'fnd_1', { status: 'needs_revision' as never }, false, false, 'usr_1', 'mem_1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('allows needs_revision with canCreateFindings', async () => {
+    await svc.update('org_1', 'fnd_1', { status: 'needs_revision' as never }, true, false, 'usr_1', 'mem_1');
+    expect(mockDb.finding.update).toHaveBeenCalled();
+  });
+
+  it('blocks closed without canCreateFindings', async () => {
+    await expect(
+      svc.update('org_1', 'fnd_1', { status: 'closed' as never }, false, false, 'usr_1', 'mem_1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('allows closed with canCreateFindings', async () => {
+    await svc.update('org_1', 'fnd_1', { status: 'closed' as never }, true, false, 'usr_1', 'mem_1');
+    expect(mockDb.finding.update).toHaveBeenCalled();
+  });
+
+  it('allows platform admin to set any status', async () => {
+    await svc.update('org_1', 'fnd_1', { status: 'closed' as never }, false, true, 'usr_1', 'mem_1');
+    expect(mockDb.finding.update).toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,51 @@
+{
+  "slug": "secureframe",
+  "name": "Secureframe",
+  "description": "Security compliance automation platform. Monitor compliance posture and controls.",
+  "category": "Security",
+  "docsUrl": "https://developers.secureframe.com/",
+  "baseUrl": "https://api.secureframe.com",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to Secureframe at https://app.secureframe.com\n2. Go to Settings > API Keys\n3. Generate a new API key pair (Access Key ID + Secret)\n4. Paste both fields below",
+      "credentialFields": [
+        {
+          "label": "Access Key ID",
+          "type": "text",
+          "required": true,
+          "helpText": "From Secureframe Settings > API Keys"
+        },
+        {
+          "label": "Secret Access Key",
+          "type": "password",
+          "required": true,
+          "helpText": "From Secureframe Settings > API Keys"
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "secureframe_app_availability",
+      "name": "Secureframe App Availability",
+      "description": "Checks that the Secureframe API is accessible.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "secureframe_employee_access",
+      "name": "Secureframe Employee Access",
+      "description": "Verifies access to Secureframe.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

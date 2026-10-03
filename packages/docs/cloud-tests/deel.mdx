@@ -1,0 +1,71 @@
+---
+title: 'Deel Integration'
+description: 'Sync employee data from Deel to Comp AI'
+---
+
+# Deel Integration
+
+The Deel integration enables you to automatically import employee data from your Deel account into Comp AI, streamlining your employee onboarding process and ensuring your compliance data is always up-to-date.
+
+## Setup Process
+
+### Prerequisites
+
+Before setting up the integration, ensure you have:
+
+1. Admin access to your Deel account
+2. Admin access to your Comp AI workspace
+3. API credentials from Deel (API key)
+
+### Configuration Steps
+
+1. Navigate to **Settings > Integrations** in your Comp AI dashboard
+2. Click on **Connect** next to the Deel integration card
+3. Enter your Deel API key and select your region
+4. Configure synchronization settings:
+   - Frequency (hourly, daily, weekly)
+   - Data mapping options
+   - Employee filters (optional)
+5. Click **Save and Connect**
+
+## Data Synchronization
+
+### Imported Data
+
+The following employee data is imported from Deel:
+
+| Data Field      | Description                      |
+| --------------- | -------------------------------- |
+| Full Name       | Employee's legal name            |
+| Email           | Work email address               |
+| Position        | Current job title                |
+| Department      | Assigned department              |
+| Employment Type | Full-time, part-time, contractor |
+| Start Date      | Employment start date            |
+| Location        | Country/region of employment     |
+| Contract Type   | Contract classification          |
+
+### Synchronization Schedule
+
+By default, synchronization occurs daily at midnight UTC. You can modify this schedule in your integration settings.
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue**: Employee data not importing  
+**Solution**: Verify API credentials and ensure the employee exists in Deel
+
+**Issue**: Missing employee information  
+**Solution**: Check data mapping settings and ensure required fields are enabled in Deel
+
+**Issue**: Connection errors  
+**Solution**: Validate network settings and firewall rules
+
+### Support
+
+For additional assistance with your Deel integration:
+
+1. Check our [Knowledge Base](https://help.trycomp.ai/deel-integration)
+2. Contact support at [support@trycomp.ai](mailto:support@trycomp.ai)
+3. Join our [Discord community](https://discord.gg/compai) for peer support

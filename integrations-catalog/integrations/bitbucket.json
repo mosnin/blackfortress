@@ -1,0 +1,51 @@
+{
+  "slug": "bitbucket",
+  "name": "Bitbucket",
+  "description": "Monitor Bitbucket repositories and workspace members for source code management and access compliance",
+  "category": "Development",
+  "docsUrl": "https://developer.atlassian.com/cloud/bitbucket/rest/",
+  "baseUrl": "https://api.bitbucket.org/",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Go to https://id.atlassian.com/manage-profile/security/api-tokens\n2. Click \"Create API token with scopes\"\n3. Name the token, set an expiry date, and select Bitbucket as the app\n4. Assign Repositories: Read and User data: Read permissions\n5. Copy the token (it is only shown once)\n6. Enter your Atlassian account email and the API token below\n\nNote: Bitbucket App Passwords have been deprecated. Use API tokens instead.",
+      "credentialFields": [
+        {
+          "label": "Atlassian Account Email",
+          "type": "text",
+          "required": true,
+          "helpText": "Your Atlassian account email address (listed under Email Aliases in Bitbucket Personal Settings)"
+        },
+        {
+          "label": "API Token",
+          "type": "password",
+          "required": true,
+          "helpText": "Created in Atlassian Account Settings > Security > API tokens"
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "repos",
+      "name": "Code Changes",
+      "description": "Lists Bitbucket repositories to verify code changes are tracked",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "members",
+      "name": "Employee Access",
+      "description": "Reviews Bitbucket workspace members for employee access management",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

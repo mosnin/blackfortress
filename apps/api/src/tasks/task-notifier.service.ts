@@ -1,0 +1,1486 @@
+import { db } from '@db';
+import { orgParticipantMemberWhereForFlag } from '../utils/org-participation';
+import { Injectable, Logger } from '@nestjs/common';
+import { TaskStatus } from '@db';
+import { isUserUnsubscribed } from '@trycompai/email';
+import { triggerEmail } from '../email/trigger-email';
+import { TaskBulkStatusChangedEmail } from '../email/templates/task-bulk-status-changed';
+import { TaskBulkAssigneeChangedEmail } from '../email/templates/task-bulk-assignee-changed';
+import { TaskStatusChangedEmail } from '../email/templates/task-status-changed';
+import { TaskAssigneeChangedEmail } from '../email/templates/task-assignee-changed';
+import { EvidenceReviewRequestedEmail } from '../email/templates/evidence-review-requested';
+import { EvidenceBulkReviewRequestedEmail } from '../email/templates/evidence-bulk-review-requested';
+import { AutomationFailuresEmail } from '../email/templates/automation-failures';
+import { AutomationBulkFailuresEmail } from '../email/templates/automation-bulk-failures';
+import { NovuService } from '../notifications/novu.service';
+
+const BULK_TASK_WORKFLOW_ID = 'evidence-bulk-updated';
+const TASK_WORKFLOW_ID = 'evidence-updated';
+
+type StatusRecipient = { id: string; name: string; email: string };
+
+function toStatusRecipient(user: {
+  id: string;
+  name: string | null;
+  email: string;
+}): StatusRecipient {
+  return {
+    id: user.id,
+    name: user.name?.trim() || user.email?.trim() || 'User',
+    email: user.email,
+  };
+}
+
+@Injectable()
+export class TaskNotifierService {
+  private readonly logger = new Logger(TaskNotifierService.name);
+
+  constructor(private readonly novuService: NovuService) {}
+
+  /**
+   * Members with 'owner' or 'admin' in their comma-separated role string,
+   * excluding the actor. Used as the fallback recipient pool when a task
+   * has no assignee.
+   */
+  private async getOwnerAdminRecipients(
+    organizationId: string,
+    actorUserId: string | undefined,
+  ): Promise<StatusRecipient[]> {
+    const members = await db.member.findMany({
+      where: { organizationId, deactivated: false },
+      select: {
+        role: true,
+        user: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    const recipients: StatusRecipient[] = [];
+    for (const member of members) {
+      if (!member.user?.id || !member.user.email) continue;
+      if (member.user.id === actorUserId) continue;
+      const roles = (member.role ?? '').split(',').map((r) => r.trim());
+      if (!roles.includes('owner') && !roles.includes('admin')) continue;
+      recipients.push(toStatusRecipient(member.user));
+    }
+    return recipients;
+  }
+
+  async notifyBulkStatusChange(params: {
+    organizationId: string;
+    taskIds: string[];
+    newStatus: TaskStatus;
+    changedByUserId: string;
+  }): Promise<void> {
+    const { organizationId, taskIds, newStatus, changedByUserId } = params;
+
+    try {
+      const [organization, changedByUser, tasks] = await Promise.all([
+        db.organization.findUnique({
+          where: { id: organizationId },
+          select: { name: true },
+        }),
+        db.user.findUnique({
+          where: { id: changedByUserId },
+          select: { name: true, email: true },
+        }),
+        db.task.findMany({
+          where: {
+            id: { in: taskIds },
+            organizationId,
+          },
+          select: {
+            id: true,
+            title: true,
+            assignee: {
+              select: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ]);
+
+      const organizationName = organization?.name ?? 'your organization';
+      const changedByName =
+        changedByUser?.name?.trim() ||
+        changedByUser?.email?.trim() ||
+        'Someone';
+
+      // Recipients: each assignee gets a bulk email scoped to the tasks they
+      // own. Unassigned tasks are routed to owners/admins so someone can act.
+      // The actor is always excluded.
+      const recipientBuckets = new Map<
+        string,
+        { recipient: StatusRecipient; taskCount: number }
+      >();
+      let unassignedTaskCount = 0;
+      for (const task of tasks) {
+        const user = task.assignee?.user;
+        if (user?.id && user.email) {
+          if (user.id === changedByUserId) continue;
+          const existing = recipientBuckets.get(user.id);
+          if (existing) {
+            existing.taskCount += 1;
+          } else {
+            recipientBuckets.set(user.id, {
+              recipient: toStatusRecipient(user),
+              taskCount: 1,
+            });
+          }
+        } else {
+          unassignedTaskCount += 1;
+        }
+      }
+
+      if (unassignedTaskCount > 0) {
+        const ownerAdmins = await this.getOwnerAdminRecipients(
+          organizationId,
+          changedByUserId,
+        );
+        for (const r of ownerAdmins) {
+          const existing = recipientBuckets.get(r.id);
+          if (existing) {
+            existing.taskCount += unassignedTaskCount;
+          } else {
+            recipientBuckets.set(r.id, {
+              recipient: r,
+              taskCount: unassignedTaskCount,
+            });
+          }
+        }
+      }
+
+      const recipients = Array.from(recipientBuckets.values());
+      const statusLabel = newStatus.replace('_', ' ');
+
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        'https://app.trycomp.ai';
+      const tasksUrl = `${appUrl}/${organizationId}/tasks`;
+
+      this.logger.log(
+        `Sending bulk status change notifications to ${recipients.length} recipients for ${tasks.length} task(s)`,
+      );
+
+      // Send notifications to each recipient
+      await Promise.allSettled(
+        recipients.map(async ({ recipient, taskCount }) => {
+          const isUnsubscribed = await isUserUnsubscribed(
+            db,
+            recipient.email,
+            'taskAssignments',
+            organizationId,
+          );
+
+          if (isUnsubscribed) {
+            this.logger.log(
+              `Skipping notification: user ${recipient.email} is unsubscribed from task assignments`,
+            );
+            return;
+          }
+
+          // Send email notification
+          try {
+            const { id } = await triggerEmail({
+              to: recipient.email,
+              subject: `${taskCount} task${taskCount === 1 ? '' : 's'} status changed to ${statusLabel}`,
+              react: TaskBulkStatusChangedEmail({
+                toName: recipient.name,
+                toEmail: recipient.email,
+                taskCount,
+                newStatus: statusLabel,
+                changedByName,
+                organizationName,
+                tasksUrl,
+              }),
+              system: true,
+            });
+
+            this.logger.log(
+              `Bulk status change email sent to ${recipient.email} (ID: ${id})`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to send bulk status change email to ${recipient.email}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+
+          // Send in-app notification
+          try {
+            const title = `${taskCount} task${taskCount === 1 ? '' : 's'} status changed`;
+            const message = `${changedByName} changed the status of ${taskCount} task${taskCount === 1 ? '' : 's'} to ${statusLabel} in ${organizationName}`;
+
+            await this.novuService.trigger({
+              workflowId: BULK_TASK_WORKFLOW_ID,
+              subscriberId: `${recipient.id}-${organizationId}`,
+              email: recipient.email,
+              payload: {
+                title,
+                message,
+                url: tasksUrl,
+              },
+            });
+
+            this.logger.log(
+              `[NOVU] Bulk status change in-app notification sent to ${recipient.id}`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `[NOVU] Failed to send bulk status change in-app notification to ${recipient.id}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+        }),
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to send bulk status change notifications',
+        error as Error,
+      );
+    }
+  }
+
+  async notifyBulkAssigneeChange(params: {
+    organizationId: string;
+    taskIds: string[];
+    newAssigneeId: string | null;
+    changedByUserId: string;
+  }): Promise<void> {
+    const { organizationId, taskIds, newAssigneeId, changedByUserId } = params;
+
+    try {
+      const [organization, changedByUser, tasks, newAssigneeMember] =
+        await Promise.all([
+          db.organization.findUnique({
+            where: { id: organizationId },
+            select: { name: true },
+          }),
+          db.user.findUnique({
+            where: { id: changedByUserId },
+            select: { name: true, email: true },
+          }),
+          db.task.findMany({
+            where: {
+              id: { in: taskIds },
+              organizationId,
+            },
+            select: {
+              id: true,
+              title: true,
+            },
+          }),
+          newAssigneeId
+            ? db.member.findUnique({
+                where: { id: newAssigneeId },
+                select: {
+                  user: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true,
+                    },
+                  },
+                },
+              })
+            : Promise.resolve(null),
+        ]);
+
+      const organizationName = organization?.name ?? 'your organization';
+      const changedByName =
+        changedByUser?.name?.trim() ||
+        changedByUser?.email?.trim() ||
+        'Someone';
+      const newAssigneeName = newAssigneeMember?.user
+        ? newAssigneeMember.user.name?.trim() ||
+          newAssigneeMember.user.email?.trim() ||
+          'Unassigned'
+        : 'Unassigned';
+
+      // Notify only the new assignee (the person who was assigned the tasks), excluding the actor
+      const recipients: { id: string; name: string; email: string }[] = [];
+      if (newAssigneeMember?.user?.id && newAssigneeMember.user.email) {
+        const userId = newAssigneeMember.user.id;
+        if (userId !== changedByUserId) {
+          recipients.push({
+            id: userId,
+            name:
+              newAssigneeMember.user.name?.trim() ||
+              newAssigneeMember.user.email?.trim() ||
+              'User',
+            email: newAssigneeMember.user.email,
+          });
+        }
+      }
+      const taskCount = tasks.length;
+
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        'https://app.trycomp.ai';
+      const tasksUrl = `${appUrl}/${organizationId}/tasks`;
+
+      this.logger.log(
+        `Sending bulk assignee change notifications to ${recipients.length} recipients for ${taskCount} task(s)`,
+      );
+
+      // Send notifications to each recipient
+      await Promise.allSettled(
+        recipients.map(async (recipient) => {
+          const isUnsubscribed = await isUserUnsubscribed(
+            db,
+            recipient.email,
+            'taskAssignments',
+            organizationId,
+          );
+
+          if (isUnsubscribed) {
+            this.logger.log(
+              `Skipping notification: user ${recipient.email} is unsubscribed from task assignments`,
+            );
+            return;
+          }
+
+          // Send email notification
+          try {
+            const { id } = await triggerEmail({
+              to: recipient.email,
+              subject: `${taskCount} task${taskCount === 1 ? '' : 's'} reassigned to ${newAssigneeName}`,
+              react: TaskBulkAssigneeChangedEmail({
+                toName: recipient.name,
+                toEmail: recipient.email,
+                taskCount,
+                newAssigneeName,
+                changedByName,
+                organizationName,
+                tasksUrl,
+              }),
+              system: true,
+            });
+
+            this.logger.log(
+              `Bulk assignee change email sent to ${recipient.email} (ID: ${id})`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to send bulk assignee change email to ${recipient.email}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+
+          // Send in-app notification
+          try {
+            const title = `${taskCount} task${taskCount === 1 ? '' : 's'} reassigned`;
+            const message = `${changedByName} reassigned ${taskCount} task${taskCount === 1 ? '' : 's'} to ${newAssigneeName} in ${organizationName}`;
+
+            await this.novuService.trigger({
+              workflowId: BULK_TASK_WORKFLOW_ID,
+              subscriberId: `${recipient.id}-${organizationId}`,
+              email: recipient.email,
+              payload: {
+                title,
+                message,
+                url: tasksUrl,
+              },
+            });
+
+            this.logger.log(
+              `[NOVU] Bulk assignee change in-app notification sent to ${recipient.id}`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `[NOVU] Failed to send bulk assignee change in-app notification to ${recipient.id}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+        }),
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to send bulk assignee change notifications',
+        error as Error,
+      );
+    }
+  }
+
+  async notifyStatusChange(params: {
+    organizationId: string;
+    taskId: string;
+    taskTitle: string;
+    oldStatus: TaskStatus;
+    newStatus: TaskStatus;
+    changedByUserId?: string;
+  }): Promise<void> {
+    const {
+      organizationId,
+      taskId,
+      taskTitle,
+      oldStatus,
+      newStatus,
+      changedByUserId,
+    } = params;
+
+    try {
+      const [organization, changedByUser, task] = await Promise.all([
+        db.organization.findUnique({
+          where: { id: organizationId },
+          select: { name: true },
+        }),
+        changedByUserId
+          ? db.user.findUnique({
+              where: { id: changedByUserId },
+              select: { name: true, email: true },
+            })
+          : Promise.resolve(null),
+        db.task.findUnique({
+          where: { id: taskId },
+          select: {
+            assignee: {
+              select: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ]);
+
+      const organizationName = organization?.name ?? 'your organization';
+      const changedByName =
+        changedByUser?.name?.trim() ||
+        changedByUser?.email?.trim() ||
+        (changedByUserId ? 'Someone' : 'Automation');
+      const oldStatusLabel = oldStatus.replace('_', ' ');
+      const newStatusLabel = newStatus.replace('_', ' ');
+
+      // Recipients: the task's assignee (if any). If the task is unassigned,
+      // fall back to owners/admins so someone who can act on it is notified.
+      // The actor is always excluded.
+      const recipientMap = new Map<string, StatusRecipient>();
+      const assigneeUser = task?.assignee?.user;
+      if (assigneeUser?.id && assigneeUser.email) {
+        if (assigneeUser.id !== changedByUserId) {
+          recipientMap.set(assigneeUser.id, toStatusRecipient(assigneeUser));
+        }
+      } else {
+        const ownerAdmins = await this.getOwnerAdminRecipients(
+          organizationId,
+          changedByUserId,
+        );
+        for (const r of ownerAdmins) {
+          recipientMap.set(r.id, r);
+        }
+      }
+
+      const recipients = Array.from(recipientMap.values());
+
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        'https://app.trycomp.ai';
+      const taskUrl = `${appUrl}/${organizationId}/tasks/${taskId}`;
+
+      this.logger.log(
+        `Sending status change notifications to ${recipients.length} recipients for task "${taskTitle}"`,
+      );
+
+      // Send notifications to each recipient
+      await Promise.allSettled(
+        recipients.map(async (recipient) => {
+          const isUnsubscribed = await isUserUnsubscribed(
+            db,
+            recipient.email,
+            'taskAssignments',
+            organizationId,
+          );
+
+          if (isUnsubscribed) {
+            this.logger.log(
+              `Skipping notification: user ${recipient.email} is unsubscribed from task assignments`,
+            );
+            return;
+          }
+
+          // Send email notification
+          try {
+            const { id } = await triggerEmail({
+              to: recipient.email,
+              subject: `Task "${taskTitle}" status changed to ${newStatusLabel}`,
+              react: TaskStatusChangedEmail({
+                toName: recipient.name,
+                toEmail: recipient.email,
+                taskTitle,
+                oldStatus: oldStatusLabel,
+                newStatus: newStatusLabel,
+                changedByName,
+                organizationName,
+                taskUrl,
+              }),
+              system: true,
+            });
+
+            this.logger.log(
+              `Status change email sent to ${recipient.email} (ID: ${id})`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to send status change email to ${recipient.email}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+
+          // Send in-app notification
+          try {
+            const title = `Task status updated`;
+            const message = `${changedByName} changed the status of "${taskTitle}" from ${oldStatusLabel} to ${newStatusLabel} in ${organizationName}`;
+
+            await this.novuService.trigger({
+              workflowId: TASK_WORKFLOW_ID,
+              subscriberId: `${recipient.id}-${organizationId}`,
+              email: recipient.email,
+              payload: {
+                title,
+                message,
+                url: taskUrl,
+              },
+            });
+
+            this.logger.log(
+              `[NOVU] Status change in-app notification sent to ${recipient.id}`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `[NOVU] Failed to send status change in-app notification to ${recipient.id}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+        }),
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to send status change notifications',
+        error as Error,
+      );
+    }
+  }
+
+  async notifyAssigneeChange(params: {
+    organizationId: string;
+    taskId: string;
+    taskTitle: string;
+    oldAssigneeId: string | null;
+    newAssigneeId: string | null;
+    changedByUserId: string;
+  }): Promise<void> {
+    const {
+      organizationId,
+      taskId,
+      taskTitle,
+      oldAssigneeId,
+      newAssigneeId,
+      changedByUserId,
+    } = params;
+
+    try {
+      const [
+        organization,
+        changedByUser,
+        oldAssigneeMember,
+        newAssigneeMember,
+      ] = await Promise.all([
+        db.organization.findUnique({
+          where: { id: organizationId },
+          select: { name: true },
+        }),
+        db.user.findUnique({
+          where: { id: changedByUserId },
+          select: { name: true, email: true },
+        }),
+        oldAssigneeId
+          ? db.member.findUnique({
+              where: { id: oldAssigneeId },
+              select: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            })
+          : Promise.resolve(null),
+        newAssigneeId
+          ? db.member.findUnique({
+              where: { id: newAssigneeId },
+              select: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            })
+          : Promise.resolve(null),
+      ]);
+
+      const organizationName = organization?.name ?? 'your organization';
+      const changedByName =
+        changedByUser?.name?.trim() ||
+        changedByUser?.email?.trim() ||
+        'Someone';
+      const oldAssigneeName = oldAssigneeMember?.user
+        ? oldAssigneeMember.user.name?.trim() ||
+          oldAssigneeMember.user.email?.trim() ||
+          'Unassigned'
+        : 'Unassigned';
+      const newAssigneeName = newAssigneeMember?.user
+        ? newAssigneeMember.user.name?.trim() ||
+          newAssigneeMember.user.email?.trim() ||
+          'Unassigned'
+        : 'Unassigned';
+
+      // Notify only the new assignee (the person who was assigned to the task), excluding the actor
+      const recipients: { id: string; name: string; email: string }[] = [];
+      if (newAssigneeMember?.user?.id && newAssigneeMember.user.email) {
+        const userId = newAssigneeMember.user.id;
+        if (userId !== changedByUserId) {
+          recipients.push({
+            id: userId,
+            name:
+              newAssigneeMember.user.name?.trim() ||
+              newAssigneeMember.user.email?.trim() ||
+              'User',
+            email: newAssigneeMember.user.email,
+          });
+        }
+      }
+
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        'https://app.trycomp.ai';
+      const taskUrl = `${appUrl}/${organizationId}/tasks/${taskId}`;
+
+      this.logger.log(
+        `Sending assignee change notifications to ${recipients.length} recipients for task "${taskTitle}"`,
+      );
+
+      // Send notifications to each recipient
+      await Promise.allSettled(
+        recipients.map(async (recipient) => {
+          const isUnsubscribed = await isUserUnsubscribed(
+            db,
+            recipient.email,
+            'taskAssignments',
+            organizationId,
+          );
+
+          if (isUnsubscribed) {
+            this.logger.log(
+              `Skipping notification: user ${recipient.email} is unsubscribed from task assignments`,
+            );
+            return;
+          }
+
+          // Send email notification
+          try {
+            const { id } = await triggerEmail({
+              to: recipient.email,
+              subject: `Task "${taskTitle}" reassigned to ${newAssigneeName}`,
+              react: TaskAssigneeChangedEmail({
+                toName: recipient.name,
+                toEmail: recipient.email,
+                taskTitle,
+                oldAssigneeName,
+                newAssigneeName,
+                changedByName,
+                organizationName,
+                taskUrl,
+              }),
+              system: true,
+            });
+
+            this.logger.log(
+              `Assignee change email sent to ${recipient.email} (ID: ${id})`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to send assignee change email to ${recipient.email}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+
+          // Send in-app notification
+          try {
+            const title = `Task reassigned`;
+            const message = `${changedByName} reassigned "${taskTitle}" from ${oldAssigneeName} to ${newAssigneeName} in ${organizationName}`;
+
+            await this.novuService.trigger({
+              workflowId: TASK_WORKFLOW_ID,
+              subscriberId: `${recipient.id}-${organizationId}`,
+              email: recipient.email,
+              payload: {
+                title,
+                message,
+                url: taskUrl,
+              },
+            });
+
+            this.logger.log(
+              `[NOVU] Assignee change in-app notification sent to ${recipient.id}`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `[NOVU] Failed to send assignee change in-app notification to ${recipient.id}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+        }),
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to send assignee change notifications',
+        error as Error,
+      );
+    }
+  }
+
+  async notifyEvidenceReviewRequested(params: {
+    organizationId: string;
+    taskId: string;
+    taskTitle: string;
+    submittedByUserId: string;
+    approverMemberId: string;
+  }): Promise<void> {
+    const {
+      organizationId,
+      taskId,
+      taskTitle,
+      submittedByUserId,
+      approverMemberId,
+    } = params;
+
+    try {
+      const [organization, submittedByUser, approverMember] = await Promise.all(
+        [
+          db.organization.findUnique({
+            where: { id: organizationId },
+            select: { name: true },
+          }),
+          db.user.findUnique({
+            where: { id: submittedByUserId },
+            select: { name: true, email: true },
+          }),
+          db.member.findUnique({
+            where: { id: approverMemberId },
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          }),
+        ],
+      );
+
+      const organizationName = organization?.name ?? 'your organization';
+      const submittedByName =
+        submittedByUser?.name?.trim() ||
+        submittedByUser?.email?.trim() ||
+        'Someone';
+
+      if (!approverMember?.user?.id || !approverMember.user.email) {
+        this.logger.warn(
+          'Approver not found, skipping review request notification',
+        );
+        return;
+      }
+
+      if (approverMember.user.id === submittedByUserId) {
+        this.logger.log('Approver is the submitter, skipping notification');
+        return;
+      }
+
+      const recipient = {
+        id: approverMember.user.id,
+        name:
+          approverMember.user.name?.trim() ||
+          approverMember.user.email?.trim() ||
+          'User',
+        email: approverMember.user.email,
+      };
+
+      const isUnsubscribed = await isUserUnsubscribed(
+        db,
+        recipient.email,
+        'taskAssignments',
+      );
+
+      if (isUnsubscribed) {
+        this.logger.log(
+          `Skipping notification: user ${recipient.email} is unsubscribed from task assignments`,
+        );
+        return;
+      }
+
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        'https://app.trycomp.ai';
+      const taskUrl = `${appUrl}/${organizationId}/tasks/${taskId}`;
+
+      // Send email notification
+      try {
+        const { id } = await triggerEmail({
+          to: recipient.email,
+          subject: `Evidence review requested: "${taskTitle}"`,
+          react: EvidenceReviewRequestedEmail({
+            toName: recipient.name,
+            toEmail: recipient.email,
+            taskTitle,
+            submittedByName,
+            organizationName,
+            taskUrl,
+          }),
+          system: true,
+        });
+
+        this.logger.log(
+          `Evidence review request email sent to ${recipient.email} (ID: ${id})`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to send evidence review request email to ${recipient.email}:`,
+          error instanceof Error ? error.message : 'Unknown error',
+        );
+      }
+
+      // Send in-app notification
+      try {
+        const title = 'Evidence review requested';
+        const message = `${submittedByName} submitted evidence for "${taskTitle}" and requested your approval in ${organizationName}`;
+
+        await this.novuService.trigger({
+          workflowId: TASK_WORKFLOW_ID,
+          subscriberId: `${recipient.id}-${organizationId}`,
+          email: recipient.email,
+          payload: {
+            title,
+            message,
+            url: taskUrl,
+          },
+        });
+
+        this.logger.log(
+          `[NOVU] Evidence review request in-app notification sent to ${recipient.id}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `[NOVU] Failed to send evidence review request in-app notification to ${recipient.id}:`,
+          error instanceof Error ? error.message : 'Unknown error',
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        'Failed to send evidence review request notifications',
+        error as Error,
+      );
+    }
+  }
+
+  async notifyBulkEvidenceReviewRequested(params: {
+    organizationId: string;
+    taskIds: string[];
+    taskCount: number;
+    submittedByUserId: string;
+    approverMemberId: string;
+  }): Promise<void> {
+    const {
+      organizationId,
+      taskIds,
+      taskCount,
+      submittedByUserId,
+      approverMemberId,
+    } = params;
+
+    try {
+      const [organization, submittedByUser, approverMember, tasks] =
+        await Promise.all([
+          db.organization.findUnique({
+            where: { id: organizationId },
+            select: { name: true },
+          }),
+          db.user.findUnique({
+            where: { id: submittedByUserId },
+            select: { name: true, email: true },
+          }),
+          db.member.findUnique({
+            where: { id: approverMemberId },
+            select: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          }),
+          db.task.findMany({
+            where: {
+              id: { in: taskIds },
+              organizationId,
+            },
+            select: {
+              id: true,
+              title: true,
+            },
+          }),
+        ]);
+
+      const organizationName = organization?.name ?? 'your organization';
+      const submittedByName =
+        submittedByUser?.name?.trim() ||
+        submittedByUser?.email?.trim() ||
+        'Someone';
+
+      if (!approverMember?.user?.id || !approverMember.user.email) {
+        this.logger.warn(
+          'Approver not found, skipping bulk review notification',
+        );
+        return;
+      }
+
+      if (approverMember.user.id === submittedByUserId) {
+        this.logger.log('Approver is the submitter, skipping notification');
+        return;
+      }
+
+      const recipient = {
+        id: approverMember.user.id,
+        name:
+          approverMember.user.name?.trim() ||
+          approverMember.user.email?.trim() ||
+          'User',
+        email: approverMember.user.email,
+      };
+
+      const isUnsubscribed = await isUserUnsubscribed(
+        db,
+        recipient.email,
+        'taskAssignments',
+      );
+
+      if (isUnsubscribed) {
+        this.logger.log(
+          `Skipping notification: user ${recipient.email} is unsubscribed from task assignments`,
+        );
+        return;
+      }
+
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        'https://app.trycomp.ai';
+      const tasksUrl = `${appUrl}/${organizationId}/tasks`;
+      const taskText = taskCount === 1 ? 'task' : 'tasks';
+
+      const taskItems = tasks.map((task) => ({
+        title: task.title ?? 'Untitled task',
+        url: `${appUrl}/${organizationId}/tasks/${task.id}`,
+      }));
+
+      // Send email notification
+      try {
+        const { id } = await triggerEmail({
+          to: recipient.email,
+          subject: `${taskCount} ${taskText} submitted for your review`,
+          react: EvidenceBulkReviewRequestedEmail({
+            toName: recipient.name,
+            toEmail: recipient.email,
+            taskCount,
+            submittedByName,
+            organizationName,
+            tasksUrl,
+            tasks: taskItems,
+          }),
+          system: true,
+        });
+
+        this.logger.log(
+          `Bulk evidence review request email sent to ${recipient.email} (ID: ${id})`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to send bulk evidence review request email to ${recipient.email}:`,
+          error instanceof Error ? error.message : 'Unknown error',
+        );
+      }
+
+      // Send in-app notification
+      try {
+        const title = `${taskCount} ${taskText} submitted for review`;
+        const message = `${submittedByName} submitted ${taskCount} ${taskText} for your review in ${organizationName}`;
+
+        await this.novuService.trigger({
+          workflowId: BULK_TASK_WORKFLOW_ID,
+          subscriberId: `${recipient.id}-${organizationId}`,
+          email: recipient.email,
+          payload: {
+            title,
+            message,
+            url: tasksUrl,
+          },
+        });
+
+        this.logger.log(
+          `[NOVU] Bulk evidence review request in-app notification sent to ${recipient.id}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `[NOVU] Failed to send bulk evidence review request in-app notification to ${recipient.id}:`,
+          error instanceof Error ? error.message : 'Unknown error',
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        'Failed to send bulk evidence review request notifications',
+        error as Error,
+      );
+    }
+  }
+
+  async notifyAutomationFailures(params: {
+    organizationId: string;
+    taskId: string;
+    taskTitle: string;
+    failedCount: number;
+    totalCount: number;
+    taskStatusChanged: boolean;
+  }): Promise<void> {
+    const {
+      organizationId,
+      taskId,
+      taskTitle,
+      failedCount,
+      totalCount,
+      taskStatusChanged,
+    } = params;
+
+    try {
+      const organization = await db.organization.findUnique({
+        where: { id: organizationId },
+        select: { name: true, isInternal: true },
+      });
+      const participantWhere = orgParticipantMemberWhereForFlag(
+        organization?.isInternal ?? false,
+      );
+      const [task, allMembers] = await Promise.all([
+        db.task.findUnique({
+          where: { id: taskId },
+          select: {
+            assignee: {
+              select: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        }),
+        db.member.findMany({
+          where: {
+            organizationId,
+            deactivated: false,
+            ...participantWhere,
+          },
+          select: {
+            id: true,
+            role: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      // Filter for admins/owners (roles can be comma-separated, e.g., "admin,auditor")
+      const adminMembers = allMembers.filter(
+        (member) =>
+          member.role &&
+          (member.role.includes('admin') || member.role.includes('owner')),
+      );
+
+      this.logger.debug(
+        `[notifyAutomationFailures] Found ${allMembers.length} total members, ${adminMembers.length} admins/owners for organization ${organizationId}`,
+      );
+
+      const organizationName = organization?.name ?? 'your organization';
+      const changedByName = 'Automation';
+
+      // Build recipient list: assignee + admins
+      const recipientMap = new Map<
+        string,
+        { id: string; name: string; email: string }
+      >();
+
+      // Add assignee if exists
+      if (task?.assignee?.user?.id && task.assignee.user.email) {
+        const userId = task.assignee.user.id;
+        recipientMap.set(userId, {
+          id: userId,
+          name:
+            task.assignee.user.name?.trim() ||
+            task.assignee.user.email?.trim() ||
+            'User',
+          email: task.assignee.user.email,
+        });
+      }
+
+      // Add admin members
+      for (const member of adminMembers) {
+        if (member.user?.id && member.user.email) {
+          const userId = member.user.id;
+          recipientMap.set(userId, {
+            id: userId,
+            name:
+              member.user.name?.trim() || member.user.email?.trim() || 'User',
+            email: member.user.email,
+          });
+        }
+      }
+
+      const recipients = Array.from(recipientMap.values());
+
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        'https://app.trycomp.ai';
+      const taskUrl = `${appUrl}/${organizationId}/tasks/${taskId}`;
+
+      this.logger.log(
+        `Sending automation failure notifications to ${recipients.length} recipients for task "${taskTitle}"`,
+      );
+
+      // Send notifications to each recipient
+      await Promise.allSettled(
+        recipients.map(async (recipient) => {
+          const isUnsubscribed = await isUserUnsubscribed(
+            db,
+            recipient.email,
+            'taskAssignments',
+          );
+
+          if (isUnsubscribed) {
+            this.logger.log(
+              `Skipping notification: user ${recipient.email} is unsubscribed from task assignments`,
+            );
+            return;
+          }
+
+          // Send email notification
+          try {
+            const { id } = await triggerEmail({
+              to: recipient.email,
+              subject: `Automation failures on task "${taskTitle}"`,
+              react: AutomationFailuresEmail({
+                toName: recipient.name,
+                toEmail: recipient.email,
+                taskTitle,
+                failedCount,
+                totalCount,
+                taskStatusChanged,
+                organizationName,
+                taskUrl,
+              }),
+              system: true,
+            });
+
+            this.logger.log(
+              `Automation failure email sent to ${recipient.email} (ID: ${id})`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to send automation failure email to ${recipient.email}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+
+          // Send in-app notification
+          try {
+            const title = `Automation failures on task`;
+            const statusSuffix = taskStatusChanged
+              ? '. Task status has been changed to Failed.'
+              : '';
+            const message = `${failedCount} of ${totalCount} automation(s) failed on "${taskTitle}" in ${organizationName}${statusSuffix}`;
+
+            await this.novuService.trigger({
+              workflowId: TASK_WORKFLOW_ID,
+              subscriberId: `${recipient.id}-${organizationId}`,
+              email: recipient.email,
+              payload: {
+                title,
+                message,
+                url: taskUrl,
+              },
+            });
+
+            this.logger.log(
+              `[NOVU] Automation failure in-app notification sent to ${recipient.id}`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `[NOVU] Failed to send automation failure in-app notification to ${recipient.id}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+        }),
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to send automation failure notifications',
+        error as Error,
+      );
+    }
+  }
+
+  async notifyBulkAutomationFailures(params: {
+    organizationId: string;
+    tasks: Array<{
+      taskId: string;
+      taskTitle: string;
+      failedCount: number;
+      totalCount: number;
+    }>;
+  }): Promise<void> {
+    const { organizationId, tasks: failedTasks } = params;
+
+    if (failedTasks.length === 0) {
+      this.logger.log(
+        '[notifyBulkAutomationFailures] No failed tasks, skipping',
+      );
+      return;
+    }
+
+    try {
+      const taskIds = failedTasks.map((t) => t.taskId);
+      const organization = await db.organization.findUnique({
+        where: { id: organizationId },
+        select: { name: true, isInternal: true },
+      });
+      const participantWhere = orgParticipantMemberWhereForFlag(
+        organization?.isInternal ?? false,
+      );
+
+      const [tasks, allMembers] = await Promise.all([
+        db.task.findMany({
+          where: {
+            id: { in: taskIds },
+            organizationId,
+          },
+          select: {
+            id: true,
+            assignee: {
+              select: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        }),
+        db.member.findMany({
+          where: {
+            organizationId,
+            deactivated: false,
+            ...participantWhere,
+          },
+          select: {
+            id: true,
+            role: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      // Filter for admins/owners (roles can be comma-separated, e.g., "admin,auditor")
+      const adminMembers = allMembers.filter(
+        (member) =>
+          member.role &&
+          (member.role.includes('admin') || member.role.includes('owner')),
+      );
+
+      this.logger.debug(
+        `[notifyBulkAutomationFailures] Found ${allMembers.length} total members, ${adminMembers.length} admins/owners for organization ${organizationId}`,
+      );
+
+      const organizationName = organization?.name ?? 'your organization';
+
+      // Build recipient list: union of all failed-task assignees + admins/owners (no actor to exclude)
+      const recipientMap = new Map<
+        string,
+        { id: string; name: string; email: string }
+      >();
+
+      // Add assignees from affected tasks
+      for (const task of tasks) {
+        if (task.assignee?.user?.id && task.assignee.user.email) {
+          const userId = task.assignee.user.id;
+          recipientMap.set(userId, {
+            id: userId,
+            name:
+              task.assignee.user.name?.trim() ||
+              task.assignee.user.email?.trim() ||
+              'User',
+            email: task.assignee.user.email,
+          });
+        }
+      }
+
+      // Add admin members
+      for (const member of adminMembers) {
+        if (member.user?.id && member.user.email) {
+          const userId = member.user.id;
+          recipientMap.set(userId, {
+            id: userId,
+            name:
+              member.user.name?.trim() || member.user.email?.trim() || 'User',
+            email: member.user.email,
+          });
+        }
+      }
+
+      const recipients = Array.from(recipientMap.values());
+      const taskCount = failedTasks.length;
+      const taskText = taskCount === 1 ? 'task' : 'tasks';
+
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        'https://app.trycomp.ai';
+      const tasksUrl = `${appUrl}/${organizationId}/tasks`;
+
+      // Build task items for the email template
+      const taskItems = failedTasks.map((ft) => ({
+        title: ft.taskTitle,
+        url: `${appUrl}/${organizationId}/tasks/${ft.taskId}`,
+        failedCount: ft.failedCount,
+        totalCount: ft.totalCount,
+      }));
+
+      this.logger.log(
+        `Sending bulk automation failure notifications to ${recipients.length} recipients for ${taskCount} ${taskText}`,
+      );
+
+      // Send notifications to each recipient
+      await Promise.allSettled(
+        recipients.map(async (recipient) => {
+          const isUnsubscribed = await isUserUnsubscribed(
+            db,
+            recipient.email,
+            'taskAssignments',
+          );
+
+          if (isUnsubscribed) {
+            this.logger.log(
+              `Skipping notification: user ${recipient.email} is unsubscribed from task assignments`,
+            );
+            return;
+          }
+
+          // Send email notification
+          try {
+            const { id } = await triggerEmail({
+              to: recipient.email,
+              subject: `${taskCount} ${taskText} with automation failures`,
+              react: AutomationBulkFailuresEmail({
+                toName: recipient.name,
+                toEmail: recipient.email,
+                organizationName,
+                tasksUrl,
+                tasks: taskItems,
+              }),
+              system: true,
+            });
+
+            this.logger.log(
+              `Bulk automation failure email sent to ${recipient.email} (ID: ${id})`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to send bulk automation failure email to ${recipient.email}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+
+          // Send in-app notification
+          try {
+            const title = `${taskCount} ${taskText} with automation failures`;
+            const message = `Today's scheduled automations found failures in ${taskCount} ${taskText} in ${organizationName}`;
+
+            await this.novuService.trigger({
+              workflowId: BULK_TASK_WORKFLOW_ID,
+              subscriberId: `${recipient.id}-${organizationId}`,
+              email: recipient.email,
+              payload: {
+                title,
+                message,
+                url: tasksUrl,
+              },
+            });
+
+            this.logger.log(
+              `[NOVU] Bulk automation failure in-app notification sent to ${recipient.id}`,
+            );
+          } catch (error) {
+            this.logger.error(
+              `[NOVU] Failed to send bulk automation failure in-app notification to ${recipient.id}:`,
+              error instanceof Error ? error.message : 'Unknown error',
+            );
+          }
+        }),
+      );
+    } catch (error) {
+      this.logger.error(
+        'Failed to send bulk automation failure notifications',
+        error as Error,
+      );
+    }
+  }
+}

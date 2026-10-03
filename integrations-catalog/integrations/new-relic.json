@@ -1,0 +1,58 @@
+{
+  "slug": "new-relic",
+  "name": "New Relic",
+  "description": "Monitor New Relic alert policies, APM applications, and notification channels for observability compliance",
+  "category": "Monitoring",
+  "docsUrl": "https://docs.newrelic.com/docs/apis/rest-api-v2/",
+  "baseUrl": "https://api.newrelic.com/",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Sign in to New Relic (one.newrelic.com, or one.eu.newrelic.com for EU accounts).\n2. Open the user menu (bottom left) > API keys.\n3. Click 'Create a key', choose key type 'User', name it (e.g. 'Comp AI'), and create it.\n4. Copy the key (it starts with NRAK-) and paste it below.\n5. Set Region to EU if you sign in at one.eu.newrelic.com; otherwise leave it as US. The wrong region causes authentication failures.",
+      "credentialFields": [
+        {
+          "label": "API Key",
+          "type": "password",
+          "required": true,
+          "helpText": "Create a User API Key under your New Relic profile > API keys"
+        },
+        {
+          "label": "Data center region",
+          "type": "select",
+          "required": false,
+          "helpText": "Select EU if your New Relic account is hosted in the EU (you sign in at one.eu.newrelic.com); otherwise select US. Choosing the wrong region causes authentication (HTTP 403) errors."
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "alert_policies",
+      "name": "Monitoring & Alerting",
+      "description": "Verifies that New Relic alert policies are configured",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "applications_monitored",
+      "name": "Utility Monitoring",
+      "description": "Verifies that applications are instrumented in New Relic APM",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "alert_channels",
+      "name": "Incident Response",
+      "description": "Verify New Relic has notification destinations configured (email, Slack, PagerDuty, etc.) via NerdGraph so alert workflows can deliver incidents.",
+      "defaultSeverity": "high",
+      "enabled": true
+    }
+  ],
+  "checkCount": 3,
+  "isActive": true
+}

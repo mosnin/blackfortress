@@ -1,0 +1,448 @@
+'use client';
+
+import { ConnectIntegrationDialog } from '@/components/integrations/ConnectIntegrationDialog';
+import { useApi } from '@/hooks/use-api';
+import { useIntegrationMutations } from '@/hooks/use-integration-platform';
+import { usePermissions } from '@/hooks/use-permissions';
+import { ManageIntegrationDialog } from '@/components/integrations/ManageIntegrationDialog';
+import { CLOUD_RECONNECT_CUTOFF_LABEL, requiresCloudReconnect } from '@/lib/cloud-reconnect-policy';
+import { Button, PageHeader, PageHeaderDescription, PageLayout } from '@trycompai/design-system';
+import { Add, Settings } from '@trycompai/design-system/icons';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useCallback, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { mutate as globalMutate } from 'swr';
+import { isCloudProviderSlug } from '../constants';
+import type { Finding, Provider } from '../types';
+import { CloudSettingsModal } from './CloudSettingsModal';
+import { EmptyState } from './EmptyState';
+import { ProviderTabs } from './ProviderTabs';
+
+const PROVIDER_LOGO: Record<string, string> = {
+  aws: 'https://img.logo.dev/aws.amazon.com?token=pk_AZatYxV5QDSfWpRDaBxzRQ',
+  gcp: 'https://img.logo.dev/cloud.google.com?token=pk_AZatYxV5QDSfWpRDaBxzRQ',
+  azure: 'https://img.logo.dev/azure.microsoft.com?token=pk_AZatYxV5QDSfWpRDaBxzRQ',
+};
+
+const PROVIDER_NAME: Record<string, string> = {
+  aws: 'Amazon Web Services',
+  gcp: 'Google Cloud Platform',
+  azure: 'Microsoft Azure',
+};
+
+interface TestsLayoutProps {
+  initialFindings: Finding[];
+  initialProviders: Provider[];
+  orgId: string;
+}
+
+// Check if a provider needs configuration (has required variables that aren't set)
+const needsVariableConfiguration = (provider: Provider): boolean => {
+  // Legacy providers use old system - no variable config needed here
+  if (provider.isLegacy) return false;
+
+  const requiredVars = provider.requiredVariables || [];
+  if (requiredVars.length === 0) return false;
+
+  const currentVars = provider.variables || {};
+  return requiredVars.some((varId) => !currentVars[varId]);
+};
+
+export function TestsLayout({ initialFindings, initialProviders, orgId }: TestsLayoutProps) {
+  const { hasPermission } = usePermissions();
+  const canRunScan = hasPermission('integration', 'update');
+  const canCreateIntegration = hasPermission('integration', 'create');
+  const api = useApi();
+  const { deleteConnection } = useIntegrationMutations();
+  const [showSettings, setShowSettings] = useState(false);
+  const [viewingResults, setViewingResults] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [activeProviderTab, setActiveProviderTabState] = useState<string | null>(
+    searchParams.get('provider'),
+  );
+  const setActiveProviderTab = useCallback((tab: string | null) => {
+    setActiveProviderTabState(tab);
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab) {
+      params.set('provider', tab);
+    } else {
+      params.delete('provider');
+    }
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [searchParams, router]);
+  const [activeConnectionTabs, setActiveConnectionTabs] = useState<Record<string, string>>({});
+  const [addConnectionProvider, setAddConnectionProvider] = useState<string | null>(null);
+  const [configureDialogOpen, setConfigureDialogOpen] = useState(false);
+  const [configureProvider, setConfigureProvider] = useState<Provider | null>(null);
+  const [manageProviderType, setManageProviderType] = useState<string | null>(null);
+  const [manageDialogOpen, setManageDialogOpen] = useState(false);
+
+  const findingsResponse = api.useSWR<{ data: Finding[]; count: number }>(
+    '/v1/cloud-security/findings',
+    {
+      fallbackData: { data: { data: initialFindings, count: initialFindings.length }, status: 200 },
+      revalidateOnFocus: true,
+    },
+  );
+  const findings = Array.isArray(findingsResponse.data?.data?.data)
+    ? findingsResponse.data.data.data
+    : initialFindings;
+  const mutateFindings = findingsResponse.mutate;
+
+  const providersResponse = api.useSWR<{ data: Provider[]; count: number }>(
+    '/v1/cloud-security/providers',
+    {
+      fallbackData: { data: { data: initialProviders, count: initialProviders.length }, status: 200 },
+      revalidateOnFocus: true,
+    },
+  );
+  const providers = Array.isArray(providersResponse.data?.data?.data)
+    ? providersResponse.data.data.data
+    : initialProviders;
+  const mutateProviders = providersResponse.mutate;
+  const isProvidersValidating = providersResponse.isValidating;
+
+  const connectedProviders = providers;
+  const reconnectRequiredCount = useMemo(
+    () =>
+      connectedProviders.filter((provider) =>
+        requiresCloudReconnect({
+          providerId: provider.integrationId,
+          createdAt: provider.createdAt,
+          reconnectedAt: provider.reconnectedAt,
+          isLegacy: provider.isLegacy,
+          status: provider.status,
+        }),
+      ).length,
+    [connectedProviders],
+  );
+
+  // Group connections by provider type (aws, gcp, azure)
+  const providerGroups = useMemo(() => {
+    const groups: Record<string, Provider[]> = {};
+    for (const provider of connectedProviders) {
+      const slug = provider.integrationId;
+      if (!groups[slug]) {
+        groups[slug] = [];
+      }
+      groups[slug].push(provider);
+    }
+    return groups;
+  }, [connectedProviders]);
+
+  // Get unique provider types that have connections
+  const activeProviderTypes = useMemo(
+    () => Object.keys(providerGroups).sort((a, b) => a.localeCompare(b)),
+    [providerGroups],
+  );
+
+  // Current active provider type tab
+  const currentProviderType = activeProviderTab || activeProviderTypes[0] || 'aws';
+
+  // Get connections for the current provider type
+  const currentProviderConnections = providerGroups[currentProviderType] || [];
+
+  // Get current connection tab for the active provider type
+  const currentConnectionId =
+    activeConnectionTabs[currentProviderType] || currentProviderConnections[0]?.id;
+
+  const handleRunScan = async (connectionId?: string): Promise<string | null> => {
+    if (!orgId) {
+      toast.error('No active organization');
+      return null;
+    }
+
+    // Use the passed connectionId, or fall back to the current active connection
+    const targetConnectionId = connectionId || currentConnectionId;
+    const targetProvider = connectedProviders.find((p) => p.id === targetConnectionId);
+
+    if (!targetProvider) {
+      toast.error('No provider selected');
+      return null;
+    }
+
+    setIsScanning(true);
+    const startTime = Date.now();
+    toast.message(`Starting ${targetProvider.displayName || targetProvider.name} security scan...`);
+
+    try {
+      if (targetProvider.isLegacy) {
+        // Run legacy scan via API route (triggers Trigger.dev task)
+        const res = await fetch('/api/cloud-tests/legacy-scan', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ integrationId: targetProvider.id }),
+        });
+        const result = await res.json();
+
+        if (!result.success) {
+          console.error('Legacy scan error:', result.errors);
+          toast.error(`Scan failed: ${result.errors?.join(', ') || 'Unknown error'}`);
+          return null;
+        }
+      } else {
+        // Use dedicated cloud security endpoint
+        const response = await api.post(`/v1/cloud-security/scan/${targetProvider.id}`, {});
+        if (response.error) {
+          console.error(`Error scanning ${targetProvider.name}:`, response.error, 'Status:', response.status);
+          toast.error(`Failed to scan ${targetProvider.name}: ${response.error}`);
+          return null;
+        }
+      }
+
+      // Refresh data to get updated results (SWR cache + server cache already revalidated)
+      await Promise.all([mutateProviders(), mutateFindings()]);
+
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      toast.success(`Scan completed in ${elapsed}s! Results updated.`);
+      return 'completed';
+    } catch (error) {
+      console.error('Scan error:', error);
+      toast.error(`Failed to complete scan: ${error instanceof Error ? error.message : 'Please try again.'}`);
+      return null;
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const handleProvidersUpdate = () => {
+    mutateProviders();
+    mutateFindings();
+    setViewingResults(true);
+  };
+
+  const handleCloudConnected = async () => {
+    await mutateProviders();
+    await mutateFindings();
+    setViewingResults(true);
+  };
+
+  const handleReconnect = async (providerType: string) => {
+    const providerName = PROVIDER_NAME[providerType] || providerType.toUpperCase();
+    if (
+      !confirm(
+        `This will disconnect all your ${providerName} connections and redirect you to set up a fresh connection. Continue?`,
+      )
+    ) {
+      return;
+    }
+
+    setIsReconnecting(true);
+    try {
+      const connections = providerGroups[providerType] || [];
+      await Promise.all(
+        connections.map((connection) =>
+          connection.isLegacy
+            ? api.delete(`/v1/cloud-security/legacy/${connection.id}`)
+            : deleteConnection(connection.id),
+        ),
+      );
+      await Promise.all([mutateProviders(), mutateFindings()]);
+      // Clear integration connections cache so the target page doesn't flash stale data
+      await globalMutate(['integration-connections', orgId]);
+      router.push(`/${orgId}/integrations/${providerType}`);
+    } catch {
+      toast.error('Failed to disconnect connections. Please try again.');
+    } finally {
+      setIsReconnecting(false);
+    }
+  };
+
+  if (connectedProviders.length === 0 || !viewingResults) {
+    return (
+      <EmptyState
+        onBack={
+          connectedProviders.length > 0
+            ? () => {
+                setViewingResults(true);
+                setAddConnectionProvider(null);
+              }
+            : undefined
+        }
+        connectedProviders={connectedProviders.map((p) => p.integrationId)}
+        onConnected={handleCloudConnected}
+        initialProvider={
+          addConnectionProvider && isCloudProviderSlug(addConnectionProvider)
+            ? addConnectionProvider
+            : undefined
+        }
+      />
+    );
+  }
+
+  const findingsByProvider = findings.reduce<Record<string, Finding[]>>((acc, finding) => {
+    const bucket = acc[finding.connectionId] ?? [];
+    bucket.push(finding);
+    acc[finding.connectionId] = bucket;
+    return acc;
+  }, {});
+
+  // Count total connections across all providers
+  const totalConnections = connectedProviders.length;
+  const totalProviderTypes = activeProviderTypes.length;
+
+  const multiProviderDescription = connectedProviders.some((p) => p.lastRunAt)
+    ? `${totalConnections} connection${totalConnections !== 1 ? 's' : ''} across ${totalProviderTypes} cloud provider${totalProviderTypes !== 1 ? 's' : ''} • Automated scans run daily at 5:00 AM UTC`
+    : `${totalConnections} connection${totalConnections !== 1 ? 's' : ''} across ${totalProviderTypes} cloud provider${totalProviderTypes !== 1 ? 's' : ''}`;
+
+  return (
+    <PageLayout>
+      <PageHeader
+        title="Cloud Security Tests"
+        actions={
+          <>
+            {canCreateIntegration && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setAddConnectionProvider(null);
+                  setViewingResults(false);
+                }}
+              >
+                <Add />
+                Add Cloud
+              </Button>
+            )}
+            {canRunScan && (
+              <Button variant="outline" size="icon" onClick={() => setShowSettings(true)}>
+                <Settings />
+              </Button>
+            )}
+          </>
+        }
+      >
+        <PageHeaderDescription>{multiProviderDescription}</PageHeaderDescription>
+      </PageHeader>
+
+      {reconnectRequiredCount > 0 && (
+        <div className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+          <p className="text-sm font-medium text-foreground">
+            Reconnect required for {reconnectRequiredCount} cloud connection{reconnectRequiredCount === 1 ? '' : 's'}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Connections created before {CLOUD_RECONNECT_CUTOFF_LABEL} should be re-added to keep scans and remediation fully reliable.
+          </p>
+        </div>
+      )}
+
+      <ProviderTabs
+        providerGroups={providerGroups}
+        providerTypes={activeProviderTypes}
+        activeProviderType={currentProviderType}
+        activeConnectionTabs={activeConnectionTabs}
+        findingsByProvider={findingsByProvider}
+        isScanning={isScanning}
+        onProviderTypeChange={setActiveProviderTab}
+        onConnectionTabChange={(providerType, connectionId) =>
+          setActiveConnectionTabs((prev) => ({ ...prev, [providerType]: connectionId }))
+        }
+        onRunScan={handleRunScan}
+        onAddConnection={(providerType) => {
+          if (isProvidersValidating) {
+            toast.message('Loading connections, please try again in a moment.');
+            return;
+          }
+          const existingConnections = providerGroups[providerType] || [];
+          const supportsMulti = existingConnections.some((connection) =>
+            Boolean(connection.supportsMultipleConnections),
+          );
+          if (supportsMulti && existingConnections.length > 0) {
+            setManageProviderType(providerType);
+            setManageDialogOpen(true);
+            return;
+          }
+          setAddConnectionProvider(providerType);
+          setViewingResults(false);
+        }}
+        onConfigure={(provider) => {
+          setConfigureProvider(provider);
+          setConfigureDialogOpen(true);
+        }}
+        needsConfiguration={needsVariableConfiguration}
+        requiresReconnect={(provider) =>
+          requiresCloudReconnect({
+            providerId: provider.integrationId,
+            createdAt: provider.createdAt,
+            reconnectedAt: provider.reconnectedAt,
+            isLegacy: provider.isLegacy,
+            status: provider.status,
+          })
+        }
+        canRunScan={canRunScan}
+        canAddConnection={canCreateIntegration}
+        isReconnecting={isReconnecting}
+        onReconnect={handleReconnect}
+        orgId={orgId}
+      />
+
+      {/* CloudSettingsModal for single-connection providers AND legacy connections */}
+      {/* Legacy connections need this modal for disconnect since ConnectIntegrationDialog can't see them */}
+      <CloudSettingsModal
+        open={showSettings}
+        onOpenChange={setShowSettings}
+        connectedProviders={connectedProviders
+          .map((p) => ({
+            id: p.integrationId,
+            connectionId: p.id,
+            name: p.displayName || p.name,
+            status: p.status,
+            accountId: p.accountId,
+            regions: p.regions,
+            isLegacy: p.isLegacy,
+          }))}
+        onUpdate={handleProvidersUpdate}
+      />
+
+      {manageProviderType && (
+        <ConnectIntegrationDialog
+          open={manageDialogOpen}
+          onOpenChange={(open) => {
+            setManageDialogOpen(open);
+            // Refresh data when dialog closes to pick up any changes
+            if (!open) {
+              handleProvidersUpdate();
+            }
+          }}
+          integrationId={manageProviderType}
+          integrationName={PROVIDER_NAME[manageProviderType] || manageProviderType.toUpperCase()}
+          integrationLogoUrl={PROVIDER_LOGO[manageProviderType] || PROVIDER_LOGO.aws}
+          onConnected={handleProvidersUpdate}
+        />
+      )}
+
+      {/* Configure dialog for setting variables */}
+      {configureProvider && (
+        <ManageIntegrationDialog
+          open={configureDialogOpen}
+          onOpenChange={setConfigureDialogOpen}
+          connectionId={configureProvider.id}
+          integrationId={configureProvider.integrationId}
+          integrationName={configureProvider.name}
+          integrationLogoUrl={`https://img.logo.dev/${
+            configureProvider.integrationId === 'aws'
+              ? 'aws.amazon.com'
+              : configureProvider.integrationId === 'gcp'
+                ? 'cloud.google.com'
+                : 'azure.com'
+          }?token=pk_AZatYxV5QDSfWpRDaBxzRQ`}
+          configureOnly={true}
+          onSaved={async () => {
+            const savedProvider = configureProvider;
+            setConfigureDialogOpen(false);
+            setConfigureProvider(null);
+            await mutateProviders();
+            // Run scan after saving variables for this specific connection
+            if (savedProvider) {
+              toast.message('Configuration saved! Running security scan...');
+              await handleRunScan(savedProvider.id);
+            }
+          }}
+        />
+      )}
+    </PageLayout>
+  );
+}

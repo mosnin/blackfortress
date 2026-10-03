@@ -1,0 +1,199 @@
+import { auth } from '@/app/lib/auth';
+import { getFleetInstance } from '@/utils/fleet';
+import type { FleetPolicyResult, Member } from '@db';
+import { db } from '@db/server';
+import { PageHeader, PageLayout } from '@trycompai/design-system';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { hasPortalAccess } from '@/utils/portal-access';
+import { NoAccessMessage } from '../components/NoAccessMessage';
+import { OrganizationDashboard } from './components/OrganizationDashboard';
+import type { FleetPolicy, Host } from './types';
+
+const MDM_POLICY_ID = -9999;
+
+export default async function OrganizationPage({ params }: { params: Promise<{ orgId: string }> }) {
+  const { orgId } = await params;
+
+  // Auth check with error handling
+  const session = await auth.api
+    .getSession({
+      headers: await headers(),
+    })
+    .catch((error) => {
+      console.error('Error getting session:', error);
+      redirect('/');
+    });
+
+  if (!session?.user) {
+    redirect('/auth');
+  }
+
+  // Fetch member with error handling
+  let member;
+
+  try {
+    member = await db.member.findFirst({
+      where: {
+        userId: session.user.id,
+        organizationId: orgId,
+        deactivated: false,
+      },
+      include: {
+        user: true,
+        organization: true,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching member:', error);
+    redirect('/');
+  }
+
+  if (!member) {
+    redirect('/');
+  }
+
+  const canAccessPortal = await hasPortalAccess({
+    roleString: member.role,
+    organizationId: orgId,
+  });
+  if (!canAccessPortal) {
+    return (
+      <PageLayout>
+        <PageHeader title="Comp AI - Employee Portal" />
+        <NoAccessMessage message="Your role does not include employee portal access. Ask your administrator to add the employee role to your account." />
+      </PageLayout>
+    );
+  }
+
+  // Fleet policies - only fetch if member has a fleet device label
+  const fleetData = await getFleetPolicies(member);
+
+  // Device agent devices - fetch all for this member
+  const agentDevices = await db.device.findMany({
+    where: {
+      memberId: member.id,
+      organizationId: orgId,
+    },
+    orderBy: { lastCheckIn: { sort: 'desc', nulls: 'last' } },
+  });
+
+  return (
+    <PageLayout>
+      <PageHeader title="Comp AI - Employee Portal" />
+      <OrganizationDashboard
+        key={orgId}
+        organizationId={orgId}
+        member={member}
+        fleetPolicies={fleetData.fleetPolicies}
+        host={fleetData.device}
+        agentDevices={agentDevices}
+      />
+    </PageLayout>
+  );
+}
+
+const getFleetPolicies = async (
+  member: Member,
+): Promise<{ fleetPolicies: FleetPolicy[]; device: Host | null }> => {
+  const deviceLabelId = member.fleetDmLabelId;
+
+  // Return early if no deviceLabelId or FleetDM not configured
+  if (!deviceLabelId || !process.env.FLEET_URL || !process.env.FLEET_TOKEN) {
+    return { fleetPolicies: [], device: null };
+  }
+
+  try {
+    const fleet = await getFleetInstance();
+
+    const deviceResponse = await fleet.get(`/labels/${deviceLabelId}/hosts`);
+    const device: Host | undefined = deviceResponse.data.hosts[0];
+
+    if (!device) {
+      return { fleetPolicies: [], device: null };
+    }
+
+    const platform = device.platform?.toLowerCase();
+    const osVersion = device.os_version?.toLowerCase();
+    const isMacOS =
+      platform === 'darwin' ||
+      platform === 'macos' ||
+      platform === 'osx' ||
+      osVersion?.includes('mac');
+    const mdmEnabledStatus = {
+      id: MDM_POLICY_ID,
+      response: device.mdm.connected_to_fleet ? 'pass' : 'fail',
+      name: 'MDM Enabled',
+    };
+    const deviceWithPolicies = await fleet.get(`/hosts/${device.id}`);
+    const fleetPolicies: FleetPolicy[] = [
+      ...(deviceWithPolicies.data.host.policies || []),
+      ...(isMacOS ? [mdmEnabledStatus] : []),
+    ];
+
+    // Get Policy Results from the database.
+    const fleetPolicyResults = await getFleetPolicyResults(member.organizationId);
+    return {
+      device,
+      fleetPolicies: fleetPolicies.map((policy) => {
+        const policyResult = fleetPolicyResults.find(
+          (result) => result.fleetPolicyId === policy.id,
+        );
+        return {
+          ...policy,
+          response:
+            policy.response === 'pass' || policyResult?.fleetPolicyResponse === 'pass'
+              ? 'pass'
+              : 'fail',
+          attachments: policyResult?.attachments || [],
+        };
+      }),
+    };
+  } catch (error: unknown) {
+    const statusCode =
+      error && typeof error === 'object' && 'response' in error
+        ? (error as { response?: { status?: number } }).response?.status
+        : undefined;
+
+    if (statusCode === 404) {
+      console.log(`Fleet endpoint not found for label ID: ${member.fleetDmLabelId}`);
+    } else {
+      console.error(
+        'Error fetching fleet policies:',
+        error instanceof Error ? error.message : error,
+      );
+    }
+    return { fleetPolicies: [], device: null };
+  }
+};
+
+const getFleetPolicyResults = async (organizationId: string): Promise<FleetPolicyResult[]> => {
+  try {
+    const portalBase = process.env.NEXT_PUBLIC_BETTER_AUTH_URL?.replace(/\/$/, '');
+    const url = `${portalBase}/api/fleet-policy?organizationId=${organizationId}`;
+
+    // Convert ReadonlyHeaders to a plain object for fetch
+    const headersList = await headers();
+    const headersObject: Record<string, string> = {};
+    headersList.forEach((value, key) => {
+      headersObject[key] = value;
+    });
+
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: headersObject,
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      console.error('Failed to fetch fleet policy results', res.status, await res.text());
+      return [];
+    }
+
+    const json = (await res.json()) as { success?: boolean; data?: FleetPolicyResult[] };
+    return json.data ?? [];
+  } catch (error) {
+    console.error('Error fetching fleet policy results', error);
+    return [];
+  }
+};

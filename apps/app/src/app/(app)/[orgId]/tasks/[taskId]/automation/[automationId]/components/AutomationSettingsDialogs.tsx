@@ -1,0 +1,214 @@
+'use client';
+
+import { Button } from '@trycompai/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@trycompai/ui/dialog';
+import { Input } from '@trycompai/ui/input';
+import { Label } from '@trycompai/ui/label';
+import { Textarea } from '@trycompai/ui/textarea';
+import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { useTaskAutomation } from '../hooks/use-task-automation';
+
+interface EditNameDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
+}
+
+interface EditDescriptionDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
+}
+
+interface DeleteDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
+}
+
+export function EditNameDialog({ open, onOpenChange, onSuccess }: EditNameDialogProps) {
+  const { automation, updateAutomation } = useTaskAutomation();
+
+  const [name, setName] = useState(automation?.name || '');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Update local state when automation data changes
+  useEffect(() => {
+    setName(automation?.name || '');
+  }, [automation?.name]);
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      toast.error('Name cannot be empty');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await updateAutomation({ name: name.trim() });
+      await onSuccess?.();
+      onOpenChange(false);
+      toast.success('Automation name updated');
+    } catch {
+      toast.error('Failed to update name');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Automation Name</DialogTitle>
+          <DialogDescription>
+            Update the name for this automation. This will help you identify it later.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="automation-name">Automation Name</Label>
+            <Input
+              id="automation-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter automation name"
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={isSaving || !name.trim()}>
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function EditDescriptionDialog({
+  open,
+  onOpenChange,
+  onSuccess,
+}: EditDescriptionDialogProps) {
+  const { automation, updateAutomation } = useTaskAutomation();
+  const [description, setDescription] = useState(automation?.description || '');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Update local state when automation data changes
+  useEffect(() => {
+    setDescription(automation?.description || '');
+  }, [automation?.description]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await updateAutomation({ description: description.trim() });
+      await onSuccess?.();
+      onOpenChange(false);
+      toast.success('Automation description updated');
+    } catch {
+      toast.error('Failed to update description');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Automation Description</DialogTitle>
+          <DialogDescription>
+            Add or update the description for this automation to help others understand its purpose.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="automation-description">Description</Label>
+            <Textarea
+              id="automation-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe what this automation does..."
+              rows={4}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function DeleteAutomationDialog({ open, onOpenChange, onSuccess }: DeleteDialogProps) {
+  const { automation, deleteAutomation } = useTaskAutomation();
+  const { orgId, taskId } = useParams<{
+    orgId: string;
+    taskId: string;
+    automationId: string;
+  }>();
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await deleteAutomation();
+      onOpenChange(false);
+      toast.success('Automation deleted');
+
+      // Redirect back to task page after successful deletion
+      window.location.href = `/${orgId}/tasks/${taskId}`;
+    } catch {
+      toast.error('Failed to delete automation');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete Automation</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete "{automation?.name}"? This action cannot be undone and
+            will permanently remove the automation and all its data.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+            {isDeleting ? 'Deleting...' : 'Delete Automation'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

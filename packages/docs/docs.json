@@ -1,0 +1,189 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Comp AI - Documentation",
+  "colors": {
+    "primary": "#0E0E10",
+    "light": "#E6E6E6",
+    "dark": "#0E0E10"
+  },
+  "favicon": "/favicon.ico",
+  "redirects": [
+    {
+      "source": "/api",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/docs/api",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/security-questionnaire-trust-center",
+      "destination": "/security-questionnaire"
+    },
+    {
+      "source": "/api-reference/questionnaire/upload-and-auto-answer-a-questionnaire-via-trust-portal-token",
+      "destination": "/api-reference/questionnaire/upload-a-questionnaire-file-and-auto-answer-with-export"
+    },
+    {
+      "source": "/api-reference/background-checks/:slug*",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/api-reference/billing/:slug*",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/api-reference/browserbase/:slug*",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/api-reference/finding-templates/:slug*",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/api-reference/framework-editor/:slug*",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/api-reference/health/:slug*",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/api-reference/pentest-credits/:slug*",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/api-reference/secrets/:slug*",
+      "destination": "/api-reference/overview"
+    }
+  ],
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "ai-policy-editor",
+              "automated-evidence",
+              "browser-automations",
+              "device-agent",
+              "security-questionnaire",
+              "security-questionnaire-extension",
+              "penetration-tests",
+              "mcp-server",
+              {
+                "group": "Trust",
+                "pages": ["trust-access"]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Cloud Tests",
+        "groups": [
+          {
+            "group": "Cloud Test Guides",
+            "pages": [
+              "cloud-tests/index",
+              "cloud-tests/aws",
+              "cloud-tests/azure",
+              "cloud-tests/gcp"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Platform Overview",
+            "pages": ["integrations/index"]
+          },
+          {
+            "group": "Integration Guides",
+            "pages": ["integrations/aikido"]
+          },
+          {
+            "group": "Developer Guides",
+            "pages": [
+              "integrations/writing-integrations",
+              "integrations/authentication",
+              "integrations/variables",
+              "integrations/checks",
+              "integrations/contributing"
+            ]
+          },
+          {
+            "group": "Self-Hosting",
+            "pages": [
+              "self-hosting/docker",
+              "self-hosting/env-reference",
+              "integrations/oauth-setup"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["api-reference/overview"]
+          },
+          {
+            "group": "Reference",
+            "openapi": { "source": "./openapi.json" }
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Join us on Discord",
+          "href": "https://discord.gg/compai",
+          "icon": "discord"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/logo/compai-white.png",
+    "dark": "/logo/compai-dark.png"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:hello@trycomp.ai"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get started",
+      "href": "https://trycomp.ai"
+    }
+  },
+  "api": {
+    "playground": {
+      "display": "interactive"
+    },
+    "examples": {
+      "languages": ["bash", "javascript", "python"],
+      "defaults": "required",
+      "prefill": true
+    }
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/trycompai",
+      "github": "https://github.com/trycompai/comp",
+      "linkedin": "https://linkedin.com/company/trycompai"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+import { Module } from '@nestjs/common';
+import { AttachmentsModule } from '../attachments/attachments.module';
+import { AuthModule } from '../auth/auth.module';
+import { TrustEmailService } from './email.service';
+import { NdaPdfService } from './nda-pdf.service';
+import { PolicyPdfRendererService } from './policy-pdf-renderer.service';
+import { TrustAccessController } from './trust-access.controller';
+import { TrustAccessService } from './trust-access.service';
+import { TrustPortalController } from './trust-portal.controller';
+import { TrustPortalService } from './trust-portal.service';
+import { TrustCustomFrameworkService } from './trust-custom-framework.service';
+import { TrustCustomFrameworkBadgeService } from './trust-custom-framework-badge.service';
+
+@Module({
+  imports: [AuthModule, AttachmentsModule],
+  controllers: [TrustPortalController, TrustAccessController],
+  providers: [
+    TrustPortalService,
+    TrustCustomFrameworkService,
+    TrustCustomFrameworkBadgeService,
+    TrustAccessService,
+    NdaPdfService,
+    TrustEmailService,
+    PolicyPdfRendererService,
+  ],
+  exports: [
+    TrustPortalService,
+    TrustCustomFrameworkService,
+    TrustAccessService,
+  ],
+})
+export class TrustPortalModule {}

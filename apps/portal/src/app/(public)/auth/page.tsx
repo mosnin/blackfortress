@@ -1,0 +1,91 @@
+import { LoginForm } from '@/app/components/login-form';
+import { OtpSignIn } from '@/app/components/otp';
+import { Button } from '@trycompai/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@trycompai/ui/card';
+import { Icons } from '@trycompai/ui/icons';
+import { ArrowRight } from '@trycompai/design-system/icons';
+import type { Metadata } from 'next';
+import Link from 'next/link';
+
+export const metadata: Metadata = {
+  title: 'Login | Comp AI',
+};
+
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const isDeviceAuth = params.device_auth === 'true';
+  const callbackPort = typeof params.callback_port === 'string' ? params.callback_port : undefined;
+  const state = typeof params.state === 'string' ? params.state : undefined;
+
+  const deviceAuthRedirect =
+    isDeviceAuth && callbackPort && state
+      ? `/auth/device-callback?callback_port=${encodeURIComponent(callbackPort)}&state=${encodeURIComponent(state)}`
+      : undefined;
+
+  const defaultSignInOptions = (
+    <div className="flex flex-col space-y-2">
+      <OtpSignIn deviceAuthRedirect={deviceAuthRedirect} />
+    </div>
+  );
+
+  // Social providers are configured on the NestJS API.
+  // Use optional env vars to explicitly disable them on the portal if needed.
+  const showGoogle = process.env.PORTAL_DISABLE_GOOGLE_SIGN_IN !== 'true';
+  const showMicrosoft = process.env.PORTAL_DISABLE_MICROSOFT_SIGN_IN !== 'true';
+
+  return (
+    <div className="flex min-h-dvh flex-col text-foreground">
+      <main className="flex flex-1 items-center justify-center p-6">
+        <Card className="w-full max-w-lg">
+          <CardHeader className="text-center space-y-3 pt-10">
+            <Icons.Logo className="h-10 w-10 mx-auto" />
+            <CardTitle className="text-2xl tracking-tight text-card-foreground">
+              Employee Portal
+            </CardTitle>
+            <CardDescription className="text-base text-muted-foreground px-4">
+              Enter your email address to receive a one time password.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6 pb-6">
+            {defaultSignInOptions}
+            <LoginForm showGoogle={showGoogle} showMicrosoft={showMicrosoft} />
+          </CardContent>
+          <CardFooter className="pb-10">
+            <div className="from-primary/10 via-primary/5 to-primary/5 rounded-sm bg-gradient-to-r p-4">
+              <h3 className="text-sm font-medium">
+                Comp AI - AI that handles compliance for you in hours.
+              </h3>
+              <p className="text-muted-foreground mt-1 text-xs">
+                Comp AI makes SOC 2, ISO 27001, HIPAA and GDPR effortless. Eliminate compliance
+                busywork, win more deals and accelerate growth.
+              </p>
+              <Button variant="link" className="mt-2 p-0" asChild>
+                <Link
+                  href="https://trycomp.ai"
+                  target="_blank"
+                  className="hover:underline hover:underline-offset-2"
+                >
+                  <span className="text-primary mt-2 inline-flex items-center gap-2 text-xs font-medium">
+                    Learn More
+                    <ArrowRight className="h-3 w-3" />
+                  </span>
+                </Link>
+              </Button>
+            </div>
+          </CardFooter>
+        </Card>
+      </main>
+    </div>
+  );
+}

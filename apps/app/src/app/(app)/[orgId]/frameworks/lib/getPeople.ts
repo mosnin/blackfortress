@@ -1,0 +1,115 @@
+import { filterComplianceMembers } from '@/lib/compliance';
+import { trainingVideos } from '@/lib/data/training-videos';
+import { db } from '@db/server';
+
+export async function getPeopleScore(organizationId: string) {
+  // Get all active members (employees and contractors); exclude inactive/deactivated
+  const allMembers = await db.member.findMany({
+    where: {
+      organizationId,
+      isActive: true,
+      deactivated: false,
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  // Filter to members with the compliance obligation
+  const employees = await filterComplianceMembers(allMembers, organizationId);
+
+  if (employees.length === 0) {
+    return {
+      totalMembers: 0,
+      completedMembers: 0,
+    };
+  }
+
+  // Align with People page: respect org security training setting
+  const org = await db.organization.findUnique({
+    where: { id: organizationId },
+    select: { securityTrainingStepEnabled: true },
+  });
+  // Match TeamMembers: only explicit true enables training; null/undefined = disabled
+  const securityTrainingStepEnabled = org?.securityTrainingStepEnabled === true;
+
+  // Get all required policies (published, required to sign, not archived)
+  const requiredPolicies = await db.policy.findMany({
+    where: {
+      organizationId,
+      isRequiredToSign: true,
+      status: 'published',
+      isArchived: false,
+    },
+  });
+
+  // Get training video completions only when training step is enabled (same as TeamMembers)
+  const trainingVideoCompletions = securityTrainingStepEnabled
+    ? await db.employeeTrainingVideoCompletion.findMany({
+        where: {
+          memberId: {
+            in: employees.map((e) => e.id),
+          },
+        },
+      })
+    : [];
+
+  // Get required training video IDs when training is enabled (sat-1 through sat-5)
+  const requiredTrainingVideoIds = securityTrainingStepEnabled
+    ? trainingVideos.map((video) => video.id)
+    : [];
+
+  // Get fleet instance for device checks
+  // const fleet = await getFleetInstance();
+
+  // Check each employee's completion status
+  let completedMembers = 0;
+
+  for (const employee of employees) {
+    // 1. Check if all policies are accepted
+    const hasAcceptedAllPolicies =
+      requiredPolicies.length === 0 ||
+      requiredPolicies.every((policy) => policy.signedBy.includes(employee.id));
+
+    // 2. Check if all training videos are completed
+    const employeeVideoCompletions = trainingVideoCompletions.filter(
+      (completion) => completion.memberId === employee.id,
+    );
+    const completedVideoIds = employeeVideoCompletions
+      .filter((completion) => completion.completedAt !== null)
+      .map((completion) => completion.videoId);
+    const hasCompletedAllTraining = requiredTrainingVideoIds.every((videoId) =>
+      completedVideoIds.includes(videoId),
+    );
+
+    // 3. Check if device is secure
+    // let hasSecureDevice = false;
+
+    /*  if (employee.fleetDmLabelId) {
+      try {
+        const deviceResponse = await fleet.get(`/labels/${employee.fleetDmLabelId}/hosts`);
+        const device = deviceResponse.data.hosts?.[0];
+
+        if (device) {
+          const deviceWithPolicies = await fleet.get(`/hosts/${device.id}`);
+          const fleetPolicies = deviceWithPolicies.data.host.policies || [];
+          hasSecureDevice = fleetPolicies.every(
+            (policy: { response: string }) => policy.response === 'pass',
+          );
+        }
+      } catch (error) {
+        // If there's an error fetching device, consider it not secure
+        hasSecureDevice = false;
+      }
+    } */
+
+    if (hasAcceptedAllPolicies && hasCompletedAllTraining) {
+      completedMembers++;
+    }
+  }
+
+  return {
+    totalMembers: employees.length,
+    completedMembers,
+  };
+}

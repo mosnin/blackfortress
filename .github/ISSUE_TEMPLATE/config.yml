@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Request a feature
+    url: https://roadmap.trycomp.ai/
+    about: Suggest new features, vote for existing ones or checkout the roadmap.
+  - name: Get Help
+    url: https://discord.gg/compai
+    about: If you have questions or need help, this is the place.

@@ -1,0 +1,47 @@
+{
+  "slug": "confluence",
+  "name": "Confluence",
+  "description": "Monitor Confluence Cloud access controls, space permissions, and audit logging for compliance evidence. Syncs employee access from Confluence user groups.",
+  "category": "Productivity",
+  "docsUrl": "https://developer.atlassian.com/cloud/confluence/rest/v1/",
+  "baseUrl": "https://example.atlassian.net",
+  "authConfig": {
+    "type": "basic",
+    "config": {
+      "setupInstructions": "1. Go to https://id.atlassian.com/manage-profile/security/api-tokens\n2. Click 'Create API token' and give it a name like 'CompAI'\n3. Copy the API token\n4. Enter your Atlassian account email and the API token below\n5. After connecting, enter your Atlassian site name (the part before .atlassian.net in your URL, e.g. 'mycompany' from mycompany.atlassian.net)",
+      "usernameField": "email",
+      "passwordField": "api_token"
+    }
+  },
+  "capabilities": [
+    "checks",
+    "sync"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": true,
+  "checks": [
+    {
+      "slug": "confluence_employee_access",
+      "name": "Employee Access",
+      "description": "Lists all users with access to Confluence for employee access review evidence",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "confluence_space_permissions",
+      "name": "Space Permissions Review",
+      "description": "Reviews Confluence space permissions and flags spaces with anonymous or public access enabled",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "confluence_audit_log",
+      "name": "Audit Logging",
+      "description": "Verifies that Confluence audit logging is active with recent entries",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 3,
+  "isActive": true
+}

@@ -1,0 +1,37 @@
+{
+  "slug": "remote",
+  "name": "Remote",
+  "description": "Global HR platform for distributed teams. Monitor employee records.",
+  "category": "HR & People",
+  "docsUrl": "https://developer.remote.com/docs",
+  "baseUrl": "https://gateway.remote.com",
+  "authConfig": {
+    "type": "api_key",
+    "config": {
+      "setupInstructions": "You must be a company admin or company owner in Remote to generate API tokens.\n\n1. Log in to Remote at https://remote.com\n2. Navigate to: Company > Company Settings > Integrations & APIs > Integrations\n3. Find the Remote API card and click it\n4. Click Generate API token (or Create new token)\n5. Under Endpoint collections, select \"Read only\"\n   (\"Read only\" is sufficient — Comp AI does not modify your Remote data)\n6. Click Generate, then copy the token (it starts with ra_live_)\n7. Paste the token below"
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "remote_app_availability",
+      "name": "Remote App Availability",
+      "description": "Verifies that the Remote API is accessible and the API token is valid by listing company managers.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "remote_employee_access",
+      "name": "Remote Employee Access",
+      "description": "Verifies that Remote has active company managers with admin access configured for proper employee management oversight.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

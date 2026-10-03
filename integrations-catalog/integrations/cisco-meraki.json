@@ -1,0 +1,44 @@
+{
+  "slug": "cisco-meraki",
+  "name": "Cisco Meraki",
+  "description": "Cloud-managed networking platform. Monitor network infrastructure and device access.",
+  "category": "Infrastructure",
+  "docsUrl": "https://developer.cisco.com/meraki/api-v1/",
+  "baseUrl": "https://api.meraki.com",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to the Meraki Dashboard at https://dashboard.meraki.com\n2. Click your profile icon (top right) > My profile\n3. Scroll to API access and click Generate new API key\n4. Copy the key (shown once) and paste it above\n5. Ensure your dashboard user has access to the organizations you want to monitor\n\nNote: Treat the API key like a password. Meraki uses the X-Cisco-Meraki-API-Key header for authentication.",
+      "credentialFields": [
+        {
+          "label": "Meraki Dashboard API Key",
+          "type": "password",
+          "required": true
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "cisco_meraki_app_availability",
+      "name": "Cisco Meraki App Availability",
+      "description": "Verifies Meraki API is accessible.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "cisco_meraki_employee_access",
+      "name": "Cisco Meraki Employee Access",
+      "description": "Verifies access to Meraki network management.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

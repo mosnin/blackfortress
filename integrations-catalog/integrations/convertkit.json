@@ -1,0 +1,44 @@
+{
+  "slug": "convertkit",
+  "name": "Kit (ConvertKit)",
+  "description": "Email marketing platform for creators. Monitor account access and subscriber management.",
+  "category": "Communication",
+  "docsUrl": "https://developers.kit.com/v4",
+  "baseUrl": "https://api.kit.com",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to Kit (formerly ConvertKit) at app.kit.com\n2. Go to Settings (gear icon) > Advanced > API\n3. Under \"API Key (v4)\", click Show and copy the key (this is the v4 key, distinct from the legacy v3 \"API Secret\")\n4. Paste it below\n\nNotes:\n- Only Account Owners can view the v4 API key. Other roles will not see it in Settings.\n- Comp AI uses the Kit v4 API at https://api.kit.com/v4 with the X-Kit-Api-Key header. Older v3 keys / API Secrets will not work.",
+      "credentialFields": [
+        {
+          "label": "API Key",
+          "type": "password",
+          "required": true
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "convertkit_app_availability",
+      "name": "Kit (ConvertKit) App Availability",
+      "description": "Checks that the Kit (ConvertKit) API is accessible.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "convertkit_employee_access",
+      "name": "Kit (ConvertKit) Employee Access",
+      "description": "Verifies employee access to Kit (ConvertKit) via API.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

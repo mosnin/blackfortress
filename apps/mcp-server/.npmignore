@@ -1,0 +1,14 @@
+**/*
+!/RUNTIMES.md
+!/**/*.ts
+!/**/*.js
+!/**/*.mjs
+!/package.json
+!/jsr.json
+!/dist/**/*.json
+!/esm/**/*.json
+!/**/*.map
+
+/eslint.config.mjs
+/__tests__
+/tests

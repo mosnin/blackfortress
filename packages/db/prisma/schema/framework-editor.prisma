@@ -1,0 +1,265 @@
+// --- Data for Framework Editor ---
+model FrameworkEditorVideo {
+  id          String @id @default(dbgenerated("generate_prefixed_cuid('frk_vi'::text)"))
+  title       String
+  description String
+  youtubeId   String
+  url         String
+
+  // Dates
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// FRAME-20: status shown for a framework family in the editor list. Drives the
+// color-coded badge: visible=green, hidden=black, under_construction=red,
+// partial=amber. Distinct from a framework's own `visible` boolean.
+enum FrameworkEditorFrameworkFamilyStatus {
+  visible
+  hidden
+  under_construction
+  partial
+}
+
+// FRAME-20: a "framework family" is a folder that groups related frameworks
+// (e.g. all of NIST SP800-53, or DORA's pieces) for organisation in the editor.
+// Purely organisational — no version (it's a folder, not a published artifact).
+// NOT related to `controlFamily`/`requirementFamily`, which group items WITHIN a
+// single framework.
+model FrameworkEditorFrameworkFamily {
+  id          String                               @id @default(dbgenerated("generate_prefixed_cuid('frk_fam'::text)"))
+  name        String
+  description String                               @default("")
+  status      FrameworkEditorFrameworkFamilyStatus @default(hidden)
+
+  frameworks FrameworkEditorFramework[]
+
+  // Dates
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model FrameworkEditorFramework {
+  id          String  @id @default(dbgenerated("generate_prefixed_cuid('frk'::text)"))
+  name        String // e.g., "soc2", "iso27001"
+  version     String
+  description String
+  visible     Boolean @default(false)
+
+  // FRAME-20: the family (folder) this framework belongs to. Null = ungrouped
+  // (shown at the root "/"). Restrict enforces the "delete only when empty" rule
+  // at the DB level — the API also checks first to return a friendly error.
+  familyId String?
+  family   FrameworkEditorFrameworkFamily? @relation(fields: [familyId], references: [id], onDelete: Restrict)
+
+  requirements         FrameworkEditorRequirement[]
+  frameworkInstances   FrameworkInstance[]
+  soaConfigurations    SOAFrameworkConfiguration[] // Multiple SOA config versions per framework
+  soaDocuments         SOADocument[] // SOA documents from organizations
+  ismsDocuments        IsmsDocument[] // ISMS foundational documents from organizations
+  ismsProfiles         IsmsProfile[] // ISMS wizard profiles from organizations
+  ismsDocumentRequirementLinks FrameworkEditorIsmsDocumentRequirementLink[]
+  controlIsmsDocumentLinks FrameworkEditorControlIsmsDocumentLink[]
+  timelineTemplates    TimelineTemplate[]
+  versions             FrameworkVersion[]
+  controlPolicyLinks   FrameworkEditorControlPolicyTemplateLink[]
+  controlTaskLinks     FrameworkEditorControlTaskTemplateLink[]
+  controlDocumentLinks FrameworkEditorControlDocumentTypeLink[]
+
+  // Dates
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([familyId])
+}
+
+model FrameworkEditorRequirement {
+  id          String                   @id @default(dbgenerated("generate_prefixed_cuid('frk_rq'::text)"))
+  frameworkId String
+  framework   FrameworkEditorFramework @relation(fields: [frameworkId], references: [id])
+
+  name              String // Original requirement ID within that framework, e.g., "Privacy"
+  identifier        String @default("") // Unique identifier for the requirement, e.g., "cc1-1"
+  description       String
+  requirementFamily String?
+  // Per-framework display order (FRAME-18). Lower numbers sort first; null rows
+  // fall back to identifier ordering and sort after numbered rows. Lets frameworks
+  // like NIST CSF use their canonical order (GV → ID → PR → DE → RS → RC).
+  sortOrder         Int?
+
+  controlTemplates FrameworkEditorControlTemplate[]
+  requirementMaps  RequirementMap[]
+  ismsDocuments    IsmsDocument[] // ISMS foundational documents mapped to this clause requirement
+  ismsDocumentRequirementLinks FrameworkEditorIsmsDocumentRequirementLink[]
+
+  // Dates
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// --- ISMS foundational document types as first-class framework-editor parts (CS-437) ---
+// Authored centrally and mapped to clause requirements per framework, mirroring
+// how control/policy/task templates are mapped. ensure-setup instantiates one
+// IsmsDocument per template; the requirement comes from the per-framework link
+// below, falling back to clause-string matching.
+model FrameworkEditorIsmsDocumentTemplate {
+  id           String           @id @default(dbgenerated("generate_prefixed_cuid('frk_isd'::text)"))
+  name         String
+  description  String
+  documentType IsmsDocumentType @unique // one template per ISMS document type
+  clause       String // default ISO clause for requirement matching, e.g. "4.1"
+  sortOrder    Int              @default(0)
+
+  requirementLinks FrameworkEditorIsmsDocumentRequirementLink[]
+  controlLinks     FrameworkEditorControlIsmsDocumentLink[]
+  ismsDocuments    IsmsDocument[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// Framework-scoped mapping of an ISMS document template to a clause requirement
+// (editable in the Framework Editor). Mirrors the other framework-scoped junctions.
+model FrameworkEditorIsmsDocumentRequirementLink {
+  id                     String                              @id @default(dbgenerated("generate_prefixed_cuid('frk_idr'::text)"))
+  frameworkId            String
+  framework              FrameworkEditorFramework            @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  ismsDocumentTemplateId String
+  ismsDocumentTemplate   FrameworkEditorIsmsDocumentTemplate @relation(fields: [ismsDocumentTemplateId], references: [id], onDelete: Cascade)
+  requirementId          String
+  requirement            FrameworkEditorRequirement          @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([frameworkId, ismsDocumentTemplateId, requirementId])
+  @@index([ismsDocumentTemplateId])
+  @@index([requirementId])
+  @@index([frameworkId])
+}
+
+// Framework-scoped mapping of an ISMS document template to a control template
+// (editable in the Framework Editor) — mirrors FrameworkEditorControlPolicyTemplateLink
+// / FrameworkEditorControlDocumentTypeLink, i.e. how every other part links to controls.
+model FrameworkEditorControlIsmsDocumentLink {
+  id                     String                              @id @default(dbgenerated("generate_prefixed_cuid('fcid'::text)"))
+  frameworkId            String
+  framework              FrameworkEditorFramework            @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  controlTemplateId      String
+  controlTemplate        FrameworkEditorControlTemplate      @relation(fields: [controlTemplateId], references: [id], onDelete: Cascade)
+  ismsDocumentTemplateId String
+  ismsDocumentTemplate   FrameworkEditorIsmsDocumentTemplate @relation(fields: [ismsDocumentTemplateId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([frameworkId, controlTemplateId, ismsDocumentTemplateId])
+  @@index([controlTemplateId])
+  @@index([ismsDocumentTemplateId])
+  @@index([frameworkId])
+}
+
+model FrameworkEditorPolicyTemplate {
+  id          String      @id @default(dbgenerated("generate_prefixed_cuid('frk_pt'::text)"))
+  name        String
+  description String
+  frequency   Frequency // Using the enum from shared.prisma
+  department  Departments // Using the enum from shared.prisma
+  content     Json
+
+  controlTemplates      FrameworkEditorControlTemplate[]
+  frameworkControlLinks FrameworkEditorControlPolicyTemplateLink[]
+
+  // Dates
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  // Instances
+  policies Policy[]
+}
+
+model FrameworkEditorTaskTemplate {
+  id               String               @id @default(dbgenerated("generate_prefixed_cuid('frk_tt'::text)"))
+  name             String
+  description      String
+  frequency        Frequency // Using the enum from shared.prisma
+  department       Departments // Using the enum from shared.prisma
+  automationStatus TaskAutomationStatus @default(AUTOMATED)
+
+  controlTemplates      FrameworkEditorControlTemplate[]
+  frameworkControlLinks FrameworkEditorControlTaskTemplateLink[]
+
+  // Dates
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  // Instances
+  tasks Task[]
+}
+
+model FrameworkEditorControlTemplate {
+  id            String  @id @default(dbgenerated("generate_prefixed_cuid('frk_ct'::text)"))
+  name          String
+  description   String
+  controlFamily String?
+
+  policyTemplates        FrameworkEditorPolicyTemplate[]
+  requirements           FrameworkEditorRequirement[]
+  taskTemplates          FrameworkEditorTaskTemplate[]
+  documentTypes          EvidenceFormType[]
+  frameworkPolicyLinks   FrameworkEditorControlPolicyTemplateLink[]
+  frameworkTaskLinks     FrameworkEditorControlTaskTemplateLink[]
+  frameworkDocumentLinks FrameworkEditorControlDocumentTypeLink[]
+  frameworkIsmsDocumentLinks FrameworkEditorControlIsmsDocumentLink[]
+
+  // Dates
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  // Instances
+  controls Control[]
+}
+
+model FrameworkEditorControlPolicyTemplateLink {
+  id                String                         @id @default(dbgenerated("generate_prefixed_cuid('fcp'::text)"))
+  frameworkId       String
+  framework         FrameworkEditorFramework       @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  controlTemplateId String
+  controlTemplate   FrameworkEditorControlTemplate @relation(fields: [controlTemplateId], references: [id], onDelete: Cascade)
+  policyTemplateId  String
+  policyTemplate    FrameworkEditorPolicyTemplate  @relation(fields: [policyTemplateId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([frameworkId, controlTemplateId, policyTemplateId])
+  @@index([controlTemplateId])
+  @@index([policyTemplateId])
+}
+
+model FrameworkEditorControlTaskTemplateLink {
+  id                String                         @id @default(dbgenerated("generate_prefixed_cuid('fct'::text)"))
+  frameworkId       String
+  framework         FrameworkEditorFramework       @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  controlTemplateId String
+  controlTemplate   FrameworkEditorControlTemplate @relation(fields: [controlTemplateId], references: [id], onDelete: Cascade)
+  taskTemplateId    String
+  taskTemplate      FrameworkEditorTaskTemplate    @relation(fields: [taskTemplateId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([frameworkId, controlTemplateId, taskTemplateId])
+  @@index([controlTemplateId])
+  @@index([taskTemplateId])
+}
+
+model FrameworkEditorControlDocumentTypeLink {
+  id                String                         @id @default(dbgenerated("generate_prefixed_cuid('fcd'::text)"))
+  frameworkId       String
+  framework         FrameworkEditorFramework       @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  controlTemplateId String
+  controlTemplate   FrameworkEditorControlTemplate @relation(fields: [controlTemplateId], references: [id], onDelete: Cascade)
+  formType          EvidenceFormType
+
+  createdAt DateTime @default(now())
+
+  @@unique([frameworkId, controlTemplateId, formType])
+  @@index([controlTemplateId])
+}

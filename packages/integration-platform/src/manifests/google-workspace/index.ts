@@ -1,0 +1,73 @@
+import type { IntegrationManifest } from '../../types';
+import { employeeAccessCheck, twoFactorAuthCheck } from './checks';
+import {
+  syncExcludedEmailsVariable,
+  syncIncludedEmailsVariable,
+  syncUserFilterModeVariable,
+  targetOrgUnitsVariable,
+} from './variables';
+
+export const googleWorkspaceManifest: IntegrationManifest = {
+  id: 'google-workspace',
+  name: 'Google Workspace',
+  description: 'Monitor security settings and user compliance in Google Workspace',
+  category: 'Identity & Access',
+  logoUrl: 'https://img.logo.dev/google.com?token=pk_AZatYxV5QDSfWpRDaBxzRQ&format=png&retina=true',
+  docsUrl: 'https://developers.google.com/admin-sdk',
+  isActive: true,
+
+  auth: {
+    type: 'oauth2',
+    config: {
+      authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+      tokenUrl: 'https://oauth2.googleapis.com/token',
+      scopes: [
+        'https://www.googleapis.com/auth/admin.directory.user.readonly',
+        'https://www.googleapis.com/auth/admin.directory.orgunit.readonly',
+        'https://www.googleapis.com/auth/admin.directory.rolemanagement.readonly',
+      ],
+      pkce: false,
+      clientAuthMethod: 'body',
+      supportsRefreshToken: true,
+      authorizationParams: {
+        access_type: 'offline',
+        // select_account forces Google's account chooser so an admin can switch
+        // from a wrong (e.g. non-admin) account when connecting/reconnecting;
+        // consent keeps the consent screen so a refresh token is always issued.
+        prompt: 'select_account consent',
+      },
+      setupInstructions: `To enable Google Workspace Admin SDK:
+1. Go to Google Cloud Console (console.cloud.google.com)
+2. Create or select a project
+3. Enable the Admin SDK API
+4. Create OAuth 2.0 credentials (Web application type)
+5. Add the callback URL shown below to "Authorized redirect URIs"
+6. Copy the Client ID and Client Secret
+
+Note: The user authorizing must be a Google Workspace admin.`,
+      createAppUrl: 'https://console.cloud.google.com/apis/credentials',
+    },
+  },
+
+  baseUrl: 'https://admin.googleapis.com',
+  defaultHeaders: {
+    'Content-Type': 'application/json',
+  },
+
+  capabilities: ['checks', 'sync'],
+
+  // Google Workspace is the customer's authoritative employee directory:
+  // users provisioned here are employees, users removed here are offboarded.
+  // Phase 2 deactivation is intentionally allowed for this provider.
+  isDirectorySource: true,
+
+  services: [
+    { id: 'user-sync', name: 'User Sync', description: 'Sync users from Google Workspace as organization members', enabledByDefault: true, implemented: true },
+    { id: 'mfa-compliance', name: 'MFA Compliance', description: 'Monitor two-factor authentication enforcement', enabledByDefault: true, implemented: true },
+    { id: 'admin-audit', name: 'Admin Audit', description: 'Track admin console activity and permission changes', implemented: false },
+  ],
+
+  variables: [targetOrgUnitsVariable, syncUserFilterModeVariable, syncExcludedEmailsVariable, syncIncludedEmailsVariable],
+
+  checks: [twoFactorAuthCheck, employeeAccessCheck],
+};

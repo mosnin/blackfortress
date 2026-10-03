@@ -1,0 +1,280 @@
+'use client';
+
+import { api } from '@/lib/api-client';
+import useSWR from 'swr';
+
+interface TaskIntegrationCheck {
+  integrationId: string;
+  integrationName: string;
+  integrationLogoUrl: string;
+  checkId: string;
+  checkName: string;
+  checkDescription: string;
+  isConnected: boolean;
+  /** True when the user has disconnected this specific check from the task. */
+  isDisabledForTask: boolean;
+  needsConfiguration: boolean;
+  connectionId?: string;
+  connectionStatus?: string;
+  authType?: 'oauth2' | 'custom' | 'api_key' | 'basic' | 'jwt';
+  oauthConfigured?: boolean;
+}
+
+interface StoredCheckRun {
+  id: string;
+  checkId: string;
+  checkName: string;
+  status: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  totalChecked: number;
+  passedCount: number;
+  /** Effective failures — excludes findings under an active exception. */
+  failedCount: number;
+  /** Failing findings suppressed by an active exception. */
+  exceptedCount?: number;
+  errorMessage?: string;
+  /** The connection (account) this run belongs to — checks run once per account. */
+  connectionId: string;
+  /** Human-readable account label (e.g. "AWS 123456789012" or a custom name). */
+  connectionLabel: string;
+  logs?: Array<{
+    level: string;
+    message: string;
+    data?: Record<string, unknown>;
+    timestamp: string;
+  }>;
+  provider: {
+    slug: string;
+    name: string;
+  };
+  results: Array<{
+    id: string;
+    passed: boolean;
+    resourceType: string;
+    resourceId: string;
+    title: string;
+    description?: string;
+    severity?: string;
+    remediation?: string;
+    evidence?: Record<string, unknown>;
+    collectedAt: string;
+    /** True when this failing result is suppressed by an active exception. */
+    excepted?: boolean;
+    /** The active exception's id — needed to revoke (move back in scope). */
+    exceptionId?: string;
+    /** The documented reason recorded when the exception was created. */
+    exceptionReason?: string;
+  }>;
+  createdAt: string;
+}
+
+/**
+ * When a (connection, check) last ran — INCLUDING runs held server-side (which
+ * never appear in `runs`). Timestamp only; held outcomes stay hidden.
+ */
+interface CheckRunAttempt {
+  connectionId: string;
+  checkId: string;
+  lastAttemptAt: string;
+}
+
+export type { CheckRunAttempt, StoredCheckRun, TaskIntegrationCheck };
+
+export const integrationChecksKey = (taskId: string, orgId: string) =>
+  ['/v1/integrations/tasks/checks', taskId, orgId] as const;
+
+export const integrationRunsKey = (taskId: string, orgId: string) =>
+  ['/v1/integrations/tasks/runs', taskId, orgId] as const;
+
+interface UseIntegrationChecksOptions {
+  taskId: string;
+  orgId: string;
+}
+
+export function useIntegrationChecks({ taskId, orgId }: UseIntegrationChecksOptions) {
+  const {
+    data: checks,
+    error: checksError,
+    isLoading: checksLoading,
+    mutate: mutateChecks,
+  } = useSWR(
+    integrationChecksKey(taskId, orgId),
+    async () => {
+      const response = await api.get<{
+        checks: TaskIntegrationCheck[];
+        task: { id: string; title: string; templateId: string | null };
+      }>(`/v1/integrations/tasks/${taskId}/checks?organizationId=${orgId}`);
+      if (response.error) throw new Error(response.error);
+      return response.data?.checks ?? [];
+    },
+    {
+      revalidateOnFocus: false,
+    },
+  );
+
+  const {
+    data: runsData,
+    error: runsError,
+    isLoading: runsLoading,
+    mutate: mutateRuns,
+  } = useSWR(
+    integrationRunsKey(taskId, orgId),
+    async () => {
+      const response = await api.get<{
+        runs: StoredCheckRun[];
+        lastAttempts?: CheckRunAttempt[];
+      }>(`/v1/integrations/tasks/${taskId}/runs?organizationId=${orgId}`);
+      if (response.error) throw new Error(response.error);
+      return {
+        runs: response.data?.runs ?? [],
+        lastAttempts: response.data?.lastAttempts ?? [],
+      };
+    },
+    {
+      revalidateOnFocus: false,
+    },
+  );
+  const runs = runsData?.runs;
+  const lastAttempts = runsData?.lastAttempts;
+
+  const runCheck = async (
+    connectionId: string,
+    checkId: string,
+  ): Promise<{ taskStatus?: string | null }> => {
+    const response = await api.post<{
+      success: boolean;
+      error?: string;
+      checkRunId?: string;
+      taskStatus?: string | null;
+    }>(`/v1/integrations/tasks/${taskId}/run-check?organizationId=${orgId}`, {
+      connectionId,
+      checkId,
+    });
+
+    if (response.data?.success) {
+      await mutateRuns();
+      return { taskStatus: response.data.taskStatus };
+    }
+
+    if (response.data?.error) {
+      throw new Error(response.data.error);
+    }
+
+    throw new Error('Failed to run check');
+  };
+
+  /**
+   * Revoke an active finding exception (move the resource back in scope).
+   * The exception mechanism is shared with Cloud Tests, so this talks to the
+   * cloud-security endpoint; the check run views refresh afterwards.
+   */
+  const revokeException = async (exceptionId: string): Promise<void> => {
+    const response = await api.delete<{ success: boolean }>(
+      `/v1/cloud-security/exceptions/${exceptionId}?organizationId=${orgId}`,
+    );
+
+    if (response.error || !response.data?.success) {
+      throw new Error(
+        typeof response.error === 'string'
+          ? response.error
+          : 'Failed to move the resource back in scope',
+      );
+    }
+
+    await mutateRuns();
+  };
+
+  /**
+   * Disconnect a single check from the current task. The integration itself
+   * stays connected — only the (task, check) pair is affected. Applies an
+   * optimistic update to the SWR cache and revalidates in the background.
+   */
+  const disconnectCheckFromTask = async (connectionId: string, checkId: string): Promise<void> => {
+    await mutateChecks(
+      async (current) => {
+        const response = await api.post<{
+          success: boolean;
+          disabled: true;
+          error?: string;
+        }>(`/v1/integrations/tasks/${taskId}/checks/disconnect?organizationId=${orgId}`, {
+          connectionId,
+          checkId,
+        });
+
+        if (response.error || !response.data?.success) {
+          throw new Error(response.error || 'Failed to disconnect check');
+        }
+
+        return (current ?? []).map((c) =>
+          c.checkId === checkId && c.connectionId === connectionId
+            ? { ...c, isDisabledForTask: true }
+            : c,
+        );
+      },
+      {
+        optimisticData: (current) =>
+          (current ?? []).map((c) =>
+            c.checkId === checkId && c.connectionId === connectionId
+              ? { ...c, isDisabledForTask: true }
+              : c,
+          ),
+        rollbackOnError: true,
+        revalidate: true,
+      },
+    );
+  };
+
+  /**
+   * Re-enable a previously disconnected check for the current task.
+   */
+  const reconnectCheckToTask = async (connectionId: string, checkId: string): Promise<void> => {
+    await mutateChecks(
+      async (current) => {
+        const response = await api.post<{
+          success: boolean;
+          disabled: false;
+          error?: string;
+        }>(`/v1/integrations/tasks/${taskId}/checks/reconnect?organizationId=${orgId}`, {
+          connectionId,
+          checkId,
+        });
+
+        if (response.error || !response.data?.success) {
+          throw new Error(response.error || 'Failed to reconnect check');
+        }
+
+        return (current ?? []).map((c) =>
+          c.checkId === checkId && c.connectionId === connectionId
+            ? { ...c, isDisabledForTask: false }
+            : c,
+        );
+      },
+      {
+        optimisticData: (current) =>
+          (current ?? []).map((c) =>
+            c.checkId === checkId && c.connectionId === connectionId
+              ? { ...c, isDisabledForTask: false }
+              : c,
+          ),
+        rollbackOnError: true,
+        revalidate: true,
+      },
+    );
+  };
+
+  return {
+    checks: Array.isArray(checks) ? checks : [],
+    runs: Array.isArray(runs) ? runs : [],
+    lastAttempts: Array.isArray(lastAttempts) ? lastAttempts : [],
+    isLoading: checksLoading || runsLoading,
+    error: checksError?.message || runsError?.message || null,
+    mutateChecks,
+    mutateRuns,
+    runCheck,
+    revokeException,
+    disconnectCheckFromTask,
+    reconnectCheckToTask,
+  };
+}

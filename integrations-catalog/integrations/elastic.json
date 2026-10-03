@@ -1,0 +1,45 @@
+{
+  "slug": "elastic",
+  "name": "Elastic Cloud",
+  "description": "Monitor Elastic Cloud cluster health and user accounts for monitoring and access review compliance",
+  "category": "Monitoring",
+  "docsUrl": "https://www.elastic.co/docs/api/",
+  "baseUrl": "https://api.elastic-cloud.com/api/v1",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to Elastic Cloud at https://cloud.elastic.co\n2. Go to Organization → API keys\n3. Click \"Create API key\"\n4. Select \"Organization viewer\" role (minimum)\n5. Copy the generated key and paste it below",
+      "credentialFields": [
+        {
+          "label": "API Key",
+          "type": "password",
+          "required": true,
+          "helpText": "Elastic Cloud → Organization → API keys → Create API key (Organization viewer minimum)."
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "cluster_health",
+      "name": "Monitoring & Alerting",
+      "description": "Checks that Elastic cluster health is not in a critical (red) state",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "user_review",
+      "name": "Access Review Log",
+      "description": "Retrieves Elasticsearch users for access review log compliance",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

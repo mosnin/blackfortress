@@ -1,0 +1,187 @@
+import type {
+  GetFindingsCommandInput,
+  GetFindingsCommandOutput,
+  SecurityHubClientConfig,
+} from '@aws-sdk/client-securityhub';
+import { GetFindingsCommand, SecurityHubClient } from '@aws-sdk/client-securityhub';
+import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
+
+interface AWSCredentials {
+  region?: string;
+  regions?: string[];
+  access_key_id: string;
+  secret_access_key: string;
+}
+
+interface AWSFinding {
+  title: string;
+  description: string;
+  remediation: string;
+  status: string;
+  severity: string;
+  resultDetails: any;
+}
+
+async function assertKeysWork(creds: AWSCredentials, region: string) {
+  const sts = new STSClient({
+    region,
+    credentials: {
+      accessKeyId: creds.access_key_id,
+      secretAccessKey: creds.secret_access_key,
+    },
+  });
+  const identity = await sts.send(new GetCallerIdentityCommand({})); // throws on bad creds
+  return identity.Account ?? 'unknown';
+}
+
+const resolveRegions = (credentials: AWSCredentials): string[] => {
+  if (credentials.regions && credentials.regions.length > 0) {
+    return credentials.regions;
+  }
+  if (credentials.region) {
+    return [credentials.region];
+  }
+  return [];
+};
+
+const buildFinding = (
+  finding: NonNullable<GetFindingsCommandOutput['Findings']>[number],
+  region: string,
+  accountId: string,
+): AWSFinding => ({
+  title: finding.Title || 'Untitled Finding',
+  description: finding.Description || 'No description available',
+  remediation: finding.Remediation?.Recommendation?.Text || 'No remediation available',
+  status: finding.Compliance?.Status || 'unknown',
+  severity: finding.Severity?.Label || 'INFO',
+  resultDetails: {
+    ...finding,
+    _metadata: {
+      region,
+      accountId,
+    },
+  },
+});
+
+const dedupeFindings = (findings: AWSFinding[]): AWSFinding[] => {
+  const seen = new Set<string>();
+  const deduped: AWSFinding[] = [];
+  for (const finding of findings) {
+    const findingId = (finding.resultDetails as { Id?: string })?.Id;
+    const key = findingId || `${finding.title}-${finding.severity}-${finding.status}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(finding);
+  }
+  return deduped;
+};
+
+/**
+ * Adds region context to an error message if not already present
+ */
+const addRegionContext = (error: unknown, region: string): Error => {
+  const message = error instanceof Error ? error.message : String(error);
+  // Avoid duplicate region info if AWS SDK already included it
+  if (message.toLowerCase().includes(region.toLowerCase())) {
+    return error instanceof Error ? error : new Error(message);
+  }
+  return new Error(`${message} (region: ${region})`);
+};
+
+/**
+ * Fetches findings for a single region
+ */
+async function fetchRegionFindings(
+  credentials: AWSCredentials,
+  region: string,
+  accountId: string,
+  params: GetFindingsCommandInput,
+): Promise<AWSFinding[]> {
+  const config: SecurityHubClientConfig = {
+    region,
+    credentials: {
+      accessKeyId: credentials.access_key_id,
+      secretAccessKey: credentials.secret_access_key,
+    },
+  };
+  const securityHubClient = new SecurityHubClient(config);
+  const findings: AWSFinding[] = [];
+
+  const command = new GetFindingsCommand(params);
+  let response: GetFindingsCommandOutput = await securityHubClient.send(command);
+
+  if (response.Findings) {
+    findings.push(...response.Findings.map((finding) => buildFinding(finding, region, accountId)));
+  }
+
+  let nextToken = response.NextToken;
+  while (nextToken) {
+    const nextPageParams: GetFindingsCommandInput = {
+      ...params,
+      NextToken: nextToken,
+    };
+    response = await securityHubClient.send(new GetFindingsCommand(nextPageParams));
+
+    if (response.Findings) {
+      findings.push(
+        ...response.Findings.map((finding) => buildFinding(finding, region, accountId)),
+      );
+    }
+
+    nextToken = response.NextToken;
+  }
+
+  return findings;
+}
+
+/**
+ * Fetches security findings from AWS Security Hub
+ * @returns Promise containing an array of findings
+ */
+async function fetch(credentials: AWSCredentials): Promise<AWSFinding[]> {
+  const regions = resolveRegions(credentials);
+  if (regions.length === 0) {
+    throw new Error('No regions provided for AWS Security Hub fetch');
+  }
+
+  // Assert that the credentials work (use first region for STS)
+  console.log('Asserting credentials');
+  const [primaryRegion] = regions;
+  if (!primaryRegion) {
+    throw new Error('No regions provided for AWS Security Hub fetch');
+  }
+  const accountId = await assertKeysWork(credentials, primaryRegion);
+
+  // Define filters for the findings we want to retrieve
+  const params: GetFindingsCommandInput = {
+    Filters: {
+      WorkflowStatus: [{ Value: 'NEW', Comparison: 'EQUALS' }], // only active findings
+      ComplianceStatus: [{ Value: 'FAILED', Comparison: 'EQUALS' }], // only failed control checks
+    },
+    MaxResults: 100, // adjust page size as needed (max 100)
+  };
+
+  console.log('Defined filters');
+
+  const allFindings: AWSFinding[] = [];
+
+  // Fetch findings from each region, with region-specific error handling
+  for (const region of regions) {
+    console.log(`Fetching findings in region ${region}`);
+    try {
+      const regionFindings = await fetchRegionFindings(credentials, region, accountId, params);
+      allFindings.push(...regionFindings);
+    } catch (error) {
+      // Add region context to error and re-throw
+      throw addRegionContext(error, region);
+    }
+  }
+
+  return dedupeFindings(allFindings);
+}
+
+// Export the function and types for use in other modules
+export { fetch };
+export type { AWSCredentials, AWSFinding };

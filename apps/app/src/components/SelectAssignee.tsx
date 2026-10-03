@@ -1,0 +1,154 @@
+import { useOrgIsInternal } from '@/components/org-internal-context';
+import { isOrgParticipant } from '@/lib/org-participation-rule';
+import { authClient } from '@/utils/auth-client';
+import { Member, User } from '@db';
+import { Avatar, AvatarFallback, AvatarImage } from '@trycompai/ui/avatar';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@trycompai/ui/select';
+import { UserIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
+
+interface SelectAssigneeProps {
+  assigneeId: string | null;
+  disabled?: boolean;
+  assignees: (Member & { user: User })[];
+  onAssigneeChange: (value: string | null) => void;
+  withTitle?: boolean;
+}
+
+export const SelectAssignee = ({
+  assigneeId,
+  disabled,
+  assignees: rawAssignees,
+  onAssigneeChange,
+  withTitle = true,
+}: SelectAssigneeProps) => {
+  const { data: activeMember } = authClient.useActiveMember();
+  const orgIsInternal = useOrgIsInternal();
+  // Exclude platform admins from assignee selection — except in internal
+  // (platform-operated) orgs, where they are real members. Uses the shared
+  // participation rule so the UI stays in sync with the backend.
+  const assignees = rawAssignees
+    .filter((a) => isOrgParticipant(a.user.role, { orgIsInternal }))
+    .sort((a, b) =>
+      (a.user.name || a.user.email || '').localeCompare(b.user.name || b.user.email || ''),
+    );
+  const [selectedAssignee, setSelectedAssignee] = useState<(Member & { user: User }) | null>(null);
+
+  // Initialize selectedAssignee based on assigneeId prop
+  useEffect(() => {
+    if (assigneeId && assignees) {
+      const assignee = assignees.find((a) => a.id === assigneeId);
+      if (assignee) {
+        setSelectedAssignee(assignee);
+      }
+    } else {
+      setSelectedAssignee(null);
+    }
+  }, [assigneeId, assignees]);
+
+  const handleAssigneeChange = (value: string) => {
+    const newAssigneeId = value === 'none' ? null : value;
+    onAssigneeChange(newAssigneeId);
+
+    if (newAssigneeId && assignees) {
+      const assignee = assignees.find((a) => a.id === newAssigneeId);
+      if (assignee) {
+        setSelectedAssignee(assignee);
+      } else {
+        setSelectedAssignee(null);
+      }
+    } else {
+      setSelectedAssignee(null);
+    }
+  };
+
+  // Function to safely prepare image URLs
+  const getImageUrl = (image: string | null): string | undefined => {
+    if (!image) return undefined;
+
+    // If image is a relative URL, ensure it's properly formed
+    if (image.startsWith('/')) {
+      return image;
+    }
+
+    return image;
+  };
+
+  // Render the none fallback avatar
+  const renderNoneAvatar = () => (
+    <div className="bg-muted flex h-5 w-5 items-center justify-center rounded-full">
+      <UserIcon className="h-3 w-3" />
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      {withTitle && (
+        <div className="mb-1.5 flex items-center gap-2">
+          <span className="font-medium">Assignee</span>
+        </div>
+      )}
+      <Select value={assigneeId || 'none'} onValueChange={handleAssigneeChange} disabled={disabled}>
+        <SelectTrigger className="w-full">
+          {selectedAssignee ? (
+            <div className="flex items-center gap-2 min-w-0">
+              <Avatar className="h-5 w-5 shrink-0">
+                <AvatarImage
+                  src={getImageUrl(selectedAssignee.user.image)}
+                  alt={selectedAssignee.user.name || selectedAssignee.user.email || 'User'}
+                />
+                <AvatarFallback>
+                  {selectedAssignee.user.name?.charAt(0) ||
+                    selectedAssignee.user.email?.charAt(0).toUpperCase() ||
+                    '?'}
+                </AvatarFallback>
+              </Avatar>
+              <span className="truncate min-w-0 flex-1">
+                {selectedAssignee.user.name || selectedAssignee.user.email || 'Unknown User'}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              {renderNoneAvatar()}
+              <span>Unassigned</span>
+            </div>
+          )}
+        </SelectTrigger>
+        <SelectContent
+          className="z-50 w-[var(--radix-select-trigger-width)] min-w-[280px]"
+          position="popper"
+          sideOffset={5}
+          align="start"
+        >
+          <SelectItem value="none" className="cursor-pointer pl-2">
+            <div className="flex items-center gap-2.5">
+              {renderNoneAvatar()}
+              <span>Unassigned</span>
+            </div>
+          </SelectItem>
+          {assignees.map((assignee) => (
+            <SelectItem key={assignee.id} value={assignee.id} className="cursor-pointer pl-2">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <Avatar className="h-5 w-5 shrink-0">
+                  <AvatarImage
+                    src={getImageUrl(assignee.user.image)}
+                    alt={assignee.user.name || assignee.user.email || 'User'}
+                  />
+                  <AvatarFallback>
+                    {assignee.user.name?.charAt(0) ||
+                      assignee.user.email?.charAt(0).toUpperCase() ||
+                      '?'}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="truncate min-w-0 flex-1 pr-2">
+                  {assignee.user.name || assignee.user.email || 'Unknown User'}{' '}
+                  {assignee.id === activeMember?.id && '(You)'}
+                </span>
+              </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+};

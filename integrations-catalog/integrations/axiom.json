@@ -1,0 +1,57 @@
+{
+  "slug": "axiom",
+  "name": "Axiom",
+  "description": "Monitor Axiom log analytics datasets and organization access for observability compliance",
+  "category": "Monitoring",
+  "docsUrl": "https://axiom.co/docs/restapi/overview",
+  "baseUrl": "https://api.axiom.co/",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to Axiom at https://app.axiom.co (or https://app.eu.axiom.co for EU)\n2. Go to Settings > API Tokens\n3. Create an API token with read access to datasets and monitors (or use a Personal Access Token)\n4. If using a PAT, also note your Organization ID from Settings > General\n5. Select your region (US or EU)\n6. Enter the values below",
+      "credentialFields": [
+        {
+          "label": "API Token",
+          "type": "password",
+          "required": true,
+          "helpText": "Found in Axiom > Settings > API Tokens. Works with both API tokens and Personal Access Tokens (PAT)."
+        },
+        {
+          "label": "Organization ID",
+          "type": "text",
+          "required": false,
+          "helpText": "Required only if using a Personal Access Token (PAT). Found in Settings > General."
+        },
+        {
+          "label": "Region",
+          "type": "select",
+          "required": false,
+          "helpText": "Choose the region your Axiom account is hosted in. Defaults to US."
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "axiom_monitoring",
+      "name": "Monitoring & Alerting",
+      "description": "Verifies Axiom datasets are configured for log ingestion and observability",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "axiom_utility_monitoring",
+      "name": "Utility Monitoring",
+      "description": "Verifies Axiom monitors are configured for alerting on log anomalies",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

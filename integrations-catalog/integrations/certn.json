@@ -1,0 +1,45 @@
+{
+  "slug": "certn",
+  "name": "Certn",
+  "description": "Monitor Certn background check platform for employee verification and access management compliance",
+  "category": "Security",
+  "docsUrl": "https://docs.certn.co/api",
+  "baseUrl": "https://api.certn.co",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to Certn at https://app.certn.co/login\n2. Confirm your account is on CertnCentric (the current platform). If you are still on Certn Legacy, contact Certn support to migrate — the legacy API is being shut off on 2026-08-05.\n3. Go to Settings > API Keys\n4. Create a new API key and copy the value (it is only shown once)\n5. Paste the key here",
+      "credentialFields": [
+        {
+          "label": "API Key",
+          "type": "password",
+          "required": true,
+          "helpText": "CertnCentric API key. Generated in Certn under Settings > API Keys."
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "certn_employee_verification",
+      "name": "Employee Verification",
+      "description": "Verifies that background checks are being conducted through Certn for employee screening",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "certn_employee_access",
+      "name": "Employee Access",
+      "description": "Reviews users with access to the Certn background check platform",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

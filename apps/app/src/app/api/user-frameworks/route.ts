@@ -1,0 +1,83 @@
+import { timingSafeEqual } from 'crypto';
+import { db } from '@db/server';
+import { NextResponse } from 'next/server';
+
+export async function GET(request: Request) {
+  const authHeader = request.headers.get('authorization');
+  const secretKey = process.env.SECRET_KEY;
+
+  if (!secretKey) {
+    console.error('SECRET_KEY environment variable is not set');
+    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+  }
+
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  if (!token || token.length !== secretKey.length || !timingSafeEqual(Buffer.from(token), Buffer.from(secretKey))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const users = await db.user.findMany({
+      select: {
+        email: true,
+        members: {
+          select: {
+            organization: {
+              select: {
+                frameworkInstances: {
+                  select: {
+                    framework: {
+                      select: {
+                        name: true,
+                      },
+                    },
+                    customFramework: {
+                      select: {
+                        name: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      where: {
+        members: {
+          some: {
+            organization: {
+              frameworkInstances: {
+                some: {},
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        email: 'asc',
+      },
+    });
+
+    const userFrameworks = users.map((user) => ({
+      email: user.email,
+      frameworks: [
+        ...new Set(
+          user.members.flatMap((membership) =>
+            membership.organization.frameworkInstances
+              .map((fi) => fi.framework?.name ?? fi.customFramework?.name)
+              .filter((name): name is string => Boolean(name)),
+          ),
+        ),
+      ],
+    }));
+
+    return NextResponse.json({
+      userFrameworks,
+    });
+  } catch (error) {
+    console.error('Error fetching user frameworks:', error);
+    return NextResponse.json({ error: 'Failed to fetch user frameworks' }, { status: 500 });
+  }
+}

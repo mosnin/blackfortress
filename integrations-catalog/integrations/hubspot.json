@@ -1,0 +1,45 @@
+{
+  "slug": "hubspot",
+  "name": "HubSpot",
+  "description": "Monitor HubSpot user access and contact owners for CRM compliance and access management",
+  "category": "Productivity",
+  "docsUrl": "https://developers.hubspot.com/docs/api/overview",
+  "baseUrl": "https://api.hubapi.com/",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "Step 1 — Create a HubSpot Private App\n1. In HubSpot, go to Settings > Integrations > Private Apps (https://app.hubspot.com/private-apps)\n2. Click Create a private app\n3. Name it (e.g. \"Comp AI\")\n4. Under Scopes, add:\n   - account-info.security.read   (account info check)\n   - settings.users.read           (employee access check)\n   - crm.objects.owners.read       (contact information check)\n5. Click Create app and copy the access token\n\nToken format: starts with \"pat-\" followed by your data-center region (e.g. pat-na1-..., pat-eu1-..., pat-na2-...)\n\nStep 2 — Paste the access token below\n\nNote: HubSpot updates scopes on the existing token when you change them — no need to regenerate the token after adding scopes (as of 2024 docs).",
+      "credentialFields": [
+        {
+          "label": "Service Key",
+          "type": "password",
+          "required": true,
+          "helpText": "Create a Service Key in HubSpot > Development > Keys > Service keys"
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "user_access",
+      "name": "Employee Access",
+      "description": "Reviews HubSpot users to verify employee access management",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "contact_owners",
+      "name": "Contact Information",
+      "description": "Lists HubSpot CRM contact owners for contact information compliance",
+      "defaultSeverity": "low",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

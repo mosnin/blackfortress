@@ -1,0 +1,135 @@
+// ===== Dynamic Integration Platform =====
+// Stores integration manifests and declarative check definitions in the database
+// Enables adding new integrations without code changes or deployments
+
+/// Stores a full integration manifest as JSON — replaces hand-written TypeScript manifests
+model DynamicIntegration {
+  id          String  @id @default(dbgenerated("generate_prefixed_cuid('din'::text)"))
+  /// Unique slug (e.g., "azure-devops", "office-365")
+  slug        String  @unique
+  /// Display name
+  name        String
+  /// Short description for catalog
+  description String
+  /// Category for grouping
+  category    String
+  /// Logo URL
+  logoUrl     String
+  /// URL to documentation
+  docsUrl     String?
+
+  /// API base URL for ctx.fetch
+  baseUrl        String?
+  /// Default headers (JSON object)
+  defaultHeaders Json?
+
+  /// Auth strategy config (JSON — matches AuthStrategy type: oauth2/api_key/basic/jwt/custom)
+  authConfig Json
+
+  /// Capabilities JSON array (default ["checks"])
+  capabilities Json @default("[\"checks\"]")
+
+  /// Whether multiple connections per org are allowed
+  supportsMultipleConnections Boolean @default(false)
+
+  /// Declarative sync definition (JSON — DSL steps that produce employee list)
+  /// When present and capabilities includes 'sync', enables employee sync
+  syncDefinition Json?
+
+  /// Declarative device sync definition (JSON — DSL steps that produce device list)
+  /// When present and capabilities includes 'device_sync', enables device sync
+  deviceSyncDefinition Json?
+
+  /// Services metadata (JSON array of { id, name, description, enabledByDefault?, implemented? })
+  services Json?
+
+  /// Whether this dynamic integration is active
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checks DynamicCheck[]
+
+  @@index([slug])
+  @@index([category])
+  @@index([isActive])
+}
+
+/// Stores a declarative check definition — DSL JSON replaces hand-written run() functions
+model DynamicCheck {
+  id String @id @default(dbgenerated("generate_prefixed_cuid('dck'::text)"))
+
+  /// Parent integration
+  integrationId String
+  integration   DynamicIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  /// Unique slug within integration (e.g., "mfa_enabled")
+  checkSlug String
+
+  /// Human-readable name
+  name        String
+  /// Description of what this check does
+  description String
+
+  /// Task template ID for auto-completion (references TASK_TEMPLATES)
+  taskMapping String?
+
+  /// Default severity for findings
+  defaultSeverity String @default("medium")
+
+  /// Service ID this check belongs to (groups checks under a service)
+  service String?
+
+  /// Declarative DSL definition (JSON — the step-by-step instructions)
+  definition Json
+
+  /// Check-level variables (JSON array of CheckVariable)
+  variables Json @default("[]")
+
+  /// Whether this check is enabled
+  isEnabled Boolean @default(true)
+
+  /// Display order
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Edit history (snapshots taken before each change) for rollback + audit
+  versions DynamicCheckVersion[]
+
+  @@unique([integrationId, checkSlug])
+  @@index([integrationId])
+  @@index([isEnabled])
+}
+
+/// Immutable snapshot of a DynamicCheck's logic taken BEFORE each change, so an
+/// edit (manual, via the API, or by the self-heal agent) can be rolled back and
+/// audited. Only the logic-bearing fields are versioned (definition + variables);
+/// rolling back replaces those on the live check.
+model DynamicCheckVersion {
+  id String @id @default(dbgenerated("generate_prefixed_cuid('dckv'::text)"))
+
+  /// The check this snapshot belongs to
+  checkId String
+  check   DynamicCheck @relation(fields: [checkId], references: [id], onDelete: Cascade)
+
+  /// Snapshot of the check's `definition` (the step code) at this version
+  definition Json
+
+  /// Snapshot of the check's `variables` at this version
+  variables Json
+
+  /// What produced this version: 'manual' | 'agent' | 'api' | 'restore' (free-form)
+  source String @default("api")
+
+  /// Optional note describing the change (e.g. agent fix summary). NEVER store secrets here.
+  note String?
+
+  createdAt DateTime @default(now())
+
+  // Composite serves the only read pattern — listVersions(checkId) ordered by
+  // createdAt desc — and its leading checkId column also covers the FK/cascade.
+  @@index([checkId, createdAt])
+}

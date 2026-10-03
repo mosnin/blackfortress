@@ -1,0 +1,28 @@
+model Comment {
+  id         String            @id @default(dbgenerated("generate_prefixed_cuid('cmt'::text)"))
+  content    String
+  entityId   String
+  entityType CommentEntityType
+
+  // Dates
+  createdAt DateTime @default(now())
+
+  // Relationships
+  authorId       String
+  author         Member       @relation(fields: [authorId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Relation to Attachments
+  attachments Attachment[]
+
+  @@index([entityId])
+}
+
+enum CommentEntityType {
+  task
+  vendor
+  risk
+  policy
+  finding
+}

@@ -1,0 +1,717 @@
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { db } from '@db';
+import { getSignedUrl } from '../app/s3';
+import { TrustAccessService } from './trust-access.service';
+
+jest.mock('@trigger.dev/sdk', () => ({ tasks: { trigger: jest.fn() } }));
+
+jest.mock('@db', () => ({
+  db: {
+    trust: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      upsert: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    trustNDAAgreement: {
+      findUnique: jest.fn(),
+    },
+    trustAccessGrant: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
+    trustAccessRequest: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+    },
+    member: {
+      findFirst: jest.fn(),
+    },
+    vendor: {
+      findMany: jest.fn(),
+    },
+    globalVendors: {
+      findMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  },
+  Prisma: {
+    PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {
+      code: string;
+
+      constructor(code: string) {
+        super();
+        this.code = code;
+      }
+    },
+  },
+  TrustFramework: {
+    iso_27001: 'iso_27001',
+    iso_42001: 'iso_42001',
+    gdpr: 'gdpr',
+    hipaa: 'hipaa',
+    soc2_type1: 'soc2_type1',
+    soc2_type2: 'soc2_type2',
+    pci_dss: 'pci_dss',
+    nen_7510: 'nen_7510',
+    iso_9001: 'iso_9001',
+  },
+}));
+
+jest.mock('../app/s3', () => ({
+  APP_AWS_ORG_ASSETS_BUCKET: 'org-assets',
+  s3Client: { send: jest.fn() },
+  getSignedUrl: jest.fn(),
+}));
+
+const mockDb = db as unknown as {
+  trust: {
+    findUnique: jest.Mock;
+    findFirst: jest.Mock;
+    upsert: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+  };
+  trustNDAAgreement: {
+    findUnique: jest.Mock;
+  };
+  trustAccessGrant: {
+    findUnique: jest.Mock;
+    findFirst: jest.Mock;
+    update: jest.Mock;
+  };
+  trustAccessRequest: {
+    findFirst: jest.Mock;
+    create: jest.Mock;
+  };
+  member: {
+    findFirst: jest.Mock;
+  };
+  vendor: {
+    findMany: jest.Mock;
+  };
+  globalVendors: {
+    findMany: jest.Mock;
+  };
+  $transaction: jest.Mock;
+};
+
+const mockGetSignedUrl = getSignedUrl as jest.MockedFunction<
+  typeof getSignedUrl
+>;
+
+describe('TrustAccessService getPublicVendors compliance badges (CS-688)', () => {
+  const service = new TrustAccessService(
+    {
+      getSignedUrl: jest.fn(),
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDb.trust.findFirst.mockResolvedValue({ organizationId: 'org_1' });
+  });
+
+  // Regression: the public Trust Centre served a stale stored badge set
+  // (GDPR only) for Scaleway while the vendor's verified certifications include
+  // ISO 27001. The public path must derive badges from the certification data,
+  // not trust the stale stored value.
+  it('derives ISO 27001 from cert data even when stored badges are stale (GDPR only)', async () => {
+    mockDb.vendor.findMany.mockResolvedValue([
+      {
+        id: 'vnd_scaleway',
+        name: 'Scaleway',
+        description: null,
+        website: 'scaleway.com',
+        logoUrl: null,
+        complianceBadges: [{ type: 'gdpr', verified: true }],
+      },
+    ]);
+    mockDb.globalVendors.findMany.mockResolvedValue([
+      {
+        website: 'scaleway.com',
+        riskAssessmentData: {
+          certifications: [
+            { type: 'ISO/IEC 27001:2022', status: 'verified' },
+            { type: 'HDS', status: 'verified' },
+            { type: 'GDPR Compliance', status: 'verified' },
+          ],
+        },
+      },
+    ]);
+
+    const result = await service.getPublicVendors('capawesome');
+    const types = result[0].complianceBadges.map((b) => b.type);
+
+    expect(types).toContain('iso27001');
+    expect(types).toContain('gdpr');
+  });
+
+  it('keeps the stored badges when there is no derivable cert data', async () => {
+    mockDb.vendor.findMany.mockResolvedValue([
+      {
+        id: 'vnd_x',
+        name: 'X',
+        description: null,
+        website: 'x.com',
+        logoUrl: null,
+        complianceBadges: [{ type: 'soc2', verified: true }],
+      },
+    ]);
+    mockDb.globalVendors.findMany.mockResolvedValue([]);
+
+    const result = await service.getPublicVendors('capawesome');
+    const types = result[0].complianceBadges.map((b) => b.type);
+
+    expect(types).toEqual(['soc2']);
+  });
+});
+
+describe('TrustAccessService favicon branding', () => {
+  const service = new TrustAccessService(
+    {
+      getSignedUrl: jest.fn(),
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('falls back to organizationId lookup when getPublicFavicon route id is not a friendlyUrl', async () => {
+    mockDb.trust.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      favicon: 'org_123/trust/favicon/icon.png',
+    });
+    mockGetSignedUrl.mockResolvedValue('https://cdn.example.com/favicon.png');
+
+    const result = await service.getPublicFavicon('org_123');
+
+    expect(mockDb.trust.findFirst).toHaveBeenNthCalledWith(1, {
+      where: { friendlyUrl: 'org_123', status: 'published' },
+      select: { favicon: true },
+    });
+    expect(mockDb.trust.findFirst).toHaveBeenNthCalledWith(2, {
+      where: { organizationId: 'org_123', status: 'published' },
+      select: { favicon: true },
+    });
+    expect(result).toBe('https://cdn.example.com/favicon.png');
+    expect(mockGetSignedUrl).toHaveBeenCalledTimes(1);
+    expect(mockGetSignedUrl.mock.calls[0][1]).toBeInstanceOf(GetObjectCommand);
+  });
+
+  it('includes friendlyUrl and faviconUrl in getGrantByAccessToken response', async () => {
+    const futureDate = new Date(Date.now() + 60 * 60 * 1000);
+
+    mockDb.trustAccessGrant.findUnique.mockResolvedValue({
+      id: 'grant_1',
+      status: 'active',
+      expiresAt: futureDate,
+      accessTokenExpiresAt: futureDate,
+      subjectEmail: 'alice@example.com',
+      accessRequest: {
+        organizationId: 'org_123',
+        name: 'Alice',
+        organization: {
+          name: 'Acme Security',
+        },
+      },
+      ndaAgreement: null,
+    });
+    mockDb.trust.findUnique.mockResolvedValue({
+      friendlyUrl: 'acme-security',
+      favicon: 'org_123/trust/favicon/icon.png',
+    });
+    mockGetSignedUrl.mockResolvedValue('https://cdn.example.com/favicon.png');
+
+    const result = await service.getGrantByAccessToken('grant-token');
+
+    expect(result).toMatchObject({
+      organizationName: 'Acme Security',
+      friendlyUrl: 'acme-security',
+      faviconUrl: 'https://cdn.example.com/favicon.png',
+      subjectEmail: 'alice@example.com',
+    });
+  });
+
+  it('includes friendlyUrl and faviconUrl in getNdaByToken response', async () => {
+    const futureDate = new Date(Date.now() + 60 * 60 * 1000);
+
+    mockDb.trustNDAAgreement.findUnique.mockResolvedValue({
+      id: 'nda_1',
+      organizationId: 'org_123',
+      signTokenExpiresAt: futureDate,
+      status: 'pending',
+      accessRequest: {
+        name: 'Alice',
+        email: 'alice@example.com',
+        organization: {
+          name: 'Acme Security',
+        },
+      },
+      grant: null,
+    });
+    mockDb.trust.findUnique
+      .mockResolvedValueOnce({
+        domain: null,
+        domainVerified: false,
+        friendlyUrl: 'acme-security',
+      })
+      .mockResolvedValueOnce({
+        friendlyUrl: 'acme-security',
+        favicon: 'org_123/trust/favicon/icon.png',
+      });
+    mockGetSignedUrl.mockResolvedValue('https://cdn.example.com/favicon.png');
+
+    const result = await service.getNdaByToken('nda-token');
+
+    expect(result).toMatchObject({
+      id: 'nda_1',
+      status: 'pending',
+      organizationName: 'Acme Security',
+      friendlyUrl: 'acme-security',
+      faviconUrl: 'https://cdn.example.com/favicon.png',
+    });
+    expect(result.portalUrl).toContain('/acme-security');
+  });
+});
+
+describe('TrustAccessService approveRequest NDA bypass', () => {
+  const emailService = {
+    sendAccessGrantedEmail: jest.fn(),
+    sendNdaSigningEmail: jest.fn(),
+  };
+  const service = new TrustAccessService(
+    {} as any,
+    emailService as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+  const buildPortalAccessUrlSpy = jest.spyOn(
+    service as any,
+    'buildPortalAccessUrl',
+  );
+
+  const baseRequest = {
+    id: 'tar_1',
+    status: 'under_review',
+    email: 'chang.liu@client.com',
+    name: 'Chang Liu',
+    requestedDurationDays: 30,
+    organization: { name: 'Acme Security' },
+  };
+
+  let txMock: {
+    trustAccessRequest: { update: jest.Mock };
+    trustAccessGrant: { create: jest.Mock };
+    trustNDAAgreement: { create: jest.Mock };
+    auditLog: { create: jest.Mock };
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    txMock = {
+      trustAccessRequest: {
+        update: jest
+          .fn()
+          .mockResolvedValue({ id: 'tar_1', status: 'approved' }),
+      },
+      trustAccessGrant: {
+        create: jest
+          .fn()
+          .mockResolvedValue({ id: 'tag_1', expiresAt: new Date() }),
+      },
+      trustNDAAgreement: {
+        create: jest
+          .fn()
+          .mockResolvedValue({ id: 'tna_1', signToken: 'sign-token' }),
+      },
+      auditLog: { create: jest.fn().mockResolvedValue({}) },
+    };
+    mockDb.trustAccessRequest.findFirst.mockResolvedValue(baseRequest);
+    mockDb.member.findFirst.mockResolvedValue({ id: 'mem_1', userId: 'usr_1' });
+    mockDb.$transaction.mockImplementation(
+      (cb: (tx: typeof txMock) => Promise<unknown>) => cb(txMock),
+    );
+    buildPortalAccessUrlSpy.mockResolvedValue(
+      'https://portal.example.com/access/token',
+    );
+  });
+
+  it('bypasses NDA when the exact email is allow-listed', async () => {
+    mockDb.trust.findUnique.mockResolvedValue({
+      allowedDomains: [],
+      allowedEmails: ['chang.liu@client.com'],
+    });
+
+    const result = await service.approveRequest('org_1', 'tar_1', {}, 'mem_1');
+
+    expect(txMock.trustAccessGrant.create).toHaveBeenCalledTimes(1);
+    expect(txMock.trustNDAAgreement.create).not.toHaveBeenCalled();
+    expect(emailService.sendAccessGrantedEmail).toHaveBeenCalledTimes(1);
+    // The granted email must omit NDA copy since no NDA was signed.
+    expect(emailService.sendAccessGrantedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ ndaBypassed: true }),
+    );
+    expect(emailService.sendNdaSigningEmail).not.toHaveBeenCalled();
+    expect(txMock.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          data: expect.objectContaining({
+            ndaBypassed: true,
+            bypassReason: 'allowed email',
+          }),
+        }),
+      }),
+    );
+    expect(result.message).toBe('Access granted');
+  });
+
+  it('bypasses NDA via domain match and records the domain reason', async () => {
+    mockDb.trust.findUnique.mockResolvedValue({
+      allowedDomains: ['client.com'],
+      allowedEmails: [],
+    });
+
+    await service.approveRequest('org_1', 'tar_1', {}, 'mem_1');
+
+    expect(txMock.trustAccessGrant.create).toHaveBeenCalledTimes(1);
+    expect(emailService.sendAccessGrantedEmail).toHaveBeenCalledTimes(1);
+    expect(emailService.sendAccessGrantedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ ndaBypassed: true }),
+    );
+    expect(txMock.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          data: expect.objectContaining({ bypassReason: 'allowed domain' }),
+        }),
+      }),
+    );
+  });
+
+  it('requires NDA signing when neither email nor domain is allow-listed', async () => {
+    mockDb.trust.findUnique.mockResolvedValue({
+      allowedDomains: ['other.com'],
+      allowedEmails: ['someone@else.com'],
+    });
+
+    const result = await service.approveRequest('org_1', 'tar_1', {}, 'mem_1');
+
+    expect(txMock.trustNDAAgreement.create).toHaveBeenCalledTimes(1);
+    expect(txMock.trustAccessGrant.create).not.toHaveBeenCalled();
+    expect(emailService.sendNdaSigningEmail).toHaveBeenCalledTimes(1);
+    expect(emailService.sendAccessGrantedEmail).not.toHaveBeenCalled();
+    expect(result.message).toBe('NDA signing email sent');
+  });
+});
+
+describe('TrustAccessService resendAccessGrantEmail NDA copy', () => {
+  const emailService = {
+    sendAccessGrantedEmail: jest.fn(),
+  };
+  const service = new TrustAccessService(
+    {} as any,
+    emailService as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+  jest
+    .spyOn(service as any, 'buildPortalAccessUrl')
+    .mockResolvedValue('https://portal.example.com/access/token');
+
+  const baseGrant = {
+    id: 'tag_1',
+    subjectEmail: 'chang.liu@client.com',
+    status: 'active',
+    expiresAt: new Date(Date.now() + 86_400_000),
+    accessToken: 'existing-token',
+    accessTokenExpiresAt: new Date(Date.now() + 86_400_000),
+    accessRequest: {
+      name: 'Chang Liu',
+      organization: { name: 'Acme Security' },
+    },
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('marks the resent email as bypassed when the grant has no NDA agreement', async () => {
+    mockDb.trustAccessGrant.findFirst.mockResolvedValue({
+      ...baseGrant,
+      ndaAgreement: null,
+    });
+
+    await service.resendAccessGrantEmail('org_1', 'tag_1');
+
+    expect(emailService.sendAccessGrantedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ ndaBypassed: true }),
+    );
+  });
+
+  it('keeps NDA copy when the grant has a signed NDA agreement', async () => {
+    mockDb.trustAccessGrant.findFirst.mockResolvedValue({
+      ...baseGrant,
+      ndaAgreement: { status: 'signed' },
+    });
+
+    await service.resendAccessGrantEmail('org_1', 'tag_1');
+
+    expect(emailService.sendAccessGrantedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ ndaBypassed: false }),
+    );
+  });
+
+  it('rotates an expired token to expire with the grant, not a fixed 24h window', async () => {
+    const grantExpiresAt = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+    mockDb.trustAccessGrant.findFirst.mockResolvedValue({
+      ...baseGrant,
+      expiresAt: grantExpiresAt,
+      accessTokenExpiresAt: new Date(Date.now() - 1000),
+      ndaAgreement: null,
+    });
+
+    await service.resendAccessGrantEmail('org_1', 'tag_1');
+
+    expect(mockDb.trustAccessGrant.update).toHaveBeenCalledWith({
+      where: { id: 'tag_1' },
+      data: expect.objectContaining({ accessTokenExpiresAt: grantExpiresAt }),
+    });
+  });
+});
+
+describe('TrustAccessService signNda NDA copy', () => {
+  const ndaPdfService = {
+    generateNdaPdf: jest.fn().mockResolvedValue(Buffer.from('pdf')),
+    uploadNdaPdf: jest.fn().mockResolvedValue('org_1/nda/nda_1.pdf'),
+    getSignedUrl: jest.fn().mockResolvedValue('https://s3.example.com/nda.pdf'),
+  };
+  const emailService = {
+    sendAccessGrantedEmail: jest.fn(),
+  };
+  const service = new TrustAccessService(
+    ndaPdfService as any,
+    emailService as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+  jest
+    .spyOn(service as any, 'buildPortalAccessUrl')
+    .mockResolvedValue('https://portal.example.com/access/token');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDb.trustNDAAgreement.findUnique.mockResolvedValue({
+      id: 'nda_1',
+      organizationId: 'org_1',
+      accessRequestId: 'tar_1',
+      status: 'pending',
+      signTokenExpiresAt: new Date(Date.now() + 86_400_000),
+      grant: null,
+      accessRequest: {
+        requestedDurationDays: 30,
+        organization: { name: 'Acme Security' },
+      },
+    });
+    mockDb.$transaction.mockImplementation(
+      (cb: (tx: unknown) => Promise<unknown>) =>
+        cb({
+          trustAccessGrant: {
+            create: jest
+              .fn()
+              .mockResolvedValue({ id: 'tag_1', expiresAt: new Date() }),
+          },
+          trustNDAAgreement: {
+            update: jest.fn().mockResolvedValue({ id: 'nda_1' }),
+          },
+        }),
+    );
+  });
+
+  it('sends the granted email with NDA copy (ndaBypassed: false) after signing', async () => {
+    await service.signNda(
+      'sign-token',
+      'Chang Liu',
+      'chang.liu@client.com',
+      '1.2.3.4',
+      'jest-agent',
+    );
+
+    expect(emailService.sendAccessGrantedEmail).toHaveBeenCalledTimes(1);
+    expect(emailService.sendAccessGrantedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ ndaBypassed: false }),
+    );
+  });
+});
+
+describe('TrustAccessService findPublishedTrustByRouteId (GH-272)', () => {
+  const service = new TrustAccessService(
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('resolves a published trust row by friendlyUrl', async () => {
+    mockDb.trust.findFirst.mockResolvedValueOnce({
+      organizationId: 'org_1',
+      friendlyUrl: 'acme-security',
+      status: 'published',
+      organization: { name: 'Acme Security' },
+    });
+
+    const result = await (service as any).findPublishedTrustByRouteId(
+      'acme-security',
+    );
+
+    expect(mockDb.trust.findFirst).toHaveBeenCalledWith({
+      where: { friendlyUrl: 'acme-security', status: 'published' },
+      include: { organization: true },
+    });
+    expect(result.organizationId).toBe('org_1');
+  });
+
+  it('falls back to organizationId when no friendlyUrl match exists', async () => {
+    mockDb.trust.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      organizationId: 'org_1',
+      friendlyUrl: 'org_1',
+      status: 'published',
+      organization: { name: 'Acme Security' },
+    });
+
+    const result = await (service as any).findPublishedTrustByRouteId('org_1');
+
+    expect(mockDb.trust.findFirst).toHaveBeenNthCalledWith(2, {
+      where: { organizationId: 'org_1', status: 'published' },
+      include: { organization: true },
+    });
+    expect(result.organizationId).toBe('org_1');
+  });
+
+  it('404s when no trust row exists for the id, without auto-creating one', async () => {
+    mockDb.trust.findFirst.mockResolvedValue(null);
+
+    await expect(
+      (service as any).findPublishedTrustByRouteId('unknown-id'),
+    ).rejects.toThrow('Trust site not found');
+
+    expect(mockDb.trust.create).not.toHaveBeenCalled();
+    expect(mockDb.trust.update).not.toHaveBeenCalled();
+  });
+
+  it('404s for a draft trust row instead of silently auto-publishing it', async () => {
+    // A draft row never matches the status: 'published' filter, so both the
+    // friendlyUrl and organizationId lookups come back empty even though a
+    // row exists in the table.
+    mockDb.trust.findFirst.mockResolvedValue(null);
+
+    await expect(
+      (service as any).findPublishedTrustByRouteId('draft-portal'),
+    ).rejects.toThrow('Trust site not found');
+
+    expect(mockDb.trust.findFirst).toHaveBeenCalledWith({
+      where: { friendlyUrl: 'draft-portal', status: 'published' },
+      include: { organization: true },
+    });
+    expect(mockDb.trust.update).not.toHaveBeenCalled();
+    expect(mockDb.trust.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('TrustAccessService public readers — published-only resolution', () => {
+  // Unauthenticated readers must not resolve draft portals: a draft has to
+  // look exactly like a missing portal (GH-272 follow-up).
+  const service = new TrustAccessService(
+    {
+      getSignedUrl: jest.fn(),
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('getPublicOverview filters on published and returns null for a draft portal', async () => {
+    mockDb.trust.findFirst.mockResolvedValue(null);
+
+    const result = await service.getPublicOverview('draft-portal');
+
+    expect(mockDb.trust.findFirst).toHaveBeenCalledWith({
+      where: { friendlyUrl: 'draft-portal', status: 'published' },
+      select: {
+        overviewTitle: true,
+        overviewContent: true,
+        showOverview: true,
+      },
+    });
+    expect(result).toBeNull();
+  });
+
+  it('getPublicCustomLinks filters on published and returns [] for a draft portal', async () => {
+    mockDb.trust.findFirst.mockResolvedValue(null);
+
+    const result = await service.getPublicCustomLinks('draft-portal');
+
+    expect(mockDb.trust.findFirst).toHaveBeenCalledWith({
+      where: { friendlyUrl: 'draft-portal', status: 'published' },
+      select: { organizationId: true },
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('getPublicVendors filters on published and returns [] for a draft portal', async () => {
+    mockDb.trust.findFirst.mockResolvedValue(null);
+
+    const result = await service.getPublicVendors('draft-portal');
+
+    expect(mockDb.trust.findFirst).toHaveBeenCalledWith({
+      where: { friendlyUrl: 'draft-portal', status: 'published' },
+      select: { organizationId: true },
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('getPublicFavicon filters on published and returns null for a draft portal', async () => {
+    mockDb.trust.findFirst.mockResolvedValue(null);
+
+    const result = await service.getPublicFavicon('draft-portal');
+
+    expect(mockDb.trust.findFirst).toHaveBeenCalledWith({
+      where: { friendlyUrl: 'draft-portal', status: 'published' },
+      select: { favicon: true },
+    });
+    expect(result).toBeNull();
+  });
+
+  it('getPublicSecurityQuestionnaireEnabled filters on published', async () => {
+    mockDb.trust.findFirst.mockResolvedValue(null);
+
+    await service.getPublicSecurityQuestionnaireEnabled('draft-portal');
+
+    expect(mockDb.trust.findFirst).toHaveBeenCalledWith({
+      where: { friendlyUrl: 'draft-portal', status: 'published' },
+      select: { securityQuestionnaireEnabled: true },
+    });
+  });
+});

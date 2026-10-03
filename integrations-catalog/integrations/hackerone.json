@@ -1,0 +1,51 @@
+{
+  "slug": "hackerone",
+  "name": "HackerOne",
+  "description": "Monitor HackerOne bug bounty program for security research and vulnerability management compliance",
+  "category": "Security",
+  "docsUrl": "https://api.hackerone.com/customer-resources/",
+  "baseUrl": "https://api.hackerone.com/",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to HackerOne at https://hackerone.com\n2. Go to your organization → Settings → API Tokens (org-admin required)\n3. Click 'Create API Token', enter an identifier name, copy the generated token value (shown once)\n4. Paste the identifier and token below — Comp will base64-encode them for HTTP Basic auth",
+      "credentialFields": [
+        {
+          "label": "API Identifier",
+          "type": "text",
+          "required": true,
+          "helpText": "The API identifier (username) of an API token created in HackerOne. Create at https://hackerone.com/organizations/<your-org>/api_tokens."
+        },
+        {
+          "label": "API Token",
+          "type": "password",
+          "required": true,
+          "helpText": "The API token value generated alongside the identifier. HackerOne shows it only once at creation."
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "hackerone_internal_security_audit",
+      "name": "Internal Security Audit",
+      "description": "Verifies HackerOne programs are active for continuous security testing",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "hackerone_secure_code",
+      "name": "Secure Code",
+      "description": "Verifies active HackerOne vulnerability reports are being tracked and remediated",
+      "defaultSeverity": "high",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

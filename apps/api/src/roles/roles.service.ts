@@ -1,0 +1,836 @@
+import {
+  Injectable,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { db } from '@db';
+import {
+  statement,
+  allRoles,
+  BUILT_IN_ROLE_PERMISSIONS,
+  BUILT_IN_ROLE_OBLIGATIONS,
+  type RoleObligations,
+} from '@trycompai/auth';
+import type { CreateRoleDto } from './dto/create-role.dto';
+import type { UpdateRoleDto } from './dto/update-role.dto';
+
+// Derive valid resources from the single source of truth
+const VALID_RESOURCES: Record<string, string[]> = Object.fromEntries(
+  Object.entries(statement).map(([k, v]) => [k, [...v]]),
+);
+
+// Built-in roles that cannot be modified or deleted
+const BUILT_IN_ROLES = Object.keys(allRoles);
+
+// Subset of built-in roles whose obligations the customer can override. Today
+// only owner and admin — the others keep their hardcoded defaults to avoid
+// changing behavior for roles the request didn't cover.
+const EDITABLE_BUILT_IN_OBLIGATION_ROLES = new Set(['owner', 'admin']);
+
+function parseObligationsField(value: unknown): RoleObligations {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as RoleObligations;
+    } catch {
+      return {};
+    }
+  }
+  return (value as RoleObligations) || {};
+}
+
+/**
+ * Resolve the effective obligations for a single role, given an optional DB
+ * override row. Centralized so every read path applies the same fallback
+ * rule: a DB row only wins when it explicitly sets `compliance`, otherwise
+ * we fall back to the hardcoded built-in default. Prevents the UI and the
+ * enforcement layer from diverging when a row exists with `{}` obligations.
+ */
+function resolveEffectiveObligations(
+  roleName: string,
+  override: RoleObligations | null,
+): RoleObligations {
+  if (override && 'compliance' in override) return override;
+  if (BUILT_IN_ROLES.includes(roleName)) {
+    return BUILT_IN_ROLE_OBLIGATIONS[roleName] ?? {};
+  }
+  return override ?? {};
+}
+
+@Injectable()
+export class RolesService {
+  /**
+   * Validate that permissions don't include invalid resources or actions
+   */
+  private validatePermissions(permissions: Record<string, string[]>): void {
+    for (const [resource, actions] of Object.entries(permissions)) {
+      if (!VALID_RESOURCES[resource]) {
+        throw new BadRequestException(`Invalid resource: ${resource}`);
+      }
+
+      const validActions = VALID_RESOURCES[resource];
+      for (const action of actions) {
+        if (!validActions.includes(action)) {
+          throw new BadRequestException(
+            `Invalid action '${action}' for resource '${resource}'. Valid actions: ${validActions.join(', ')}`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Enforces the compliance -> portal permission invariant before a role is
+   * persisted: any role whose obligations require compliance (sign policies,
+   * watch training, etc.) must also carry `portal:read/update`. The
+   * custom-role editor UI keeps this in sync as a callback
+   * (PermissionMatrix.tsx's `handleObligationChange`), but that only covers
+   * the one client — a role created or updated any other way (public API,
+   * MCP, a future UI) could set `obligations.compliance` without `portal`
+   * and end up unable to reach portal-gated endpoints (e.g. training video
+   * completions). Normalizing here, right before every write, closes that
+   * gap regardless of caller. One-directional by design: it never strips an
+   * explicitly granted `portal` permission just because compliance is false.
+   */
+  private withCompliancePortalInvariant(
+    permissions: Record<string, string[]>,
+    obligations: RoleObligations,
+  ): Record<string, string[]> {
+    // Exact-equality check, not a truthy check: `obligations` can come from
+    // parsed, unvalidated DB JSON (parseObligationsField casts without
+    // validating), so a malformed non-boolean value like the string
+    // "false" must not be treated as enabled just because it's truthy.
+    if (obligations.compliance !== true) return permissions;
+
+    const portalActions = new Set([
+      ...(permissions.portal ?? []),
+      ...statement.portal,
+    ]);
+    return { ...permissions, portal: [...portalActions] };
+  }
+
+  /**
+   * Resources/actions present in `after` but not in `before` — what this
+   * request would actually grant that the role didn't already have. Used so
+   * an update only needs privilege-escalation validation for what's newly
+   * granted, not the role's entire resulting permission set: re-checking
+   * everything would fail an obligations-only (or otherwise unrelated)
+   * update against a role that already holds a permission the caller
+   * themselves doesn't have, even though that permission was legitimately
+   * granted earlier and this request isn't touching it.
+   */
+  private diffNewlyGrantedPermissions(
+    before: Record<string, string[]>,
+    after: Record<string, string[]>,
+  ): Record<string, string[]> {
+    const added: Record<string, string[]> = {};
+    for (const [resource, actions] of Object.entries(after)) {
+      const beforeActions = before[resource] ?? [];
+      const newActions = actions.filter(
+        (action) => !beforeActions.includes(action),
+      );
+      if (newActions.length > 0) {
+        added[resource] = newActions;
+      }
+    }
+    return added;
+  }
+
+  /**
+   * Check if caller has all the permissions they're trying to grant.
+   * Prevents privilege escalation.
+   */
+  private async validateNoPrivilegeEscalation(
+    callerRoles: string[],
+    permissions: Record<string, string[]>,
+    organizationId: string,
+  ): Promise<void> {
+    // Get the caller's combined effective permissions from all their roles
+    const callerPermissions = await this.getCombinedPermissions(
+      callerRoles,
+      organizationId,
+    );
+
+    for (const [resource, actions] of Object.entries(permissions)) {
+      const callerActions = callerPermissions[resource] || [];
+
+      for (const action of actions) {
+        if (!callerActions.includes(action)) {
+          throw new ForbiddenException(
+            `Cannot grant '${resource}:${action}' permission - you don't have this permission`,
+          );
+        }
+      }
+    }
+
+    // Special check: only owners can grant organization:delete
+    if (
+      permissions.organization?.includes('delete') &&
+      !callerRoles.includes('owner')
+    ) {
+      throw new ForbiddenException(
+        'Only organization owners can grant organization:delete permission',
+      );
+    }
+  }
+
+  /**
+   * Get combined permissions from multiple roles
+   * Merges permissions from all roles (union of all permissions)
+   */
+  /**
+   * Resolve combined permissions for a set of role names (built-in + custom).
+   */
+  async resolvePermissions(
+    organizationId: string,
+    roleNames: string[],
+  ): Promise<Record<string, string[]>> {
+    return this.getCombinedPermissions(roleNames, organizationId);
+  }
+
+  private async getCombinedPermissions(
+    roleNames: string[],
+    organizationId: string,
+  ): Promise<Record<string, string[]>> {
+    const combined: Record<string, string[]> = {};
+
+    for (const roleName of roleNames) {
+      const rolePermissions = await this.getEffectivePermissions(
+        roleName,
+        organizationId,
+      );
+
+      for (const [resource, actions] of Object.entries(rolePermissions)) {
+        if (!combined[resource]) {
+          combined[resource] = [];
+        }
+        // Add unique actions
+        for (const action of actions) {
+          if (!combined[resource].includes(action)) {
+            combined[resource].push(action);
+          }
+        }
+      }
+    }
+
+    return combined;
+  }
+
+  /**
+   * Get effective permissions for a role
+   */
+  private async getEffectivePermissions(
+    roleName: string,
+    organizationId: string,
+  ): Promise<Record<string, string[]>> {
+    // Check if it's a built-in role
+    if (BUILT_IN_ROLES.includes(roleName)) {
+      return BUILT_IN_ROLE_PERMISSIONS[roleName] || {};
+    }
+
+    // For custom roles, look up in database
+    const customRole = await db.organizationRole.findFirst({
+      where: {
+        organizationId,
+        name: roleName,
+      },
+    });
+
+    if (customRole) {
+      const perms =
+        typeof customRole.permissions === 'string'
+          ? JSON.parse(customRole.permissions)
+          : customRole.permissions;
+      return perms as Record<string, string[]>;
+    }
+
+    return {};
+  }
+
+  /**
+   * Create a new custom role
+   * @param callerRoles Array of roles the caller has (supports multiple roles)
+   */
+  async createRole(
+    organizationId: string,
+    dto: CreateRoleDto,
+    callerRoles: string[],
+  ) {
+    // Validate role name isn't a built-in role
+    if (BUILT_IN_ROLES.includes(dto.name)) {
+      throw new BadRequestException(
+        `Cannot create role with reserved name: ${dto.name}`,
+      );
+    }
+
+    // Validate permission shape (resource/action names) as submitted.
+    this.validatePermissions(dto.permissions);
+
+    // Derive the final permission set (including the compliance -> portal
+    // invariant) before checking privilege escalation, so a caller can't
+    // grant themselves/others portal access merely by setting
+    // obligations.compliance=true without explicitly requesting 'portal'.
+    const obligations = dto.obligations || {};
+    const permissions = this.withCompliancePortalInvariant(
+      dto.permissions,
+      obligations,
+    );
+
+    // Check for privilege escalation against the FINAL permission set.
+    await this.validateNoPrivilegeEscalation(
+      callerRoles,
+      permissions,
+      organizationId,
+    );
+
+    // Check if role already exists
+    const existing = await db.organizationRole.findFirst({
+      where: {
+        organizationId,
+        name: dto.name,
+      },
+    });
+
+    if (existing) {
+      throw new BadRequestException(`Role '${dto.name}' already exists`);
+    }
+
+    // Check max roles limit — exclude rows that exist solely as obligation
+    // overrides for built-in roles, since those don't count against the
+    // customer's 20-custom-role budget.
+    const roleCount = await db.organizationRole.count({
+      where: { organizationId, name: { notIn: BUILT_IN_ROLES } },
+    });
+
+    if (roleCount >= 20) {
+      throw new BadRequestException(
+        'Maximum of 20 custom roles per organization',
+      );
+    }
+
+    // Create the role
+    const role = await db.organizationRole.create({
+      data: {
+        name: dto.name,
+        permissions: JSON.stringify(permissions),
+        obligations: JSON.stringify(obligations),
+        organizationId,
+      },
+    });
+
+    return {
+      ...role,
+      permissions: JSON.parse(role.permissions),
+      obligations: JSON.parse(role.obligations) as RoleObligations,
+    };
+  }
+
+  /**
+   * List all roles for an organization (built-in + custom)
+   */
+  async listRoles(organizationId: string) {
+    // Get all organization_role rows; rows named after a built-in role are
+    // obligation overrides, not custom roles.
+    const allRows = await db.organizationRole.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+    });
+    const overrideByName = new Map<string, (typeof allRows)[number]>();
+    const customRoles = allRows.filter((r) => {
+      if (BUILT_IN_ROLES.includes(r.name)) {
+        overrideByName.set(r.name, r);
+        return false;
+      }
+      return true;
+    });
+
+    // Get member counts for custom roles
+    const memberCounts = await Promise.all(
+      customRoles.map(async (role) => {
+        const count = await db.member.count({
+          where: { organizationId, role: { contains: role.name } },
+        });
+        return { roleId: role.id, count };
+      }),
+    );
+    const countMap = new Map(memberCounts.map((mc) => [mc.roleId, mc.count]));
+
+    // Include built-in roles info (with effective obligations: override or default)
+    const builtInRoles = BUILT_IN_ROLES.map((name) => {
+      const override = overrideByName.get(name);
+      const parsed = override ? parseObligationsField(override.obligations) : null;
+      return {
+        name,
+        isBuiltIn: true,
+        description: this.getBuiltInRoleDescription(name),
+        obligations: resolveEffectiveObligations(name, parsed),
+      };
+    });
+
+    return {
+      builtInRoles,
+      customRoles: customRoles.map((r) => ({
+        id: r.id,
+        name: r.name,
+        permissions:
+          typeof r.permissions === 'string'
+            ? JSON.parse(r.permissions)
+            : r.permissions,
+        obligations:
+          typeof r.obligations === 'string'
+            ? JSON.parse(r.obligations)
+            : r.obligations || {},
+        isBuiltIn: false,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+        _count: { members: countMap.get(r.id) ?? 0 },
+      })),
+    };
+  }
+
+  /**
+   * Get a single role by ID
+   */
+  async getRole(organizationId: string, roleId: string) {
+    const role = await db.organizationRole.findFirst({
+      where: {
+        id: roleId,
+        organizationId,
+      },
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Role not found: ${roleId}`);
+    }
+
+    const memberCount = await db.member.count({
+      where: { organizationId, role: { contains: role.name } },
+    });
+
+    return {
+      id: role.id,
+      name: role.name,
+      permissions:
+        typeof role.permissions === 'string'
+          ? JSON.parse(role.permissions)
+          : role.permissions,
+      obligations:
+        typeof role.obligations === 'string'
+          ? JSON.parse(role.obligations)
+          : role.obligations || {},
+      isBuiltIn: false,
+      createdAt: role.createdAt.toISOString(),
+      updatedAt: role.updatedAt.toISOString(),
+      _count: { members: memberCount },
+    };
+  }
+
+  /**
+   * Update a custom role
+   * @param callerRoles Array of roles the caller has (supports multiple roles)
+   */
+  async updateRole(
+    organizationId: string,
+    roleId: string,
+    dto: UpdateRoleDto,
+    callerRoles: string[],
+  ) {
+    const role = await db.organizationRole.findFirst({
+      where: {
+        id: roleId,
+        organizationId,
+      },
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Role not found: ${roleId}`);
+    }
+
+    // Validate new name if provided
+    if (dto.name && BUILT_IN_ROLES.includes(dto.name)) {
+      throw new BadRequestException(`Cannot use reserved name: ${dto.name}`);
+    }
+
+    // Check name uniqueness if changing name
+    if (dto.name && dto.name !== role.name) {
+      const existing = await db.organizationRole.findFirst({
+        where: {
+          organizationId,
+          name: dto.name,
+        },
+      });
+
+      if (existing) {
+        throw new BadRequestException(`Role '${dto.name}' already exists`);
+      }
+    }
+
+    // Validate permission shape (resource/action names) as submitted.
+    if (dto.permissions) {
+      this.validatePermissions(dto.permissions);
+    }
+
+    // Re-derive the compliance -> portal invariant whenever either
+    // permissions or obligations change, using the existing row's stored
+    // value for whichever side wasn't part of this request (e.g. an
+    // obligations-only update must still see the role's current
+    // permissions to merge portal into).
+    let permissionsToPersist: Record<string, string[]> | undefined;
+    if (dto.permissions !== undefined || dto.obligations !== undefined) {
+      const existingPermissions: Record<string, string[]> =
+        typeof role.permissions === 'string'
+          ? (JSON.parse(role.permissions) as Record<string, string[]>)
+          : role.permissions;
+      const effectiveObligations =
+        dto.obligations !== undefined
+          ? dto.obligations
+          : parseObligationsField(role.obligations);
+      const effectivePermissions =
+        dto.permissions !== undefined ? dto.permissions : existingPermissions;
+      permissionsToPersist = this.withCompliancePortalInvariant(
+        effectivePermissions,
+        effectiveObligations,
+      );
+
+      // Validate only what this request would newly grant relative to the
+      // role's current permissions — not the entire resulting set. This
+      // still catches the portal grant the invariant above may have just
+      // added on an obligations-only update (no `dto.permissions` at all),
+      // which would otherwise let a caller without portal access grant it
+      // to a role simply by toggling the compliance obligation. But it
+      // must NOT re-validate permissions the role already legitimately
+      // held before this request — otherwise an obligations-only (or
+      // otherwise unrelated) update fails whenever the role holds some
+      // permission the caller doesn't personally have, even though this
+      // request isn't touching it.
+      const newlyGranted = this.diffNewlyGrantedPermissions(
+        existingPermissions,
+        permissionsToPersist,
+      );
+      if (Object.keys(newlyGranted).length > 0) {
+        await this.validateNoPrivilegeEscalation(
+          callerRoles,
+          newlyGranted,
+          organizationId,
+        );
+      }
+    }
+
+    // Update the role, guarded by an optimistic-concurrency check on
+    // `updatedAt`. The privilege-escalation validation above ran against
+    // the `role` snapshot read at the top of this function — if another
+    // request changed the row in between (e.g. an owner just revoked a
+    // permission from it), writing unconditionally here could silently
+    // reintroduce that permission on top of the concurrent change, never
+    // validated against the caller who's making THIS request. `updateMany`
+    // (unlike `update`, whose `where` is restricted to unique fields) can
+    // include `updatedAt` in the filter, so the write only applies if the
+    // row still matches the exact version we validated against; `count`
+    // tells us whether it did.
+    //
+    // `writeTimestamp` is set explicitly (overriding the `@updatedAt`
+    // default) rather than left to Prisma/Postgres, so the exact value
+    // persisted is known without reading it back.
+    const writeTimestamp = new Date(
+      Math.max(Date.now(), role.updatedAt.getTime() + 1),
+    );
+    const updateResult = await db.organizationRole.updateMany({
+      where: { id: roleId, organizationId, updatedAt: role.updatedAt },
+      data: {
+        ...(dto.name && { name: dto.name }),
+        ...(permissionsToPersist && {
+          permissions: JSON.stringify(permissionsToPersist),
+        }),
+        ...(dto.obligations !== undefined && {
+          obligations: JSON.stringify(dto.obligations),
+        }),
+        updatedAt: writeTimestamp,
+      },
+    });
+
+    if (updateResult.count === 0) {
+      throw new ConflictException(
+        `Role '${role.name}' was modified by another request. Please retry.`,
+      );
+    }
+
+    // Built from what this request validated and just conditionally wrote —
+    // not from a separate read after the fact. A second read here would
+    // reopen the same race: another request could write in the gap between
+    // our conditional update and that read, and this response would then
+    // reflect that other request's state instead of the version this
+    // request actually validated and persisted.
+    return {
+      id: role.id,
+      name: dto.name ?? role.name,
+      permissions:
+        permissionsToPersist ??
+        (typeof role.permissions === 'string'
+          ? JSON.parse(role.permissions)
+          : role.permissions),
+      obligations:
+        dto.obligations !== undefined
+          ? dto.obligations
+          : typeof role.obligations === 'string'
+            ? JSON.parse(role.obligations)
+            : role.obligations || {},
+      isBuiltIn: false,
+      createdAt: role.createdAt,
+      updatedAt: writeTimestamp,
+    };
+  }
+
+  /**
+   * Delete a custom role
+   */
+  async deleteRole(organizationId: string, roleId: string) {
+    const role = await db.organizationRole.findFirst({
+      where: {
+        id: roleId,
+        organizationId,
+      },
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Role not found: ${roleId}`);
+    }
+
+    // Check if any members are assigned to this role
+    const membersWithRole = await db.member.count({
+      where: {
+        organizationId,
+        role: role.name,
+      },
+    });
+
+    if (membersWithRole > 0) {
+      throw new BadRequestException(
+        `Cannot delete role '${role.name}' - ${membersWithRole} member(s) are assigned to it. ` +
+          `Reassign them to a different role first.`,
+      );
+    }
+
+    // Delete the role
+    await db.organizationRole.delete({
+      where: { id: roleId },
+    });
+
+    return { success: true, message: `Role '${role.name}' deleted` };
+  }
+
+  /**
+   * Get merged permissions for a list of custom role names.
+   * Used by the frontend to resolve effective permissions for custom roles.
+   */
+  async getPermissionsForRoles(
+    organizationId: string,
+    roleNames: string[],
+  ): Promise<Record<string, string[]>> {
+    if (roleNames.length === 0) return {};
+
+    const customRoles = await db.organizationRole.findMany({
+      where: {
+        organizationId,
+        name: { in: roleNames },
+      },
+    });
+
+    const combined: Record<string, string[]> = {};
+    for (const role of customRoles) {
+      const perms =
+        typeof role.permissions === 'string'
+          ? JSON.parse(role.permissions)
+          : role.permissions;
+      for (const [resource, actions] of Object.entries(
+        perms as Record<string, string[]>,
+      )) {
+        if (!combined[resource]) {
+          combined[resource] = [];
+        }
+        for (const action of actions) {
+          if (!combined[resource].includes(action)) {
+            combined[resource].push(action);
+          }
+        }
+      }
+    }
+
+    return combined;
+  }
+
+  /**
+   * Filter a list of members down to those whose combined role permissions
+   * grant the given `resource:action`. Built-in role definitions come from
+   * `BUILT_IN_ROLE_PERMISSIONS`; custom roles are fetched in a single batched
+   * `organizationRole.findMany` keyed by the distinct role names present in
+   * the input.
+   *
+   * Matches better-auth's `hasPermissionFn` semantics: comma-separated roles
+   * in `member.role` are treated as a union (ANY role granting the permission
+   * is sufficient). Unknown role names are skipped silently.
+   */
+  async filterMembersWithPermission<M extends { role: string | null }>(
+    organizationId: string,
+    members: M[],
+    resource: string,
+    action: string,
+  ): Promise<M[]> {
+    if (members.length === 0) return [];
+
+    const distinctRoles = new Set<string>();
+    for (const m of members) {
+      if (!m.role) continue;
+      for (const r of m.role.split(',').map((r) => r.trim()).filter(Boolean)) {
+        distinctRoles.add(r);
+      }
+    }
+    if (distinctRoles.size === 0) return [];
+
+    const customRoleNames = [...distinctRoles].filter(
+      (r) => !BUILT_IN_ROLES.includes(r),
+    );
+
+    const customRoles =
+      customRoleNames.length > 0
+        ? await db.organizationRole.findMany({
+            where: { organizationId, name: { in: customRoleNames } },
+            select: { name: true, permissions: true },
+          })
+        : [];
+
+    const permsByRole = new Map<string, Record<string, string[]>>();
+    for (const name of distinctRoles) {
+      if (BUILT_IN_ROLES.includes(name)) {
+        permsByRole.set(name, BUILT_IN_ROLE_PERMISSIONS[name] ?? {});
+      } else {
+        const custom = customRoles.find((c) => c.name === name);
+        if (!custom) continue;
+        const perms =
+          typeof custom.permissions === 'string'
+            ? (JSON.parse(custom.permissions) as Record<string, string[]>)
+            : (custom.permissions as Record<string, string[]>);
+        permsByRole.set(name, perms);
+      }
+    }
+
+    return members.filter((m) => {
+      if (!m.role) return false;
+      const roles = m.role
+        .split(',')
+        .map((r) => r.trim())
+        .filter(Boolean);
+      return roles.some((r) => permsByRole.get(r)?.[resource]?.includes(action));
+    });
+  }
+
+  /**
+   * Get merged obligations for a list of role names (custom + built-in).
+   *
+   * Built-in roles default to `BUILT_IN_ROLE_OBLIGATIONS[name]`, but an
+   * organization can override by storing an `organization_role` row with the
+   * built-in name — the DB row wins when present.
+   */
+  async getObligationsForRoles(
+    organizationId: string,
+    roleNames: string[],
+  ): Promise<RoleObligations> {
+    if (roleNames.length === 0) return {};
+
+    const dbRoles = await db.organizationRole.findMany({
+      where: { organizationId, name: { in: roleNames } },
+      select: { name: true, obligations: true },
+    });
+    const overrideByName = new Map<string, RoleObligations>();
+    for (const role of dbRoles) {
+      overrideByName.set(role.name, parseObligationsField(role.obligations));
+    }
+
+    const combined: RoleObligations = {};
+    for (const name of roleNames) {
+      const fromDb = overrideByName.get(name) ?? null;
+      const effective = resolveEffectiveObligations(name, fromDb);
+      if (effective.compliance) combined.compliance = true;
+    }
+
+    return combined;
+  }
+
+  /**
+   * Upsert an obligation override for a built-in role. The `organization_role`
+   * row stores only the obligations JSON; permissions stay sourced from the
+   * hardcoded `BUILT_IN_ROLE_PERMISSIONS` map.
+   *
+   * Only owner and admin obligations are user-overridable today (matches the
+   * customer request); the other built-in roles keep their hardcoded defaults.
+   */
+  async updateBuiltInObligations(
+    organizationId: string,
+    roleName: string,
+    obligations: RoleObligations,
+  ) {
+    if (!BUILT_IN_ROLES.includes(roleName)) {
+      throw new BadRequestException(`Not a built-in role: ${roleName}`);
+    }
+    if (!EDITABLE_BUILT_IN_OBLIGATION_ROLES.has(roleName)) {
+      throw new BadRequestException(
+        `Obligations are not editable for role: ${roleName}`,
+      );
+    }
+
+    const permissions = JSON.stringify(BUILT_IN_ROLE_PERMISSIONS[roleName] ?? {});
+    const obligationsJson = JSON.stringify(obligations);
+
+    const role = await db.organizationRole.upsert({
+      where: { organizationId_name: { organizationId, name: roleName } },
+      create: {
+        organizationId,
+        name: roleName,
+        permissions,
+        obligations: obligationsJson,
+      },
+      update: { obligations: obligationsJson },
+    });
+
+    return {
+      name: role.name,
+      obligations: JSON.parse(role.obligations) as RoleObligations,
+    };
+  }
+
+  /**
+   * Read the obligations for a single built-in role for this organization —
+   * DB override if present, else the hardcoded default.
+   */
+  async getBuiltInObligations(
+    organizationId: string,
+    roleName: string,
+  ): Promise<RoleObligations> {
+    if (!BUILT_IN_ROLES.includes(roleName)) {
+      throw new BadRequestException(`Not a built-in role: ${roleName}`);
+    }
+
+    const override = await db.organizationRole.findFirst({
+      where: { organizationId, name: roleName },
+      select: { obligations: true },
+    });
+    const parsed = override ? parseObligationsField(override.obligations) : null;
+    return resolveEffectiveObligations(roleName, parsed);
+  }
+
+  /**
+   * Get description for built-in roles
+   */
+  private getBuiltInRoleDescription(name: string): string {
+    const descriptions: Record<string, string> = {
+      owner: 'Full access to everything including organization deletion',
+      admin: 'Full access except organization deletion',
+      auditor:
+        'Read-only access with export capabilities for compliance audits',
+      employee:
+        'Limited access to assigned tasks and basic compliance activities',
+      contractor: 'Limited access similar to employee for external contractors',
+    };
+    return descriptions[name] || '';
+  }
+}

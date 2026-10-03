@@ -1,0 +1,427 @@
+import { z } from 'zod';
+
+// ============================================================================
+// Expression Operators
+// ============================================================================
+
+export const ComparisonOperator = z.enum([
+  'eq',
+  'neq',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'exists',
+  'notExists',
+  'truthy',
+  'falsy',
+  'contains',
+  'matches',
+  'in',
+  'age_within_days',
+  'age_exceeds_days',
+]);
+
+export type ComparisonOperator = z.infer<typeof ComparisonOperator>;
+
+// ============================================================================
+// Condition Schema
+// ============================================================================
+
+export const ConditionSchema: z.ZodType<Condition> = z.lazy(() =>
+  z.union([
+    z.object({
+      field: z.string(),
+      operator: ComparisonOperator,
+      value: z.unknown().optional(),
+    }),
+    z.object({
+      op: z.literal('and'),
+      conditions: z.array(ConditionSchema),
+    }),
+    z.object({
+      op: z.literal('or'),
+      conditions: z.array(ConditionSchema),
+    }),
+    z.object({
+      op: z.literal('not'),
+      condition: ConditionSchema,
+    }),
+  ]),
+);
+
+export type FieldCondition = {
+  field: string;
+  operator: ComparisonOperator;
+  value?: unknown;
+};
+
+export type LogicalCondition =
+  | { op: 'and'; conditions: Condition[] }
+  | { op: 'or'; conditions: Condition[] }
+  | { op: 'not'; condition: Condition };
+
+export type Condition = FieldCondition | LogicalCondition;
+
+// ============================================================================
+// Result Template
+// ============================================================================
+
+export const ResultTemplateSchema = z.object({
+  title: z.string(),
+  description: z.string().optional(),
+  resourceType: z.string(),
+  resourceId: z.string(),
+  severity: z.enum(['info', 'low', 'medium', 'high', 'critical']).optional(),
+  remediation: z.string().optional(),
+  evidence: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type ResultTemplate = z.infer<typeof ResultTemplateSchema>;
+
+// ============================================================================
+// Pagination Config
+// ============================================================================
+
+export const PaginationConfigSchema = z.discriminatedUnion('strategy', [
+  z.object({
+    strategy: z.literal('cursor'),
+    cursorParam: z.string(),
+    cursorPath: z.string(),
+    dataPath: z.string(),
+    params: z.record(z.string(), z.string()).optional(),
+    maxPages: z.number().optional(),
+  }),
+  z.object({
+    strategy: z.literal('page'),
+    pageParam: z.string().optional(),
+    perPageParam: z.string().optional(),
+    perPage: z.number().optional(),
+    dataPath: z.string().optional(),
+    maxPages: z.number().optional(),
+  }),
+  z.object({
+    strategy: z.literal('link'),
+    params: z.record(z.string(), z.string()).optional(),
+    maxPages: z.number().optional(),
+  }),
+]);
+
+export type PaginationConfig = z.infer<typeof PaginationConfigSchema>;
+
+// ============================================================================
+// DSL Step Types
+// ============================================================================
+
+export const FetchStepSchema = z.object({
+  type: z.literal('fetch'),
+  path: z.string(),
+  as: z.string(),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
+  params: z.record(z.string(), z.string()).optional(),
+  body: z.unknown().optional(),
+  bodyEncoding: z.enum(['json', 'form']).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  dataPath: z.string().optional(),
+  onError: z.enum(['fail', 'skip', 'empty']).optional(),
+});
+
+export type FetchStep = z.infer<typeof FetchStepSchema>;
+
+export const FetchPagesStepSchema = z.object({
+  type: z.literal('fetchPages'),
+  path: z.string(),
+  as: z.string(),
+  pagination: PaginationConfigSchema,
+  params: z.record(z.string(), z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  onError: z.enum(['fail', 'skip', 'empty']).optional(),
+});
+
+export type FetchPagesStep = z.infer<typeof FetchPagesStepSchema>;
+
+export const ForEachStepSchema: z.ZodType<ForEachStep> = z.lazy(() =>
+  z.object({
+    type: z.literal('forEach'),
+    collection: z.string(),
+    itemAs: z.string(),
+    resourceType: z.string(),
+    resourceIdPath: z.string(),
+    filter: ConditionSchema.optional(),
+    conditions: z.array(ConditionSchema),
+    onPass: ResultTemplateSchema,
+    onFail: ResultTemplateSchema,
+    steps: z.array(DSLStepSchema).optional(),
+  }),
+);
+
+export type ForEachStep = {
+  type: 'forEach';
+  collection: string;
+  itemAs: string;
+  resourceType: string;
+  resourceIdPath: string;
+  filter?: Condition;
+  conditions: Condition[];
+  onPass: ResultTemplate;
+  onFail: ResultTemplate;
+  steps?: DSLStep[];
+};
+
+export const AggregateStepSchema = z.object({
+  type: z.literal('aggregate'),
+  collection: z.string(),
+  operation: z.enum(['count', 'countWhere', 'sum', 'avg', 'min', 'max']),
+  field: z.string().optional(),
+  filter: ConditionSchema.optional(),
+  as: z.string().optional(),
+  condition: z.object({
+    operator: ComparisonOperator,
+    value: z.unknown(),
+  }),
+  onPass: ResultTemplateSchema,
+  onFail: ResultTemplateSchema,
+});
+
+export type AggregateStep = z.infer<typeof AggregateStepSchema>;
+
+export const BranchStepSchema: z.ZodType<BranchStep> = z.lazy(() =>
+  z.object({
+    type: z.literal('branch'),
+    condition: ConditionSchema,
+    then: z.array(DSLStepSchema),
+    else: z.array(DSLStepSchema).optional(),
+  }),
+);
+
+export type BranchStep = {
+  type: 'branch';
+  condition: Condition;
+  then: DSLStep[];
+  else?: DSLStep[];
+};
+
+export const EmitStepSchema = z.object({
+  type: z.literal('emit'),
+  result: z.enum(['pass', 'fail']),
+  template: ResultTemplateSchema,
+});
+
+export type EmitStep = z.infer<typeof EmitStepSchema>;
+
+export const CodeStepSchema = z.object({
+  type: z.literal('code'),
+  code: z.string().min(1),
+});
+
+export type CodeStep = z.infer<typeof CodeStepSchema>;
+
+// ============================================================================
+// Union of All Steps
+// ============================================================================
+
+export const DSLStepSchema: z.ZodType<DSLStep> = z.lazy(() =>
+  z.union([
+    FetchStepSchema,
+    FetchPagesStepSchema,
+    ForEachStepSchema,
+    AggregateStepSchema,
+    BranchStepSchema,
+    EmitStepSchema,
+    CodeStepSchema,
+  ]),
+);
+
+export type DSLStep =
+  | FetchStep
+  | FetchPagesStep
+  | ForEachStep
+  | AggregateStep
+  | BranchStep
+  | EmitStep
+  | CodeStep;
+
+// ============================================================================
+// Shared Variable Schema (used by checks, sync, and integration definitions)
+// ============================================================================
+
+export const VariableSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  type: z.enum(['text', 'number', 'boolean', 'select', 'multi-select']),
+  required: z.boolean().optional(),
+  default: z.unknown().optional(),
+  helpText: z.string().optional(),
+  options: z
+    .array(z.object({ value: z.string(), label: z.string() }))
+    .optional(),
+});
+
+// ============================================================================
+// Check Definition (the top-level DSL object)
+// ============================================================================
+
+export const CheckDefinitionSchema = z.object({
+  steps: z.array(DSLStepSchema),
+  variables: z.array(VariableSchema).optional(),
+});
+
+export type CheckDefinition = z.infer<typeof CheckDefinitionSchema>;
+
+// ============================================================================
+// Sync Definition (for dynamic employee sync)
+// ============================================================================
+
+export const SyncEmployeeSchema = z.object({
+  email: z.string(),
+  name: z.string().optional(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  externalId: z.string().optional(),
+  status: z.enum(['active', 'inactive', 'suspended']),
+  role: z.string().optional(),
+  department: z.string().optional(),
+  startDate: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type SyncEmployee = z.infer<typeof SyncEmployeeSchema>;
+
+export const SyncDefinitionSchema = z.object({
+  steps: z.array(DSLStepSchema),
+  employeesPath: z.string().default('employees'),
+  /**
+   * For device sync definitions: the scope path that the DSL steps populate
+   * with the standardized device list. Defaults to `devices`. Ignored by the
+   * employee interpreter (which uses `employeesPath`).
+   */
+  devicesPath: z.string().optional().default('devices'),
+  variables: z.array(VariableSchema).optional(),
+  /**
+   * Whether this provider is authoritative for "who works here" (directory of record).
+   *
+   * Set true ONLY for HRIS / identity providers (Google Workspace, Rippling, JumpCloud,
+   * Okta, Entra) whose user list equals the employee list. When true, the sync deactivates
+   * org members in this provider's email domain who were not returned by the sync.
+   *
+   * Default false — feature-licensed tools (Confluence, Slack, Notion, GitHub, Jira) only
+   * know "who has product access," not "who works here." Treating them as authoritative
+   * silently deactivates real employees whenever the API returns a partial list (privacy
+   * filters, scope gaps, paginated breaks, etc.).
+   */
+  isDirectorySource: z.boolean().optional().default(false),
+});
+
+export type SyncDefinition = z.infer<typeof SyncDefinitionSchema>;
+
+// ============================================================================
+// Sync Device Schema (for dynamic device sync)
+// ============================================================================
+
+/**
+ * A single security/compliance check as reported by the SOURCE (the MDM /
+ * provider), in the provider's own vocabulary. Universal on purpose: every
+ * provider reports a different subset (or none), so nothing here is assumed.
+ */
+export const SyncDeviceCheckSchema = z.object({
+  /** Stable slug from the provider, e.g. 'disk_encryption', 'firewall'. */
+  id: z.string().min(1).max(64),
+  /** Display name in the provider's own wording, e.g. 'BitLocker'. */
+  label: z.string().min(1).max(120),
+  passed: z.boolean(),
+});
+
+export type SyncDeviceCheck = z.infer<typeof SyncDeviceCheckSchema>;
+
+export const SyncDeviceSchema = z.object({
+  name: z.string(),
+  platform: z.enum(['macos', 'windows', 'linux']),
+  serialNumber: z.string().optional(),
+  hostname: z.string().optional(),
+  osVersion: z.string().optional(),
+  hardwareModel: z.string().optional(),
+  userEmail: z.string(),
+  status: z.enum(['active', 'inactive']),
+  externalId: z.string().optional(),
+  /**
+   * Provider-reported compliance — all optional because providers differ in
+   * what (if anything) they report. Omitted fields render as "Not tracked" in
+   * the UI; only what the source actually knows is shown.
+   */
+  isCompliant: z.boolean().optional(),
+  /** Capped so a buggy definition can't stuff megabytes into device rows. */
+  checks: z.array(SyncDeviceCheckSchema).max(50).optional(),
+  /**
+   * When the device last contacted the PROVIDER (e.g. Intune lastSyncDateTime),
+   * ISO 8601. Feeds the device list's "Last seen" column and online indicator.
+   * offset:true — providers commonly return timezone offsets (+02:00), and a
+   * rejected timestamp would drop the whole device from the sync.
+   */
+  lastSeenAt: z.string().datetime({ offset: true }).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type SyncDevice = z.infer<typeof SyncDeviceSchema>;
+
+// ============================================================================
+// Dynamic Integration Definition (full manifest + checks as JSON)
+// ============================================================================
+
+export const DynamicIntegrationDefinitionSchema = z.object({
+  slug: z.string().regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  category: z.enum([
+    'Cloud',
+    'Identity & Access',
+    'HR & People',
+    'Development',
+    'Communication',
+    'Monitoring',
+    'Infrastructure',
+    'Security',
+    'Productivity',
+  ]),
+  logoUrl: z.string().url(),
+  docsUrl: z.string().url().optional(),
+  baseUrl: z.string().url().optional(),
+  defaultHeaders: z.record(z.string(), z.string()).optional(),
+  authConfig: z.object({
+    type: z.enum(['oauth2', 'api_key', 'basic', 'jwt', 'custom']),
+    config: z.record(z.string(), z.unknown()),
+  }),
+  capabilities: z
+    .array(z.enum(['checks', 'webhook', 'sync', 'device_sync']))
+    .default(['checks']),
+  supportsMultipleConnections: z.boolean().optional(),
+  syncDefinition: SyncDefinitionSchema.optional(),
+  deviceSyncDefinition: SyncDefinitionSchema.optional(),
+  services: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string(),
+      enabledByDefault: z.boolean().optional(),
+      implemented: z.boolean().optional(),
+    }),
+  ).optional(),
+  checks: z.array(
+    z.object({
+      checkSlug: z.string().regex(/^[a-z0-9_]+$/, 'Check slug must be lowercase alphanumeric with underscores'),
+      name: z.string().min(1),
+      description: z.string().min(1),
+      taskMapping: z.string().optional(),
+      defaultSeverity: z.enum(['info', 'low', 'medium', 'high', 'critical']).optional(),
+      service: z.string().optional(),
+      definition: CheckDefinitionSchema,
+      variables: z.array(VariableSchema)
+        .optional(),
+      isEnabled: z.boolean().optional(),
+      sortOrder: z.number().optional(),
+    }),
+  ),
+});
+
+export type DynamicIntegrationDefinition = z.infer<
+  typeof DynamicIntegrationDefinitionSchema
+>;

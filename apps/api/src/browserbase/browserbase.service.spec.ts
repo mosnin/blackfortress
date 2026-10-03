@@ -1,0 +1,375 @@
+// apps/api/src/browserbase/browserbase.service.spec.ts
+import { Test } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
+import { BrowserAutomationCrudService } from './browser-automation-crud.service';
+import { BrowserAutomationExecutionService } from './browser-automation-execution.service';
+import { BrowserAutomationRunStoreService } from './browser-automation-run-store.service';
+import { BrowserAuthProfileContextService } from './browser-auth-profile-context.service';
+import { BrowserAuthProfileService } from './browser-auth-profile.service';
+import { BrowserCredentialStorageService } from './browser-credential-storage.service';
+import { BrowserLoginAnalyzerService } from './browser-login-analyzer.service';
+import { BrowserEvidenceRunnerService } from './browser-evidence-runner.service';
+import { BrowserbaseOrgContextService } from './browserbase-org-context.service';
+import { BrowserbaseScreenshotService } from './browserbase-screenshot.service';
+import { BrowserbaseSessionService } from './browserbase-session.service';
+import { BrowserbaseService } from './browserbase.service';
+import { BROWSER_CREDENTIAL_VAULT_ADAPTER } from './credential-vault';
+import { resolveBrowserCredentialVaultAdapter } from './browser-credential-vault.factory';
+
+jest.mock('@db', () => {
+  const db = {
+    browserAutomationRun: {
+      findUnique: jest.fn(),
+    },
+    browserAutomation: {
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    browserAutomationStep: {
+      deleteMany: jest.fn(),
+      updateMany: jest.fn(),
+      create: jest.fn(),
+    },
+    // Steps updates run in a transaction; pass the same mock through as `tx`.
+    $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(db)),
+  };
+  return {
+    db,
+    TaskFrequency: {
+      daily: 'daily',
+      weekly: 'weekly',
+      monthly: 'monthly',
+      quarterly: 'quarterly',
+      yearly: 'yearly',
+    },
+  };
+});
+
+jest.mock('@/app/s3', () => ({
+  getSignedUrl: jest.fn().mockResolvedValue('https://s3.example.com/signed'),
+  s3Client: { send: jest.fn() },
+  BUCKET_NAME: 'test-bucket',
+}));
+
+import { db, TaskFrequency } from '@db';
+import { getSignedUrl } from '@/app/s3';
+
+describe('BrowserbaseService.getScreenshotRedirectUrl', () => {
+  let service: BrowserbaseService;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        BrowserbaseService,
+        BrowserbaseSessionService,
+        BrowserAutomationCrudService,
+        BrowserAutomationExecutionService,
+        BrowserAutomationRunStoreService,
+        BrowserAuthProfileContextService,
+        BrowserAuthProfileService,
+        BrowserbaseOrgContextService,
+        BrowserbaseScreenshotService,
+        BrowserEvidenceRunnerService,
+        BrowserCredentialStorageService,
+        BrowserLoginAnalyzerService,
+        {
+          provide: BROWSER_CREDENTIAL_VAULT_ADAPTER,
+          useFactory: resolveBrowserCredentialVaultAdapter,
+        },
+      ],
+    }).compile();
+    service = moduleRef.get(BrowserbaseService);
+  });
+
+  it('returns a freshly minted presigned URL for an in-scope run', async () => {
+    (db.browserAutomationRun.findUnique as jest.Mock).mockResolvedValue({
+      id: 'bar_1',
+      screenshotUrl: 'browser-automations/org_1/bau_1/bar_1.jpg',
+      automation: { task: { organizationId: 'org_1' } },
+    });
+
+    const url = await service.getScreenshotRedirectUrl({
+      runId: 'bar_1',
+      organizationId: 'org_1',
+    });
+
+    expect(url).toBe('https://s3.example.com/signed');
+    expect(db.browserAutomationRun.findUnique).toHaveBeenCalledWith({
+      where: { id: 'bar_1' },
+      include: { automation: { include: { task: true } } },
+    });
+  });
+
+  it('throws NotFoundException when the run does not exist', async () => {
+    (db.browserAutomationRun.findUnique as jest.Mock).mockResolvedValue(null);
+
+    await expect(
+      service.getScreenshotRedirectUrl({
+        runId: 'bar_missing',
+        organizationId: 'org_1',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws NotFoundException when the run belongs to a different org', async () => {
+    (db.browserAutomationRun.findUnique as jest.Mock).mockResolvedValue({
+      id: 'bar_1',
+      screenshotUrl: 'browser-automations/org_2/bau_1/bar_1.jpg',
+      automation: { task: { organizationId: 'org_2' } },
+    });
+
+    await expect(
+      service.getScreenshotRedirectUrl({
+        runId: 'bar_1',
+        organizationId: 'org_1',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws NotFoundException when the run has no screenshot', async () => {
+    (db.browserAutomationRun.findUnique as jest.Mock).mockResolvedValue({
+      id: 'bar_1',
+      screenshotUrl: null,
+      automation: { task: { organizationId: 'org_1' } },
+    });
+
+    await expect(
+      service.getScreenshotRedirectUrl({
+        runId: 'bar_1',
+        organizationId: 'org_1',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('signs the URL without Content-Disposition when download is falsy', async () => {
+    (db.browserAutomationRun.findUnique as jest.Mock).mockResolvedValue({
+      id: 'bar_1',
+      screenshotUrl: 'browser-automations/org_1/bau_1/bar_1.jpg',
+      automation: { task: { organizationId: 'org_1' } },
+    });
+
+    await service.getScreenshotRedirectUrl({
+      runId: 'bar_1',
+      organizationId: 'org_1',
+    });
+
+    const command = (getSignedUrl as jest.Mock).mock.calls[0][1];
+    expect(command.input.ResponseContentDisposition).toBeUndefined();
+  });
+
+  it('signs the URL with attachment Content-Disposition when download is true', async () => {
+    (db.browserAutomationRun.findUnique as jest.Mock).mockResolvedValue({
+      id: 'bar_1',
+      screenshotUrl: 'browser-automations/org_1/bau_1/bar_1.jpg',
+      automation: { task: { organizationId: 'org_1' } },
+    });
+
+    await service.getScreenshotRedirectUrl({
+      runId: 'bar_1',
+      organizationId: 'org_1',
+      download: true,
+    });
+
+    const command = (getSignedUrl as jest.Mock).mock.calls[0][1];
+    expect(command.input.ResponseContentDisposition).toBe(
+      'attachment; filename="screenshot-bar_1.jpg"',
+    );
+  });
+});
+
+describe('BrowserbaseService schedule frequency passthrough', () => {
+  let service: BrowserbaseService;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        BrowserbaseService,
+        BrowserbaseSessionService,
+        BrowserAutomationCrudService,
+        BrowserAutomationExecutionService,
+        BrowserAutomationRunStoreService,
+        BrowserAuthProfileContextService,
+        BrowserAuthProfileService,
+        BrowserbaseOrgContextService,
+        BrowserbaseScreenshotService,
+        BrowserEvidenceRunnerService,
+        BrowserCredentialStorageService,
+        BrowserLoginAnalyzerService,
+        {
+          provide: BROWSER_CREDENTIAL_VAULT_ADAPTER,
+          useFactory: resolveBrowserCredentialVaultAdapter,
+        },
+      ],
+    }).compile();
+    service = moduleRef.get(BrowserbaseService);
+  });
+
+  it('forwards scheduleFrequency when creating a browser automation', async () => {
+    (db.browserAutomation.create as jest.Mock).mockResolvedValue({
+      id: 'bau_1',
+    });
+
+    await service.createBrowserAutomation({
+      taskId: 'tsk_1',
+      name: 'name',
+      targetUrl: 'https://example.com',
+      instruction: 'click',
+      scheduleFrequency: TaskFrequency.weekly,
+    });
+
+    expect(db.browserAutomation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ scheduleFrequency: 'weekly' }),
+      }),
+    );
+  });
+
+  it('omits scheduleFrequency when creating without the field', async () => {
+    (db.browserAutomation.create as jest.Mock).mockResolvedValue({
+      id: 'bau_1',
+    });
+
+    await service.createBrowserAutomation({
+      taskId: 'tsk_1',
+      name: 'name',
+      targetUrl: 'https://example.com',
+      instruction: 'click',
+    });
+
+    const call = (db.browserAutomation.create as jest.Mock).mock.calls[0][0];
+    expect(call.data).not.toHaveProperty('scheduleFrequency');
+  });
+
+  it('forwards scheduleFrequency when updating a browser automation', async () => {
+    (db.browserAutomation.update as jest.Mock).mockResolvedValue({
+      id: 'bau_1',
+    });
+
+    await service.updateBrowserAutomation('bau_1', {
+      scheduleFrequency: TaskFrequency.monthly,
+    });
+
+    expect(db.browserAutomation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'bau_1' },
+        data: expect.objectContaining({ scheduleFrequency: 'monthly' }),
+      }),
+    );
+  });
+
+  it('omits scheduleFrequency when updating without the field', async () => {
+    (db.browserAutomation.update as jest.Mock).mockResolvedValue({
+      id: 'bau_1',
+    });
+
+    await service.updateBrowserAutomation('bau_1', { name: 'renamed' });
+
+    const call = (db.browserAutomation.update as jest.Mock).mock.calls[0][0];
+    expect(call.data).not.toHaveProperty('scheduleFrequency');
+  });
+
+  it('inherits the task cadence for a new automation when none is given', async () => {
+    (db.browserAutomation.findFirst as jest.Mock).mockResolvedValue({
+      scheduleFrequency: TaskFrequency.weekly,
+    });
+    (db.browserAutomation.create as jest.Mock).mockResolvedValue({ id: 'bau_2' });
+
+    await service.createBrowserAutomation({
+      taskId: 'tsk_1',
+      name: 'name',
+      targetUrl: 'https://example.com',
+      instruction: 'click',
+    });
+
+    expect(db.browserAutomation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ scheduleFrequency: 'weekly' }),
+      }),
+    );
+  });
+
+  it('sets one schedule for every automation on the task', async () => {
+    (db.browserAutomation.updateMany as jest.Mock).mockResolvedValue({ count: 3 });
+
+    const result = await service.setTaskSchedule('tsk_1', TaskFrequency.monthly);
+
+    expect(db.browserAutomation.updateMany).toHaveBeenCalledWith({
+      where: { taskId: 'tsk_1' },
+      data: { scheduleFrequency: 'monthly' },
+    });
+    expect(result).toEqual({
+      success: true,
+      scheduleFrequency: 'monthly',
+      updated: 3,
+    });
+  });
+
+  it('stores explicit steps and mirrors the first onto the legacy columns', async () => {
+    (db.browserAutomation.create as jest.Mock).mockResolvedValue({ id: 'bau_1' });
+
+    await service.createBrowserAutomation({
+      taskId: 't1',
+      name: 'A',
+      targetUrl: 'https://ignored.com',
+      instruction: 'ignored',
+      steps: [
+        {
+          profileId: 'p1',
+          targetUrl: 'https://github.com',
+          instruction: 'screenshot 2fa',
+          evaluationCriteria: '2fa enforced',
+        },
+        { targetUrl: 'https://aws.amazon.com', instruction: 'capture policy' },
+      ],
+    });
+
+    const data = (db.browserAutomation.create as jest.Mock).mock.calls[0][0].data;
+    expect(data.targetUrl).toBe('https://github.com'); // mirrored from step 0
+    expect(data.instruction).toBe('screenshot 2fa');
+    expect(data.steps.create).toHaveLength(2);
+    expect(data.steps.create[0]).toMatchObject({
+      order: 0,
+      profileId: 'p1',
+      targetUrl: 'https://github.com',
+    });
+    expect(data.steps.create[1]).toMatchObject({ order: 1, profileId: null });
+  });
+
+  it('wraps a single inline instruction as one step', async () => {
+    (db.browserAutomation.create as jest.Mock).mockResolvedValue({ id: 'bau_1' });
+
+    await service.createBrowserAutomation({
+      taskId: 't1',
+      name: 'A',
+      targetUrl: 'https://x.com',
+      instruction: 'do it',
+    });
+
+    const data = (db.browserAutomation.create as jest.Mock).mock.calls[0][0].data;
+    expect(data.steps.create).toHaveLength(1);
+    expect(data.steps.create[0]).toMatchObject({
+      order: 0,
+      targetUrl: 'https://x.com',
+      instruction: 'do it',
+    });
+  });
+
+  it('replaces the step list when steps are supplied on update', async () => {
+    (db.browserAutomation.update as jest.Mock).mockResolvedValue({ id: 'bau_1' });
+
+    await service.updateBrowserAutomation('bau_1', {
+      steps: [{ targetUrl: 'https://okta.com', instruction: 'sso' }],
+    });
+
+    expect(db.browserAutomationStep.deleteMany).toHaveBeenCalledWith({
+      where: { automationId: 'bau_1' },
+    });
+    const data = (db.browserAutomation.update as jest.Mock).mock.calls[0][0].data;
+    expect(data.targetUrl).toBe('https://okta.com');
+    expect(data.steps.create).toHaveLength(1);
+  });
+});

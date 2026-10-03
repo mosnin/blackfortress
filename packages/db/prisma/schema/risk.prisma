@@ -1,0 +1,81 @@
+model Risk {
+  // Metadata
+  id                           String            @id @default(dbgenerated("generate_prefixed_cuid('rsk'::text)"))
+  title                        String
+  description                  String
+  category                     RiskCategory
+  department                   String?
+  status                       RiskStatus        @default(open)
+  likelihood                   Likelihood        @default(very_unlikely)
+  impact                       Impact            @default(insignificant)
+  residualLikelihood           Likelihood        @default(very_unlikely)
+  residualImpact               Impact            @default(insignificant)
+  treatmentStrategyDescription String?
+  // Mitigate is the workhorse — the AI mitigation generator writes a
+  // mitigation plan for every new risk, and the plan is stored under
+  // the active strategy. Defaulting to anything other than mitigate
+  // would put the AI plan under the wrong slot.
+  treatmentStrategy            RiskTreatmentType @default(mitigate)
+  // Per-strategy text store. When the user switches strategies, the current
+  // `treatmentStrategyDescription` is moved into this map under the OLD
+  // strategy key, and the NEW strategy's saved value is loaded back into the
+  // active field. Lets users keep an independent Mitigate plan + Accept
+  // rationale + Transfer rationale on the same risk.
+  // Shape: { mitigate?: string, accept?: string, transfer?: string, avoid?: string }
+  strategyDescriptions         Json?
+
+  // Active auto-link suggestion run (trigger.dev). Set when the user kicks
+  // off an AI suggest scan; cleared when the user applies or discards. Lets
+  // the UI resume an in-flight or completed-but-unreviewed scan after a
+  // page reload so progress isn't lost.
+  autoLinkRunId        String?
+  autoLinkRunStartedAt DateTime?
+
+  // See Task.embeddingHash — skip-if-unchanged guard for re-embedding.
+  embeddingHash String?
+
+  // Dates
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assigneeId     String?
+  assignee       Member?      @relation(fields: [assigneeId], references: [id])
+  tasks          Task[]
+  findings       Finding[]
+  acceptances    RiskAcceptance[] // risk-owner residual-risk acceptance events (6.1.3(f))
+
+  @@index([organizationId])
+  @@index([category])
+  @@index([status])
+}
+
+enum RiskTreatmentType {
+  accept
+  avoid
+  mitigate
+  transfer
+}
+
+enum RiskCategory {
+  customer
+  fraud
+  governance
+  operations
+  other
+  people
+  regulatory
+  reporting
+  resilience
+  technology
+  vendor_management
+}
+
+enum RiskStatus {
+  open
+  pending
+  closed
+  archived
+}

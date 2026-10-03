@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.turbo/
+
+# Build outputs
+dist/
+.next/
+generated/
+
+# Logs
+*.log
+
+# Environment files
+.env*
+
+# Database specific files to exclude from formatting
+packages/db/prisma/seed/frameworkEditorSchemas.js
+packages/db/prisma/seed/seed.js
+packages/db/src/index.js
+packages/db/src/types.js
+
+# Other generated files
+coverage/
+.DS_Store
+
+# Test results and reports
+**/playwright-report/
+**/test-results/
+**/playwright/.cache/
+**/.playwright/ 
+
+# Dist
+packages/*/dist
+dist/*

@@ -1,0 +1,112 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+.idea/
+.superpowers/
+docs/superpowers/
+# testing
+coverage
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# production
+build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local env files
+.env
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+
+# turbo
+.turbo
+
+# claude code - personal settings and memory (commands/ is shared)
+.claude/settings.local.json
+.claude/projects/
+
+# react-email
+.react-email
+packages/email/public
+!packages/email/public/.gitkeep
+!packages/email/.react-email/.gitkeep
+
+# Storybook
+storybook-static
+tailwind.css
+
+# Supabase
+.branches
+.temp
+
+# Trigger
+.trigger
+
+# Playground
+playground/
+.playground/
+.venv
+
+# Ignore lock files to prevent conflicts between different package managers
+bun.lock
+yarn.lock
+
+# Playwright test results and reports
+**/playwright-report/
+**/test-results/
+**/playwright/.cache/
+**/.playwright/
+
+# Playwright test artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+debug-setup-page.png
+
+packages/*/dist
+apps/browser-extension/*/.wxt
+apps/browser-extension/*/dist
+
+# Generated Prisma Client
+**/src/db/generated/
+packages/db/prisma/src/generated/
+
+# Release script
+scripts/sync-release-branch.sh
+/.vscode
+
+.claude/audit-findings.md
+
+.superpowers/*
+.claude/worktrees/
+.worktrees/
+# Speakeasy CLI writes workflow files here, but GitHub Actions only reads
+# from .github/workflows/ at the repo root. We move them up. See
+# .github/workflows/sdk_generation.yaml + sdk_publish.yaml (the real ones).
+apps/mcp-server/.github/
+
+# Ad-hoc read-only prod ops scripts (contain DB creds) + any exported customer data.
+# These must never be committed. Unanchored so nested paths are covered too.
+dbq_*.js
+*.csv
