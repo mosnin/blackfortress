@@ -1,0 +1,360 @@
+{
+  "id": "COMP-ISO42001",
+  "name": "ISO 42001 (Comp)",
+  "logo": {
+    "light": "<?xml version=\"1.0\" encoding=\"utf-8\"?><svg version=\"1.1\" id=\"Layer_1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" x=\"0px\" y=\"0px\" viewBox=\"0 0 60 60\" enable-background=\"new 0 0 60 60\" xml:space=\"preserve\"><path fill=\"#141e12\" d=\"M30,2c15.464001,0,28,12.536,28,28c0,15.296902-12.266701,27.726398-27.5,27.993198V58h-1v-0.006802C14.2667,57.726398,2,45.296902,2,30C2,14.536,14.536,2,30,2z M30.5,19h-1V3.02148c-3.155199,0.25567-6.2307,2.92246-8.6094,7.63082C19.6922,13.0247,18.707899,15.8514,18.0117,19h-1.0224c1.517601-7.0244,4.4443-12.57117,8.077101-15.24805C16.1075,6.51958,9.20285,16.6488,8.91211,29.1768H11v1H8.9043c0.063661,12.824699,7.0498,23.2551,16.162102,26.070301C21.2631,53.444302,18.235001,47.495998,16.7861,40h1.017599c0.701601,3.5513,1.762901,6.726898,3.086901,9.347698c2.3787,4.708302,5.454201,7.374104,8.6094,7.629803V40h1v16.977501c3.1553-0.2556,6.231701-2.921501,8.610401-7.629803C40.434299,46.726898,41.4949,43.551201,42.196301,40h1.017601c-1.448902,7.496101-4.477001,13.444302-8.2803,16.247101c9.112198-2.815399,16.0994-13.245899,16.163097-26.070301H49v-1h2.087898C50.7971,16.649099,43.8923,6.51979,34.933601,3.75195C38.566399,6.42882,41.493099,11.9756,43.0107,19h-1.0224c-0.695999-3.1486-1.679501-5.9754-2.877899-8.3477C36.731701,5.94392,33.6553,3.27713,30.5,3.02148V19z M3.00195,30.1768C3.07554,41.655201,10.3111,51.431702,20.4648,55.265598C13.0733,50.7789,7.95827,41.238899,7.9043,30.1768H3.00195z M52.091801,30.7227c-0.216499,10.8304-5.2887,20.130701-12.559601,24.542898C49.687302,51.4324,56.9244,41.656101,56.998001,30.1768h-4.901302L52.091801,30.7227z M20.4648,4.7334C10.5021,8.49507,3.34904,17.9786,3.01367,29.1768h4.89844C8.15792,18.3901,13.2175,9.13233,20.4648,4.7334z M39.535198,4.73438c7.247101,4.39911,12.3069,13.656119,12.5527,24.442421h4.898403C56.651001,17.978701,49.4977,8.49613,39.535198,4.73438z\"/><path fill=\"#141e12\" d=\"M19.237101,37.719501v-1.540001H15.6271v-0.779999l3.549999-4.780003h0.92V35.3395H20.9771v0.84h-0.880001v1.540001H19.237101z M16.667101,35.3395h2.57v-3.4L16.667101,35.3395z M22.0795,37.719501c0-0.5,0.0767-0.950001,0.23-1.350002c0.16-0.4067,0.436701-0.7934,0.83-1.16c0.4-0.366699,0.9533-0.736698,1.66-1.110001c0.3267-0.173397,0.59-0.333397,0.790001-0.48c0.199999-0.146698,0.346699-0.303398,0.439999-0.469997c0.093302-0.166702,0.140001-0.370003,0.140001-0.610001c0-0.2467-0.053301-0.460003-0.16-0.640001c-0.106701-0.186701-0.266701-0.333401-0.480001-0.440001c-0.206699-0.106699-0.4667-0.16-0.779999-0.16c-0.5,0-0.8967,0.130001-1.190001,0.390001C23.2728,31.949499,23.0928,32.3195,23.019501,32.7995l-0.900002-0.060001c0.08-0.693398,0.346701-1.246698,0.800001-1.659998c0.4533-0.413401,1.063299-0.620001,1.83-0.620001c0.4867,0,0.903299,0.086601,1.25,0.26c0.346701,0.1733,0.610001,0.416601,0.789999,0.73C26.9762,31.7561,27.0695,32.112801,27.0695,32.519501c0,0.360001-0.059999,0.673298-0.18,0.939999c-0.119999,0.260002-0.323299,0.5033-0.610001,0.73c-0.279999,0.226601-0.666698,0.470001-1.16,0.73c-0.639999,0.34-1.126699,0.6833-1.459999,1.030003c-0.3267,0.3466-0.5,0.656597-0.52,0.93h3.93v0.84H22.0795z M30.8832,37.879501c-0.573299,0-1.07-0.150002-1.49-0.450001s-0.746599-0.7267-0.98-1.279999c-0.226601-0.553402-0.34-1.210003-0.34-1.970001c0-0.760002,0.1134-1.416702,0.34-1.970001c0.2334-0.559999,0.559999-0.99,0.98-1.289999c0.42-0.3067,0.9167-0.460001,1.49-0.460001c0.58,0,1.08,0.153301,1.500002,0.460001c0.419998,0.299999,0.743397,0.726599,0.969997,1.280001c0.233402,0.553299,0.350002,1.213299,0.350002,1.98c0,0.759998-0.1166,1.416599-0.350002,1.970001c-0.226601,0.553299-0.549999,0.98-0.969997,1.279999C31.9632,37.7295,31.4632,37.879501,30.8832,37.879501z M30.8832,37.039501c0.6134,0,1.0867-0.2467,1.42-0.740002c0.333401-0.5,0.5-1.206699,0.5-2.119999c0-0.6134-0.076599-1.1334-0.23-1.560001c-0.146599-0.433399-0.3633-0.759998-0.65-0.98c-0.280001-0.2267-0.6266-0.34-1.040001-0.34c-0.406599,0-0.7533,0.1133-1.039999,0.34c-0.280001,0.220001-0.496601,0.5466-0.650002,0.98C29.0466,33.046101,28.9732,33.566101,28.9732,34.179501c0,0.9133,0.1667,1.619999,0.5,2.119999C29.806601,36.792801,30.2766,37.039501,30.8832,37.039501z M37.514099,37.879501c-0.573299,0-1.07-0.150002-1.489998-0.450001c-0.420002-0.299999-0.7467-0.7267-0.98-1.279999c-0.2267-0.553402-0.34-1.210003-0.34-1.970001c0-0.760002,0.1133-1.416702,0.34-1.970001c0.233299-0.559999,0.559998-0.99,0.98-1.289999c0.419998-0.3067,0.916698-0.460001,1.489998-0.460001c0.580002,0,1.080002,0.153301,1.5,0.460001c0.420002,0.299999,0.743301,0.726599,0.970001,1.280001c0.233299,0.553299,0.349998,1.213299,0.349998,1.98c0,0.759998-0.116699,1.416599-0.349998,1.970001c-0.2267,0.553299-0.549999,0.98-0.970001,1.279999C38.594101,37.7295,38.094101,37.879501,37.514099,37.879501z M37.514099,37.039501c0.6133,0,1.0867-0.2467,1.420002-0.740002c0.333298-0.5,0.5-1.206699,0.5-2.119999c0-0.6134-0.076702-1.1334-0.23-1.560001c-0.146702-0.433399-0.3633-0.759998-0.650002-0.98c-0.279999-0.2267-0.626701-0.34-1.040001-0.34c-0.4067,0-0.7533,0.1133-1.040001,0.34c-0.279999,0.220001-0.496696,0.5466-0.649998,0.98c-0.146702,0.426601-0.220001,0.946602-0.220001,1.560001c0,0.9133,0.166702,1.619999,0.5,2.119999C36.437401,36.792801,36.907398,37.039501,37.514099,37.039501z M42.715,37.719501v-5.260002h-1.48v-0.74h0.599998c0.260002,0,0.466602-0.0334,0.620003-0.1c0.16-0.0667,0.273296-0.179998,0.339996-0.34c0.066601-0.16,0.100002-0.379999,0.100002-0.66h0.68v7.100002H42.715z\"/><path fill=\"#141e12\" d=\"M22.746201,28.2803v-7.1h0.859999v7.1H22.746201z M27.744801,28.4403c-0.546701,0-1.023401-0.103399-1.43-0.309999c-0.4067-0.206701-0.73-0.49-0.969999-0.85c-0.2334-0.366699-0.370001-0.790001-0.410002-1.27l0.900002-0.059999c0.046598,0.3533,0.15,0.653299,0.309999,0.9c0.16,0.246601,0.373301,0.4333,0.639999,0.559999c0.2733,0.1266,0.6,0.190001,0.98,0.190001c0.333302,0,0.6166-0.0434,0.85-0.129999c0.233301-0.0867,0.41-0.2134,0.530001-0.380001c0.1266-0.1667,0.190001-0.369999,0.190001-0.609999c0-0.220001-0.0534-0.413401-0.16-0.580002c-0.1-0.173399-0.296701-0.33-0.59-0.469999c-0.286701-0.1467-0.7134-0.289999-1.280001-0.43c-0.5467-0.139999-0.9834-0.2934-1.309999-0.459999c-0.32-0.1667-0.5534-0.370001-0.700001-0.610001c-0.139999-0.24-0.209999-0.536699-0.209999-0.889999c0-0.4,0.0933-0.75,0.279999-1.050001c0.1933-0.3067,0.4666-0.5434,0.82-0.709999c0.3533-0.173401,0.7733-0.26,1.26-0.26c0.52,0,0.9666,0.1,1.34,0.299999c0.373301,0.1933,0.67,0.460001,0.890001,0.800001c0.219999,0.34,0.3566,0.726601,0.41,1.16L29.184799,23.3403c-0.039999-0.286699-0.1334-0.539999-0.279999-0.76c-0.140001-0.2267-0.333401-0.403399-0.58-0.529999c-0.2467-0.126701-0.546701-0.190001-0.9-0.190001c-0.440001,0-0.790001,0.1066-1.050001,0.32c-0.26,0.2066-0.389999,0.48-0.389999,0.82c0,0.220001,0.049999,0.403301,0.15,0.550001c0.1066,0.139999,0.293301,0.2666,0.559999,0.379999c0.2666,0.1066,0.650002,0.223301,1.150002,0.35c0.5933,0.146601,1.063299,0.323299,1.41,0.530001c0.3533,0.199999,0.6033,0.4333,0.75,0.699999c0.153299,0.2666,0.23,0.57,0.23,0.91c0,0.4133-0.106701,0.7733-0.32,1.08c-0.2134,0.300001-0.506701,0.5333-0.880001,0.700001C28.6614,28.3603,28.2314,28.4403,27.744801,28.4403z M34.471298,28.4403c-0.673397,0-1.253399-0.1467-1.739998-0.440001c-0.48-0.299999-0.85-0.7267-1.110001-1.279999c-0.26-0.5534-0.389999-1.2134-0.389999-1.980001c0-0.766699,0.129999-1.426699,0.389999-1.98c0.26-0.559999,0.630001-0.99,1.110001-1.289999c0.486599-0.300001,1.066601-0.450001,1.739998-0.450001c0.68,0,1.260002,0.15,1.740002,0.450001c0.486599,0.299999,0.860001,0.73,1.119999,1.289999c0.260002,0.553301,0.389999,1.213301,0.389999,1.98c0,0.766602-0.129997,1.426601-0.389999,1.980001c-0.259998,0.553299-0.6334,0.98-1.119999,1.279999C35.7313,28.2936,35.151299,28.4403,34.471298,28.4403z M34.471298,27.6003c0.493301,0,0.913303-0.1134,1.260002-0.34c0.353298-0.2267,0.623299-0.5534,0.810001-0.98c0.1866-0.426701,0.279999-0.940001,0.279999-1.540001c0-0.599998-0.093399-1.1134-0.279999-1.539999c-0.186703-0.433401-0.456703-0.763401-0.810001-0.99c-0.346699-0.2334-0.766701-0.35-1.260002-0.35c-0.486698,0-0.906696,0.1166-1.259998,0.35c-0.346699,0.226599-0.6134,0.556599-0.799999,0.99c-0.186699,0.4266-0.279999,0.940001-0.279999,1.539999c0,0.6,0.0933,1.1133,0.279999,1.540001c0.1866,0.4266,0.4533,0.7533,0.799999,0.98C33.564602,27.4869,33.9846,27.6003,34.471298,27.6003z\"/></svg>",
+    "dark": "<?xml version=\"1.0\" encoding=\"utf-8\"?><svg version=\"1.1\" id=\"Layer_1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" x=\"0px\" y=\"0px\" viewBox=\"0 0 60 60\" enable-background=\"new 0 0 60 60\" xml:space=\"preserve\"><path fill=\"#eceeec\" d=\"M30,2c15.464001,0,28,12.536,28,28c0,15.296902-12.266701,27.726398-27.5,27.993198V58h-1v-0.006802C14.2667,57.726398,2,45.296902,2,30C2,14.536,14.536,2,30,2z M30.5,19h-1V3.02148c-3.155199,0.25567-6.2307,2.92246-8.6094,7.63082C19.6922,13.0247,18.707899,15.8514,18.0117,19h-1.0224c1.517601-7.0244,4.4443-12.57117,8.077101-15.24805C16.1075,6.51958,9.20285,16.6488,8.91211,29.1768H11v1H8.9043c0.063661,12.824699,7.0498,23.2551,16.162102,26.070301C21.2631,53.444302,18.235001,47.495998,16.7861,40h1.017599c0.701601,3.5513,1.762901,6.726898,3.086901,9.347698c2.3787,4.708302,5.454201,7.374104,8.6094,7.629803V40h1v16.977501c3.1553-0.2556,6.231701-2.921501,8.610401-7.629803C40.434299,46.726898,41.4949,43.551201,42.196301,40h1.017601c-1.448902,7.496101-4.477001,13.444302-8.2803,16.247101c9.112198-2.815399,16.0994-13.245899,16.163097-26.070301H49v-1h2.087898C50.7971,16.649099,43.8923,6.51979,34.933601,3.75195C38.566399,6.42882,41.493099,11.9756,43.0107,19h-1.0224c-0.695999-3.1486-1.679501-5.9754-2.877899-8.3477C36.731701,5.94392,33.6553,3.27713,30.5,3.02148V19z M3.00195,30.1768C3.07554,41.655201,10.3111,51.431702,20.4648,55.265598C13.0733,50.7789,7.95827,41.238899,7.9043,30.1768H3.00195z M52.091801,30.7227c-0.216499,10.8304-5.2887,20.130701-12.559601,24.542898C49.687302,51.4324,56.9244,41.656101,56.998001,30.1768h-4.901302L52.091801,30.7227z M20.4648,4.7334C10.5021,8.49507,3.34904,17.9786,3.01367,29.1768h4.89844C8.15792,18.3901,13.2175,9.13233,20.4648,4.7334z M39.535198,4.73438c7.247101,4.39911,12.3069,13.656119,12.5527,24.442421h4.898403C56.651001,17.978701,49.4977,8.49613,39.535198,4.73438z\"/><path fill=\"#eceeec\" d=\"M19.237101,37.719501v-1.540001H15.6271v-0.779999l3.549999-4.780003h0.92V35.3395H20.9771v0.84h-0.880001v1.540001H19.237101z M16.667101,35.3395h2.57v-3.4L16.667101,35.3395z M22.0795,37.719501c0-0.5,0.0767-0.950001,0.23-1.350002c0.16-0.4067,0.436701-0.7934,0.83-1.16c0.4-0.366699,0.9533-0.736698,1.66-1.110001c0.3267-0.173397,0.59-0.333397,0.790001-0.48c0.199999-0.146698,0.346699-0.303398,0.439999-0.469997c0.093302-0.166702,0.140001-0.370003,0.140001-0.610001c0-0.2467-0.053301-0.460003-0.16-0.640001c-0.106701-0.186701-0.266701-0.333401-0.480001-0.440001c-0.206699-0.106699-0.4667-0.16-0.779999-0.16c-0.5,0-0.8967,0.130001-1.190001,0.390001C23.2728,31.949499,23.0928,32.3195,23.019501,32.7995l-0.900002-0.060001c0.08-0.693398,0.346701-1.246698,0.800001-1.659998c0.4533-0.413401,1.063299-0.620001,1.83-0.620001c0.4867,0,0.903299,0.086601,1.25,0.26c0.346701,0.1733,0.610001,0.416601,0.789999,0.73C26.9762,31.7561,27.0695,32.112801,27.0695,32.519501c0,0.360001-0.059999,0.673298-0.18,0.939999c-0.119999,0.260002-0.323299,0.5033-0.610001,0.73c-0.279999,0.226601-0.666698,0.470001-1.16,0.73c-0.639999,0.34-1.126699,0.6833-1.459999,1.030003c-0.3267,0.3466-0.5,0.656597-0.52,0.93h3.93v0.84H22.0795z M30.8832,37.879501c-0.573299,0-1.07-0.150002-1.49-0.450001s-0.746599-0.7267-0.98-1.279999c-0.226601-0.553402-0.34-1.210003-0.34-1.970001c0-0.760002,0.1134-1.416702,0.34-1.970001c0.2334-0.559999,0.559999-0.99,0.98-1.289999c0.42-0.3067,0.9167-0.460001,1.49-0.460001c0.58,0,1.08,0.153301,1.500002,0.460001c0.419998,0.299999,0.743397,0.726599,0.969997,1.280001c0.233402,0.553299,0.350002,1.213299,0.350002,1.98c0,0.759998-0.1166,1.416599-0.350002,1.970001c-0.226601,0.553299-0.549999,0.98-0.969997,1.279999C31.9632,37.7295,31.4632,37.879501,30.8832,37.879501z M30.8832,37.039501c0.6134,0,1.0867-0.2467,1.42-0.740002c0.333401-0.5,0.5-1.206699,0.5-2.119999c0-0.6134-0.076599-1.1334-0.23-1.560001c-0.146599-0.433399-0.3633-0.759998-0.65-0.98c-0.280001-0.2267-0.6266-0.34-1.040001-0.34c-0.406599,0-0.7533,0.1133-1.039999,0.34c-0.280001,0.220001-0.496601,0.5466-0.650002,0.98C29.0466,33.046101,28.9732,33.566101,28.9732,34.179501c0,0.9133,0.1667,1.619999,0.5,2.119999C29.806601,36.792801,30.2766,37.039501,30.8832,37.039501z M37.514099,37.879501c-0.573299,0-1.07-0.150002-1.489998-0.450001c-0.420002-0.299999-0.7467-0.7267-0.98-1.279999c-0.2267-0.553402-0.34-1.210003-0.34-1.970001c0-0.760002,0.1133-1.416702,0.34-1.970001c0.233299-0.559999,0.559998-0.99,0.98-1.289999c0.419998-0.3067,0.916698-0.460001,1.489998-0.460001c0.580002,0,1.080002,0.153301,1.5,0.460001c0.420002,0.299999,0.743301,0.726599,0.970001,1.280001c0.233299,0.553299,0.349998,1.213299,0.349998,1.98c0,0.759998-0.116699,1.416599-0.349998,1.970001c-0.2267,0.553299-0.549999,0.98-0.970001,1.279999C38.594101,37.7295,38.094101,37.879501,37.514099,37.879501z M37.514099,37.039501c0.6133,0,1.0867-0.2467,1.420002-0.740002c0.333298-0.5,0.5-1.206699,0.5-2.119999c0-0.6134-0.076702-1.1334-0.23-1.560001c-0.146702-0.433399-0.3633-0.759998-0.650002-0.98c-0.279999-0.2267-0.626701-0.34-1.040001-0.34c-0.4067,0-0.7533,0.1133-1.040001,0.34c-0.279999,0.220001-0.496696,0.5466-0.649998,0.98c-0.146702,0.426601-0.220001,0.946602-0.220001,1.560001c0,0.9133,0.166702,1.619999,0.5,2.119999C36.437401,36.792801,36.907398,37.039501,37.514099,37.039501z M42.715,37.719501v-5.260002h-1.48v-0.74h0.599998c0.260002,0,0.466602-0.0334,0.620003-0.1c0.16-0.0667,0.273296-0.179998,0.339996-0.34c0.066601-0.16,0.100002-0.379999,0.100002-0.66h0.68v7.100002H42.715z\"/><path fill=\"#eceeec\" d=\"M22.746201,28.2803v-7.1h0.859999v7.1H22.746201z M27.744801,28.4403c-0.546701,0-1.023401-0.103399-1.43-0.309999c-0.4067-0.206701-0.73-0.49-0.969999-0.85c-0.2334-0.366699-0.370001-0.790001-0.410002-1.27l0.900002-0.059999c0.046598,0.3533,0.15,0.653299,0.309999,0.9c0.16,0.246601,0.373301,0.4333,0.639999,0.559999c0.2733,0.1266,0.6,0.190001,0.98,0.190001c0.333302,0,0.6166-0.0434,0.85-0.129999c0.233301-0.0867,0.41-0.2134,0.530001-0.380001c0.1266-0.1667,0.190001-0.369999,0.190001-0.609999c0-0.220001-0.0534-0.413401-0.16-0.580002c-0.1-0.173399-0.296701-0.33-0.59-0.469999c-0.286701-0.1467-0.7134-0.289999-1.280001-0.43c-0.5467-0.139999-0.9834-0.2934-1.309999-0.459999c-0.32-0.1667-0.5534-0.370001-0.700001-0.610001c-0.139999-0.24-0.209999-0.536699-0.209999-0.889999c0-0.4,0.0933-0.75,0.279999-1.050001c0.1933-0.3067,0.4666-0.5434,0.82-0.709999c0.3533-0.173401,0.7733-0.26,1.26-0.26c0.52,0,0.9666,0.1,1.34,0.299999c0.373301,0.1933,0.67,0.460001,0.890001,0.800001c0.219999,0.34,0.3566,0.726601,0.41,1.16L29.184799,23.3403c-0.039999-0.286699-0.1334-0.539999-0.279999-0.76c-0.140001-0.2267-0.333401-0.403399-0.58-0.529999c-0.2467-0.126701-0.546701-0.190001-0.9-0.190001c-0.440001,0-0.790001,0.1066-1.050001,0.32c-0.26,0.2066-0.389999,0.48-0.389999,0.82c0,0.220001,0.049999,0.403301,0.15,0.550001c0.1066,0.139999,0.293301,0.2666,0.559999,0.379999c0.2666,0.1066,0.650002,0.223301,1.150002,0.35c0.5933,0.146601,1.063299,0.323299,1.41,0.530001c0.3533,0.199999,0.6033,0.4333,0.75,0.699999c0.153299,0.2666,0.23,0.57,0.23,0.91c0,0.4133-0.106701,0.7733-0.32,1.08c-0.2134,0.300001-0.506701,0.5333-0.880001,0.700001C28.6614,28.3603,28.2314,28.4403,27.744801,28.4403z M34.471298,28.4403c-0.673397,0-1.253399-0.1467-1.739998-0.440001c-0.48-0.299999-0.85-0.7267-1.110001-1.279999c-0.26-0.5534-0.389999-1.2134-0.389999-1.980001c0-0.766699,0.129999-1.426699,0.389999-1.98c0.26-0.559999,0.630001-0.99,1.110001-1.289999c0.486599-0.300001,1.066601-0.450001,1.739998-0.450001c0.68,0,1.260002,0.15,1.740002,0.450001c0.486599,0.299999,0.860001,0.73,1.119999,1.289999c0.260002,0.553301,0.389999,1.213301,0.389999,1.98c0,0.766602-0.129997,1.426601-0.389999,1.980001c-0.259998,0.553299-0.6334,0.98-1.119999,1.279999C35.7313,28.2936,35.151299,28.4403,34.471298,28.4403z M34.471298,27.6003c0.493301,0,0.913303-0.1134,1.260002-0.34c0.353298-0.2267,0.623299-0.5534,0.810001-0.98c0.1866-0.426701,0.279999-0.940001,0.279999-1.540001c0-0.599998-0.093399-1.1134-0.279999-1.539999c-0.186703-0.433401-0.456703-0.763401-0.810001-0.99c-0.346699-0.2334-0.766701-0.35-1.260002-0.35c-0.486698,0-0.906696,0.1166-1.259998,0.35c-0.346699,0.226599-0.6134,0.556599-0.799999,0.99c-0.186699,0.4266-0.279999,0.940001-0.279999,1.539999c0,0.6,0.0933,1.1133,0.279999,1.540001c0.1866,0.4266,0.4533,0.7533,0.799999,0.98C33.564602,27.4869,33.9846,27.6003,34.471298,27.6003z\"/></svg>"
+  },
+  "controls": [
+    {
+      "id": "4.1",
+      "name": "Understanding the organization and its context",
+      "description": "The organization shall determine external and internal issues that are relevant to its purpose and that affect its ability to achieve the intended result(s) of its AI management system.\n\nThe organization shall consider the intended purpose of the AI systems that are developed, provided or used by the organization. The organization shall determine its roles with respect to these AI systems"
+    },
+    {
+      "id": "4.2",
+      "name": "Understanding the needs and expectations of interested parties",
+      "description": "The organization shall determine:\n\n— the interested parties that are relevant to the AI management system;\n— the relevant requirements of these interested parties;\n— which of these requirements will be addressed through the AI management system."
+    },
+    {
+      "id": "4.3",
+      "name": "Determining the scope of the AI management system",
+      "description": "The organization shall determine the boundaries and applicability of the AI management system to establish its scope.\n\nWhen determining this scope, the organization shall consider:\n\n— the external and internal issues referred to in 4.1;\n— the requirements referred to in 4.2.\n\nThe scope shall be available as documented information.\n\nThe scope of the AI management system shall determine the organization’s activities with respect to this document’s requirements on the AI management system, leadership, planning, support, operation, performance, evaluation, improvement, controls and objectives."
+    },
+    {
+      "id": "4.4",
+      "name": "AI management system",
+      "description": "The organization shall establish, implement, maintain, continually improve and document an AI management system, including the processes needed and their interactions, in accordance with the requirements of this document."
+    },
+    {
+      "id": "5.1",
+      "name": "Leadership and commitment",
+      "description": "Top management shall demonstrate leadership and commitment with respect to the AI management\nsystem by:\n\n— ensuring that the AI policy (see 5.2) and AI objectives (see 6.2) are established and are compatible with the strategic direction of the organization\n— ensuring the integration of the AI management system requirements into the organization’s business processes\n— ensuring that the resources needed for the AI management system are available\n— communicating the importance of effective AI management and of conforming to the AI management system requirements\n— ensuring that the AI management system achieves its intended result(s);\n— directing and supporting persons to contribute to the effectiveness of the AI management system\n— promoting continual improvement;\n— supporting other relevant roles to demonstrate their leadership as it applies to their areas of responsibility."
+    },
+    {
+      "id": "5.2",
+      "name": "Policy",
+      "description": "Top management shall establish an AI policy that:\na) is appropriate to the purpose of the organization\nb) provides a framework for setting AI objectives (see 6.2);\nc) includes a commitment to meet applicable requirements\nd) includes a commitment to continual improvement of the AI management system\n\nThe AI policy shall:\n— be available as documented information\n— refer as relevant to other organizational policies;\n— be communicated within the organization\n— be available to interested parties, as appropriate"
+    },
+    {
+      "id": "5.3",
+      "name": "Organizational roles, responsibilities and authorities",
+      "description": "Top management shall ensure that the responsibilities and authorities for relevant roles are assigned and communicated within the organization.\nTop management shall assign the responsibility and authority for:\na) ensuring that the AI management system conforms to the requirements of this document;\nb) reporting on the performance of the AI management system to top management."
+    },
+    {
+      "id": "6.1.1",
+      "name": "Actions to address risks and opportunities (General)",
+      "description": "When planning for the AI management system, the organization shall consider the issues referred to in 4.1 and the requirements referred to in 4.2 and determine the risks and opportunities that need to be addressed to:\n\n— give assurance that the AI management system can achieve its intended result(s);\n— prevent or reduce undesired effects;\n— achieve continual improvement\n\nThe organization shall establish and maintain AI risk criteria that support:\n— distinguishing acceptable from non-acceptable risks\n— performing AI risk assessments\n— conducting AI risk treatment\n— assessing AI risk impacts.\n\nThe organization shall determine the risks and opportunities according to:\n\n— the domain and application context of an AI system;\n— the intended use;\n— the external and internal context described in 4.1\n\nThe organization shall plan:\n\na) actions to address these risks and opportunities;\n\nb) how to:\n1) integrate and implement the actions into its AI management system processes;\n2) evaluate the effectiveness of these actions."
+    },
+    {
+      "id": "6.1.2",
+      "name": "AI risk assessment",
+      "description": "The organization shall define and establish an AI risk assessment process that:\n\na) is informed by and aligned to the AI policy (see 5.2) and AI objectives\nb) is designed such that repeated AI risk assessments can produce consistent, valid and comparable results;\nc) identifies risks that aid or prevent achieving its AI objectives\nd) analyses the AI risks to:\n1) assess the potential consequences to the organization, individuals and societies that would result if the identified risks were to materialize\n2) assess, where applicable, the realistic likelihood of the identified risks\n3) determine the levels of risk\ne) evaluates the AI risks to:\n1) compare the results of the risk analysis with the risk criteria\n2) prioritize the assessed risks for risk treatment.\n\nThe organization shall retain documented information about the AI risk assessment process."
+    },
+    {
+      "id": "6.1.3",
+      "name": "AI risk treatment",
+      "description": "Taking the risk assessment results into account, the organization shall define an AI risk treatment process to:\na) select appropriate AI risk treatment options\nb) determine all controls that are necessary to implement the AI risk treatment options chosen and compare the controls with those in Annex A to verify that no necessary controls have been omitted\nc) consider the controls from Annex A that are relevant for the implementation of the AI risk treatment options\nd) identify if additional controls are necessary beyond those in Annex A in order to implement all risk treatment options\ne) consider the guidance in Annex B for the implementation of controls determined in b) and c)\nf) produce a statement of applicability that contains the necessary controls [see b), c) and d)] and provide justification for inclusion and exclusion of controls. Justification for exclusion can include where the controls are not deemed necessary by the risk assessment and where they are not required by (or are subject to exceptions under) applicable external requirements\ng) formulate an AI risk treatment plan.\n\nThe organization shall obtain approval from the designated management for the AI risk treatment plan and for acceptance of the residual AI risks. The necessary controls shall be:\n— aligned to the objectives in 6.2\n— available as documented information\n— communicated within the organization\n— available to interested parties, as appropriate"
+    },
+    {
+      "id": "6.1.4",
+      "name": "AI system impact assessment",
+      "description": "The organization shall define a process for assessing the potential consequences for individuals and societies that can result from the development, provision or use of AI systems.\n\nThe AI system impact assessment shall determine the potential consequences an AI system’s deployment, intended use and foreseeable misuse has on individuals and societies.\n\nThe impact assessment should take into account the specific technical and societal context where the AI system is deployed and applicable jurisdictions.\n\nThe result of the system impact assessment shall be documented. Where appropriate, the result of the system impact assessment can be made available to relevant interested parties as defined by the organization.\n\nThe organization shall consider an AI system impact assessment results in the risk assessment (see 6.1.2). A.5 in Table A.1 provides controls for assessing impacts of AI systems."
+    },
+    {
+      "id": "6.2",
+      "name": "AI objectives and planning to achieve them",
+      "description": "The organization shall establish AI objectives at relevant functions and levels:\n\nThe AI objectives shall:\na) be consistent with the AI policy (see 5.2);\nb) be measurable (if practicable);\nc) take into account applicable requirements;\nd) be monitored;\ne) be communicated;\nf) be updated as appropriate;\ng) be available as documented information;\n\nWhen planning how to achieve its AI objectives, the organization shall determine:\n— what will be done;\n— what resources will be required;\n— who will be responsible;\n— when it will be completed;\n— how the results will be evaluated."
+    },
+    {
+      "id": "6.3",
+      "name": "Planning of Changes",
+      "description": "When the organization determines the need for changes to the AI management system, the changes shall be carried out in a planned manner."
+    },
+    {
+      "id": "7.1",
+      "name": "Resources",
+      "description": "The organization shall determine and provide the resources needed for the establishment,\nimplementation, maintenance and continual improvement of the AI management system."
+    },
+    {
+      "id": "7.2",
+      "name": "Competence",
+      "description": "The organization shall:\n\n— determine the necessary competence of person(s) doing work under its control that affects its AI performance;\n— ensure that these persons are competent on the basis of appropriate education, training or experience;\n— where applicable, take actions to acquire the necessary competence, and evaluate the effectiveness of the actions taken.\n\nAppropriate documented information shall be available as evidence of competence"
+    },
+    {
+      "id": "7.3",
+      "name": "Awareness",
+      "description": "Persons doing work under the organization’s control shall be aware of:\n\n— the AI policy (see 5.2);\n— their contribution to the effectiveness of the AI management system, including the benefits of improved AI performance;\n— the implications of not conforming with the AI management system requirements."
+    },
+    {
+      "id": "7.4",
+      "name": "Communication",
+      "description": "The organization shall determine the internal and external communications relevant to the AI management system including:\n— on what it will communicate;\n— when to communicate;\n— with whom to communicate;\n— how to communicate."
+    },
+    {
+      "id": "7.5.1",
+      "name": "Documented information (General)",
+      "description": "The organization’s AI management system shall include:\na) documented information required by this document;\nb) documented information determined by the organization as being necessary for the effectiveness of the AI management system."
+    },
+    {
+      "id": "7.5.2",
+      "name": "Creating and updating",
+      "description": "When creating and updating documented information, the organization shall ensure appropriate:\n\n— identification and description (e.g. a title, date, author or reference number);\n— format (e.g. language, software version, graphics) and media (e.g. paper, electronic);\n— review and approval for suitability and adequacy."
+    },
+    {
+      "id": "7.5.3",
+      "name": "Control of documented information",
+      "description": "Documented information required by the AI management system and by this document shall be controlled to ensure:\n\na) it is available and suitable for use, where and when it is needed;\nb) it is adequately protected (e.g. from loss of confidentiality, improper use or loss of integrity).\nFor the control of documented information, the organization shall address the following activities, as applicable:\n— distribution, access, retrieval and use;\n— storage and preservation, including preservation of legibility;\n— control of changes (e.g. version control);\n— retention and disposition.\n\nDocumented information of external origin determined by the organization to be necessary for the planning and operation of the AI management system shall be identified as appropriate and controlled."
+    },
+    {
+      "id": "8.1",
+      "name": "Operational planning and control",
+      "description": "The organization shall plan, implement and control the processes needed to meet requirements, and to implement the actions determined in Clause 6, by:\n\n— establishing criteria for the processes;\n— implementing control of the processes in accordance with the criteria.\n\nThe organization should implement the controls determined according to 6.1.3 that are related to the operation of the AI management system (e.g. AI system development and usage life cycle related controls).\n\nThe effectiveness of these controls shall be monitored and corrective actions shall be considered if the intended results are not achieved. Annex A lists reference controls and Annex B provides implementation guidance for them.\n\nDocumented information shall be available to the extent necessary to have confidence that the processes have been carried out as planned.\n\nThe organization shall control planned changes and review the consequences of unintended changes, taking action to mitigate any adverse effects, as necessary.\n\nThe organization shall ensure that externally provided processes, products or services that are relevant to the AI management system are controlled."
+    },
+    {
+      "id": "8.2",
+      "name": "AI risk assessment",
+      "description": "The organization shall perform AI risk assessments in accordance with 6.1.2 at planned intervals or when significant changes are proposed or occur.\n\nThe organization shall retain documented information of the results of all AI risk assessments."
+    },
+    {
+      "id": "8.3",
+      "name": "AI risk treatment",
+      "description": "The organization shall implement the AI risk treatment plan according to 6.1.3 and verify its effectiveness.\n\nWhen risk assessments identify new risks that require treatment, a risk treatment process in accordance with 6.1.3 shall be performed for these risks.\n\nWhen risk treatment options as defined by the risk treatment plan are not effective, these treatment options shall be reviewed and revalidated following the risk treatment process according to 6.1.3 and the risk treatment plan shall be updated.\n\nThe organization shall retain documented information of the results of all AI risk treatments."
+    },
+    {
+      "id": "8.4",
+      "name": "AI system impact assessment",
+      "description": "The organization shall perform AI system impact assessments according to 6.1.4 at planned intervals or when significant changes are proposed to occur.\n\nThe organization shall retain documented information of the results of all AI system impact assessments."
+    },
+    {
+      "id": "9.1",
+      "name": "Monitoring, measurement, analysis and evaluation",
+      "description": "The organization shall determine:\n— what needs to be monitored and measured;\n— the methods for monitoring, measurement, analysis and evaluation, as applicable, to ensure valid results;\n— when the monitoring and measuring shall be performed;\n— when the results from monitoring and measurement shall be analysed and evaluated.\n\nDocumented information shall be available as evidence of the results.\n\nThe organization shall evaluate the performance and the effectiveness of the AI management system."
+    },
+    {
+      "id": "9.2.1",
+      "name": "Internal audit - General",
+      "description": "The organization shall conduct internal audits at planned intervals to provide information on whether the AI management system:\n\na) conforms to:\n1) the organization’s own requirements for its AI management system;\n2) the requirements of this document;\nb) is effectively implemented and maintained."
+    },
+    {
+      "id": "9.2.2",
+      "name": "Internal Audit",
+      "description": "The organization shall plan, establish, implement and maintain (an) audit programme(s), including the frequency, methods, responsibilities, planning requirements and reporting.\n\nWhen establishing the internal audit programme(s), the organization shall consider the importance of the processes concerned and the results of previous audits.\n\nThe organization shall:\na) define the audit objectives, criteria and scope for each audit;\nb) select auditors and conduct audits to ensure objectivity and the impartiality of the audit process;\nc) ensure that the results of audits are reported to relevant managers.\n\nDocumented information shall be available as evidence of the implementation of the audit programme(s) and the audit results."
+    },
+    {
+      "id": "9.3.1",
+      "name": "Management review - General",
+      "description": "Top management shall review the organization’s AI management system, at planned intervals, to ensure its continuing suitability, adequacy and effectiveness."
+    },
+    {
+      "id": "9.3.2",
+      "name": "Management review inputs",
+      "description": "The management review shall include:\na) the status of actions from previous management reviews;\nb) changes in external and internal issues that are relevant to the AI management system;\nc) changes in needs and expectations of interested parties that are relevant to the AI management system;\nd) information on the AI management system performance, including trends in:\n1) nonconformities and corrective actions;\n2) monitoring and measurement results;\n3) audit results;\ne) opportunities for continual improvement."
+    },
+    {
+      "id": "9.3.3",
+      "name": "Management review",
+      "description": "The results of the management review shall include decisions related to continual improvement opportunities and any need for changes to the AI management system.\n\nDocumented information shall be available as evidence of the results of management reviews."
+    },
+    {
+      "id": "10.1",
+      "name": "Continual improvement",
+      "description": "The organization shall continually improve the suitability, adequacy and effectiveness of the AI management system."
+    },
+    {
+      "id": "10.2",
+      "name": "Nonconformity and corrective action",
+      "description": "When a nonconformity occurs, the organization shall:\na) react to the nonconformity and as applicable:\n1) take action to control and correct it;\n2) deal with the consequences;\n\nb) evaluate the need for action to eliminate the cause(s) of the nonconformity, in order that it does not\nrecur or occur elsewhere, by:\n1) reviewing the nonconformity;\n2) determining the causes of the nonconformity;\n3) determining if similar nonconformities exist or can potentially occur;\n\nc) implement any action needed;\n\nd) review the effectiveness of any corrective action taken;\n\ne) make changes to the AI management system, if necessary.\nCorrective actions shall be appropriate to the effects of the nonconformities encountered.\nDocumented information shall be available as evidence of:\n— the nature of the nonconformities and any subsequent actions taken;\n— the results of any corrective action"
+    },
+    {
+      "id": "A.2.2",
+      "name": "AI Policy",
+      "description": "The organization shall document a policy for the development or use of AI systems."
+    },
+    {
+      "id": "A.2.3",
+      "name": "Alignment with other organizational policies",
+      "description": "The organization shall determine where other policies can be affected by or apply to, the organization’s objectives with respect to AI systems."
+    },
+    {
+      "id": "A.2.4",
+      "name": "Review of the AI policy",
+      "description": "The AI policy shall be reviewed at planned intervals or additionally as needed to ensure its continuing suitability, adequacy and effectiveness."
+    },
+    {
+      "id": "A.3.2",
+      "name": "AI roles and responsibilities",
+      "description": "Roles and responsibilities for AI shall be defined and allocated according to the needs of the organization."
+    },
+    {
+      "id": "A.3.3",
+      "name": "Reporting of concerns",
+      "description": "The organization shall define and put in place a process for employees of the organization to report concerns about the organization’s role with respect to an AI system throughout its life cycle."
+    },
+    {
+      "id": "A.4.2",
+      "name": "Resource Documentation",
+      "description": "The organization shall identify and document relevant resources required for the activities at given AI system life cycle stages and other AI-related activities relevant for the organization."
+    },
+    {
+      "id": "A.4.3",
+      "name": "Data resources",
+      "description": "As part of resource identification, the organization shall document information about the data resources utilized for the AI system."
+    },
+    {
+      "id": "A.4.4",
+      "name": "Tooling resources",
+      "description": "As part of resource identification, the organization shall document information about the tooling resources utilized for the AI system"
+    },
+    {
+      "id": "A.4.5",
+      "name": "System and computing resources",
+      "description": "As part of resource identification, the organization shall document information about the system and computing resources utilized for the AI system."
+    },
+    {
+      "id": "A.4.6",
+      "name": "Human resources",
+      "description": "As part of resource identification, the organization shall document information about the human resources and\ntheir competences utilized for the development, deployment, operation, change management, maintenance, transfer and decommissioning, as well as verification and integration of the AI system."
+    },
+    {
+      "id": "A.5.2",
+      "name": "AI system impact assessment process",
+      "description": "The organization shall establish a process to assess the potential consequences for individuals and societies that can result from the AI system throughout its life cycle."
+    },
+    {
+      "id": "A.5.3",
+      "name": "Documentation of AI system impact assessments",
+      "description": "The organization shall document the results of AI system impact assessments and retain results for a defined period."
+    },
+    {
+      "id": "A.5.4",
+      "name": "Assessing AI system impact on individuals and groups of individuals",
+      "description": "The organization shall assess and document the potential impacts of AI systems to individuals or groups of individuals\nthroughout the system’s life cycle."
+    },
+    {
+      "id": "A.5.5",
+      "name": "Assessing societal impacts of AI systems",
+      "description": "The organization shall assess and document the potential societal impacts of their AI systems throughout their life cycle."
+    },
+    {
+      "id": "A.6.1.2",
+      "name": "Objectives for responsible development of AI system",
+      "description": "The organization shall identify and document objectives to guide the development of trustworthy AI systems, and take those objectives into account and integrate measures to achieve them in the development life cycle."
+    },
+    {
+      "id": "A.6.1.3",
+      "name": "Processes for trustworthy AI system design and development",
+      "description": "The organization shall define and document the specific processes for the responsible design and development of the AI system."
+    },
+    {
+      "id": "A.6.2.2",
+      "name": "AI system requirements and specification",
+      "description": "The organization shall specify and document requirements for new AI systems or material enhancements to existing systems"
+    },
+    {
+      "id": "A.6.2.3",
+      "name": "Documentation of AI system design and development",
+      "description": "The organization shall document the AI system design and development based on organizational objectives, documented\nrequirements and specification criteria."
+    },
+    {
+      "id": "A.6.2.4",
+      "name": "AI system verification and validation",
+      "description": "The organization shall define and document verification and validation measures for the AI system and specify criteria for their use."
+    },
+    {
+      "id": "A.6.2.5",
+      "name": "AI system deployment",
+      "description": "The organization shall document a deployment plan and ensure that appropriate requirements are met prior to deployment."
+    },
+    {
+      "id": "A.6.2.6",
+      "name": "AI system operation and monitoring",
+      "description": "The organization shall define and document the necessary elements for the ongoing operation of the AI system. At the minimum, this should include system and performance monitoring, repairs, updates and support"
+    },
+    {
+      "id": "A.6.2.7",
+      "name": "AI system technical documentation",
+      "description": "The organization shall determine what AI system technical documentation is needed for each relevant category of interested parties, such as users, partners, supervisory authorities, and provide the technical documentation to them in the appropriate form."
+    },
+    {
+      "id": "A.6.2.8",
+      "name": "AI system recording of event logs",
+      "description": "The organization shall determine at which phases of the AI system life cycle, record keeping of event logs should be enabled, but at the minimum when the AI system is in use."
+    },
+    {
+      "id": "A.7.2",
+      "name": "Data for development and enhancement of AI system",
+      "description": "The organization shall define, document and implement data management processes related to the development of AI systems."
+    },
+    {
+      "id": "A.7.3",
+      "name": "Acquisition of data",
+      "description": "The organization shall determine and document details about the acquisition and selection of the data used in AI systems."
+    },
+    {
+      "id": "A.7.4",
+      "name": "Quality of data for AI systems",
+      "description": "The organization shall define and document requirements for data quality and ensure that data used to develop and operate the AI system meet those requirements"
+    },
+    {
+      "id": "A.7.5",
+      "name": "Data provenance",
+      "description": "The organization shall define and document a process for recording the provenance of data used in its AI systems over the life cycles of the data and the AI system."
+    },
+    {
+      "id": "A.7.6",
+      "name": "Data preparation",
+      "description": "The organization shall define and document their needs for and approaches to data preparation"
+    },
+    {
+      "id": "A.8.2",
+      "name": "System documentation and information for users",
+      "description": "The organization shall determine and provide the necessary information to users of the system."
+    },
+    {
+      "id": "A.8.3",
+      "name": "External reporting",
+      "description": "The organization shall provide capabilities for interested parties to report adverse impacts of the system"
+    },
+    {
+      "id": "A.8.4",
+      "name": "Communication of incidents",
+      "description": "The organization shall determine and document a plan for communicating incidents to users of the system."
+    },
+    {
+      "id": "A.8.5",
+      "name": "Information for interested parties",
+      "description": "The organization shall determine and document their obligations to reporting information about the AI system to interested parties."
+    },
+    {
+      "id": "A.9.2",
+      "name": "Processes for responsible use of AI systems",
+      "description": "The organization shall define and document the processes for the responsible use of AI systems"
+    },
+    {
+      "id": "A.9.3",
+      "name": "Objectives for responsible use of AI system",
+      "description": "The organization shall identify and document objectives to guide the responsible use of AI systems."
+    },
+    {
+      "id": "A.9.4",
+      "name": "Intended use of the AI system",
+      "description": "The organization shall ensure that the AI system is used according to the intended uses of the AI system and its accompanying documentation."
+    },
+    {
+      "id": "A.10.2",
+      "name": "Allocating responsibilities",
+      "description": "The organization shall ensure that responsibilities within their AI system life cycle are allocated between the organization, its partners, suppliers, customers and third parties"
+    },
+    {
+      "id": "A.10.3",
+      "name": "Suppliers",
+      "description": "The organization shall establish a process to ensure that its usage of services, products or materials provided by suppliers aligns with the organization’s approach to the\nresponsible development and use of AI systems."
+    },
+    {
+      "id": "A.10.4",
+      "name": "Customers",
+      "description": "The organization shall ensure that its responsible approach to the development and use of AI systems considers their customer expectations and needs."
+    }
+  ]
+}

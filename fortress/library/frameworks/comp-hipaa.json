@@ -1,0 +1,395 @@
+{
+  "id": "COMP-HIPAA",
+  "name": "HIPAA (Comp)",
+  "logo": {
+    "light": "<?xml version=\"1.0\" encoding=\"utf-8\"?><svg version=\"1.1\" id=\"Layer_1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" x=\"0px\" y=\"0px\" viewBox=\"0 0 60 60\" enable-background=\"new 0 0 60 60\" xml:space=\"preserve\"><circle fill=\"none\" stroke=\"#141e12\" cx=\"30\" cy=\"30\" r=\"27.5\"/><path fill=\"none\" stroke=\"#141e12\" stroke-linecap=\"round\" d=\"M6,30c0,9.285099,5.2727,17.338699,12.987301,21.3298 M30,6c-7.1101,0-13.497999,3.0918-17.8927,8.0043\"/><path fill=\"none\" stroke=\"#141e12\" stroke-linecap=\"round\" d=\"M53.494099,30c0,9.285099-5.272697,17.338699-12.987297,21.3298 M29.494101,6c7.110098,0,13.497999,3.0918,17.892698,8.0043\"/><circle fill=\"none\" stroke=\"#141e12\" cx=\"30\" cy=\"16.378401\" r=\"3\"/><path fill=\"#141e12\" d=\"M29.994101,21.7288L29.994101,21.7288c0.276142,0,0.5,0.223858,0.5,0.5v30.169203c0,0.276142-0.223858,0.5-0.5,0.5l0,0c-0.276142,0-0.5-0.223858-0.5-0.5V22.2288C29.494101,21.952658,29.717958,21.7288,29.994101,21.7288z\"/><path fill=\"none\" stroke=\"#141e12\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M29.8696,25.396c-6.1423,0.2393-5.6989-9.0175-11.4363-9.017599c-3.2858,0-5.1936,4.928598-10.33418,4.928598c0.37099,3.179701,8.61708,9.9102,13.61988,9.4862\"/><path fill=\"#141e12\" d=\"M19.1661,20.778601c0.180901-0.2087,0.1583-0.524401-0.0504-0.705301c-0.2087-0.180799-0.524401-0.158298-0.705299,0.0504L18.7883,20.4512L19.1661,20.778601z M19.8967,24.029699c0.180901-0.2087,0.1583-0.524399-0.0504-0.705299c-0.2087-0.180799-0.5245-0.1583-0.705299,0.0504l0.377899,0.327499L19.8967,24.029699z M21.509701,27.1513c0.1497-0.232,0.082998-0.5415-0.149-0.6912c-0.232101-0.1497-0.541601-0.082901-0.691301,0.149099l0.4202,0.271101L21.509701,27.1513z M10.752,25.0903l0.1518,0.4764c1.2831-0.4088,2.9679-1.1737,4.5087-2.040501c1.5282-0.859699,2.9813-1.8564,3.753599-2.747599l-0.3778-0.3274L18.4104,20.123699c-0.6523,0.752701-1.975401,1.679901-3.4882,2.530901c-1.5002,0.844-3.1213,1.5767-4.322001,1.959299L10.752,25.0903z M13.1263,27.5012l0.1518,0.4764c2.5311-0.806499,5.110999-2.2082,6.6186-3.947901l-0.3778-0.3274L19.141001,23.3748c-1.3416,1.5481-3.729701,2.8736-6.166501,3.65L13.1263,27.5012z M16.4139,29.5103l0.1917,0.4618c0.946699-0.393,1.964899-0.780199,2.820799-1.205799c0.8477-0.4216,1.640001-0.927801,2.083302-1.615l-0.420101-0.271l-0.4202-0.271101c-0.287199,0.445301-0.864698,0.8522-1.6882,1.2617c-0.8153,0.405401-1.769699,0.767-2.758999,1.177601L16.4139,29.5103z\"/><path fill=\"none\" stroke=\"#141e12\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M30,25.396c6.1423,0.2393,5.698898-9.0175,11.436401-9.017599c3.285698,0,5.193501,4.928598,10.334099,4.928598c-0.370998,3.179701-8.6171,9.9102-13.6199,9.4862\"/><path fill=\"#141e12\" d=\"M40.703499,20.778601c-0.180798-0.2087-0.158298-0.524401,0.0504-0.705301c0.208702-0.180799,0.524502-0.158298,0.705303,0.0504l-0.3778,0.327501L40.703499,20.778601z M39.9729,24.029699c-0.180801-0.2087-0.158298-0.524399,0.0504-0.705299c0.208698-0.180799,0.524498-0.1583,0.705299,0.0504l-0.3778,0.327499L39.9729,24.029699z M38.359901,27.1513c-0.1497-0.232-0.083-0.5415,0.149097-0.6912c0.232002-0.1497,0.5415-0.082901,0.6912,0.149099l-0.4202,0.271101L38.359901,27.1513z M49.117699,25.0903L48.9659,25.5667c-1.283199-0.4088-2.967899-1.1737-4.508801-2.040501c-1.528198-0.859699-2.9813-1.8564-3.753601-2.747599l0.377903-0.3274l0.3778-0.327501C42.1115,20.8764,43.434601,21.8036,44.947399,22.6546c1.500202,0.844,3.1213,1.5767,4.322102,1.959299L49.117699,25.0903z M46.743301,27.5012l-0.151802,0.4764c-2.531101-0.806499-5.110901-2.2082-6.618599-3.947901l0.377899-0.3274l0.3778-0.327499c1.341602,1.5481,3.729702,2.8736,6.1665,3.65L46.743301,27.5012z M43.4557,29.5103l-0.1917,0.4618c-0.946701-0.393-1.964901-0.780199-2.820801-1.205799c-0.847698-0.4216-1.639999-0.927801-2.083298-1.615l0.420097-0.271l0.4202-0.271101c0.287201,0.445301,0.864799,0.8522,1.688301,1.2617c0.815201,0.405401,1.7696,0.767,2.7589,1.177601L43.4557,29.5103z\"/><path fill=\"#141e12\" d=\"M34.197399,46.775902c-0.000797-0.131702-0.054298-0.258102-0.147999-0.351303c-0.0938-0.093098-0.2202-0.1455-0.352001-0.1455c-0.131699,0-0.258198,0.052402-0.351898,0.1455c-0.0938,0.093201-0.147202,0.219601-0.148102,0.351303c0.000301,0.455898-0.2724,0.901798-0.6889,1.233299c-0.667799,0.5322-1.605099,0.779598-2.514198,0.772598c-1.438002,0.028-3.154701-0.8218-3.140301-2.005898c-0.0121-1.132301,1.730101-1.791801,3.140301-1.749702c1.8137-0.007599,4.115398-0.925598,4.3284-3.325001c0.020901-0.584999-0.300602-1.197899-0.677002-1.547199c-0.374699-0.364498-0.770897-0.595699-1.1507-0.808701c-0.762798-0.416-1.4963-0.745998-2.172298-1.145298l-0.0648-0.032803c-1.5065-0.681698-2.9839-1.524197-4.1761-2.588398c-1.2145-1.066799-1.9025-2.4333-0.869801-3.4286c0.232599-0.243099,0.7631-0.3459,1.137001-0.5376C26.451,31.5599,26.545,31.4981,26.6243,31.421499c0.376101-0.3638,0.640499-0.843699,0.794399-1.452099c0.0371-0.1586,0.063002-0.320601,0.0476-0.4753C27.4508,29.3393,27.394199,29.2034,27.2957,29.1029c-0.098499-0.100599-0.233101-0.160099-0.3876-0.178799c-0.154301-0.018702-0.316801,0.003799-0.476101,0.0376c-0.597198,0.1236-1.0933,0.370899-1.472099,0.7372c-0.0802,0.0774-0.146,0.1703-0.2031,0.271799c-0.2195,0.3878-0.291201,0.855701-0.625,1.214901c-0.7045,0.718399-1.101,2.0606-0.691099,3.0849c0.3631,1.018501,1.0411,1.725399,1.7215,2.3377C26.5539,37.812401,28.1117,38.659,29.7307,39.370399l-0.0648-0.0327c1.399101,0.8326,3.4624,1.4398,3.406202,2.363499c0.004898,1.166302-1.645401,2.171101-3.077801,2.1385c-0.8771,0.008102-1.769402,0.157402-2.603802,0.571602C26.5825,44.7976,25.707001,45.6525,25.7285,46.775902c0.207699,2.368397,2.573599,3.062199,4.2658,3.068897c1.104799-0.011398,2.242199-0.298599,3.162098-1.042198C33.722698,48.344002,34.207802,47.611,34.197399,46.775902z\"/><path fill=\"#141e12\" d=\"M25.792801,46.776199c0.000898-0.131798,0.054298-0.258099,0.1481-0.351299c0.093699-0.093201,0.2202-0.1455,0.3519-0.1455c0.1318,0,0.2582,0.052299,0.351999,0.1455c0.0937,0.093201,0.1472,0.219501,0.148001,0.351299c-0.000301,0.455902,0.2724,0.901699,0.688999,1.2332c0.6677,0.5322,1.605101,0.779602,2.514099,0.772602c1.438002,0.028,3.1548-0.821701,3.1404-2.005802c0.012001-1.132298-1.730099-1.791901-3.1404-1.749798c-1.8137-0.0075-4.115398-0.925602-4.328299-3.325001c-0.021-0.5849,0.3006-1.197899,0.676899-1.5471c0.374701-0.364601,0.771-0.595699,1.150801-0.808701c0.762699-0.4161,1.496201-0.745998,2.172199-1.145401l0.0648-0.032799c1.506599-0.681599,2.984001-1.524101,4.176102-2.588299c1.214497-1.066803,1.9025-2.433403,0.869797-3.4286c-0.232597-0.2432-0.762997-0.346001-1.136997-0.537601c-0.102001-0.052799-0.1959-0.1145-0.275303-0.1912c-0.375999-0.363699-0.640499-0.843599-0.794399-1.452099c-0.037098-0.1586-0.063-0.320601-0.0476-0.475201c0.015499-0.1548,0.072102-0.290701,0.170601-0.3913s0.2332-0.16,0.3876-0.178801c0.154301-0.018599,0.316799,0.003901,0.4762,0.037701c0.597198,0.123501,1.0933,0.3708,1.472099,0.7372c0.080101,0.0774,0.145901,0.1702,0.202999,0.2717c0.219501,0.387901,0.291302,0.855801,0.625103,1.214901C36.563,31.9042,36.959499,33.246399,36.5495,34.270699c-0.363098,1.018501-1.041,1.725403-1.7215,2.3377c-1.391598,1.2043-2.949499,2.0508-4.568499,2.762302l0.0648-0.032803c-1.399101,0.832703-3.4624,1.4398-3.4062,2.363503c-0.004801,1.166298,1.645399,2.1712,3.077799,2.1385c0.8771,0.008198,1.769501,0.157497,2.603901,0.571598c0.807899,0.386299,1.683399,1.241199,1.6619,2.3647c-0.207699,2.368401-2.5735,3.062099-4.2658,3.068802c-1.1047-0.011402-2.242199-0.2985-3.1621-1.042202C26.2675,48.344299,25.782499,47.611198,25.792801,46.776199z\"/></svg>",
+    "dark": "<?xml version=\"1.0\" encoding=\"utf-8\"?><svg version=\"1.1\" id=\"Layer_1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" x=\"0px\" y=\"0px\" viewBox=\"0 0 60 60\" enable-background=\"new 0 0 60 60\" xml:space=\"preserve\"><circle fill=\"none\" stroke=\"#eceeec\" cx=\"30\" cy=\"30\" r=\"27.5\"/><path fill=\"none\" stroke=\"#eceeec\" stroke-linecap=\"round\" d=\"M6,30c0,9.285099,5.2727,17.338699,12.987301,21.3298 M30,6c-7.1101,0-13.497999,3.0918-17.8927,8.0043\"/><path fill=\"none\" stroke=\"#eceeec\" stroke-linecap=\"round\" d=\"M53.494099,30c0,9.285099-5.272697,17.338699-12.987297,21.3298 M29.494101,6c7.110098,0,13.497999,3.0918,17.892698,8.0043\"/><circle fill=\"none\" stroke=\"#eceeec\" cx=\"30\" cy=\"16.378401\" r=\"3\"/><path fill=\"#eceeec\" d=\"M29.994101,21.7288L29.994101,21.7288c0.276142,0,0.5,0.223858,0.5,0.5v30.169203c0,0.276142-0.223858,0.5-0.5,0.5l0,0c-0.276142,0-0.5-0.223858-0.5-0.5V22.2288C29.494101,21.952658,29.717958,21.7288,29.994101,21.7288z\"/><path fill=\"none\" stroke=\"#eceeec\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M29.8696,25.396c-6.1423,0.2393-5.6989-9.0175-11.4363-9.017599c-3.2858,0-5.1936,4.928598-10.33418,4.928598c0.37099,3.179701,8.61708,9.9102,13.61988,9.4862\"/><path fill=\"#eceeec\" d=\"M19.1661,20.778601c0.180901-0.2087,0.1583-0.524401-0.0504-0.705301c-0.2087-0.180799-0.524401-0.158298-0.705299,0.0504L18.7883,20.4512L19.1661,20.778601z M19.8967,24.029699c0.180901-0.2087,0.1583-0.524399-0.0504-0.705299c-0.2087-0.180799-0.5245-0.1583-0.705299,0.0504l0.377899,0.327499L19.8967,24.029699z M21.509701,27.1513c0.1497-0.232,0.082998-0.5415-0.149-0.6912c-0.232101-0.1497-0.541601-0.082901-0.691301,0.149099l0.4202,0.271101L21.509701,27.1513z M10.752,25.0903l0.1518,0.4764c1.2831-0.4088,2.9679-1.1737,4.5087-2.040501c1.5282-0.859699,2.9813-1.8564,3.753599-2.747599l-0.3778-0.3274L18.4104,20.123699c-0.6523,0.752701-1.975401,1.679901-3.4882,2.530901c-1.5002,0.844-3.1213,1.5767-4.322001,1.959299L10.752,25.0903z M13.1263,27.5012l0.1518,0.4764c2.5311-0.806499,5.110999-2.2082,6.6186-3.947901l-0.3778-0.3274L19.141001,23.3748c-1.3416,1.5481-3.729701,2.8736-6.166501,3.65L13.1263,27.5012z M16.4139,29.5103l0.1917,0.4618c0.946699-0.393,1.964899-0.780199,2.820799-1.205799c0.8477-0.4216,1.640001-0.927801,2.083302-1.615l-0.420101-0.271l-0.4202-0.271101c-0.287199,0.445301-0.864698,0.8522-1.6882,1.2617c-0.8153,0.405401-1.769699,0.767-2.758999,1.177601L16.4139,29.5103z\"/><path fill=\"none\" stroke=\"#eceeec\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M30,25.396c6.1423,0.2393,5.698898-9.0175,11.436401-9.017599c3.285698,0,5.193501,4.928598,10.334099,4.928598c-0.370998,3.179701-8.6171,9.9102-13.6199,9.4862\"/><path fill=\"#eceeec\" d=\"M40.703499,20.778601c-0.180798-0.2087-0.158298-0.524401,0.0504-0.705301c0.208702-0.180799,0.524502-0.158298,0.705303,0.0504l-0.3778,0.327501L40.703499,20.778601z M39.9729,24.029699c-0.180801-0.2087-0.158298-0.524399,0.0504-0.705299c0.208698-0.180799,0.524498-0.1583,0.705299,0.0504l-0.3778,0.327499L39.9729,24.029699z M38.359901,27.1513c-0.1497-0.232-0.083-0.5415,0.149097-0.6912c0.232002-0.1497,0.5415-0.082901,0.6912,0.149099l-0.4202,0.271101L38.359901,27.1513z M49.117699,25.0903L48.9659,25.5667c-1.283199-0.4088-2.967899-1.1737-4.508801-2.040501c-1.528198-0.859699-2.9813-1.8564-3.753601-2.747599l0.377903-0.3274l0.3778-0.327501C42.1115,20.8764,43.434601,21.8036,44.947399,22.6546c1.500202,0.844,3.1213,1.5767,4.322102,1.959299L49.117699,25.0903z M46.743301,27.5012l-0.151802,0.4764c-2.531101-0.806499-5.110901-2.2082-6.618599-3.947901l0.377899-0.3274l0.3778-0.327499c1.341602,1.5481,3.729702,2.8736,6.1665,3.65L46.743301,27.5012z M43.4557,29.5103l-0.1917,0.4618c-0.946701-0.393-1.964901-0.780199-2.820801-1.205799c-0.847698-0.4216-1.639999-0.927801-2.083298-1.615l0.420097-0.271l0.4202-0.271101c0.287201,0.445301,0.864799,0.8522,1.688301,1.2617c0.815201,0.405401,1.7696,0.767,2.7589,1.177601L43.4557,29.5103z\"/><path fill=\"#eceeec\" d=\"M34.197399,46.775902c-0.000797-0.131702-0.054298-0.258102-0.147999-0.351303c-0.0938-0.093098-0.2202-0.1455-0.352001-0.1455c-0.131699,0-0.258198,0.052402-0.351898,0.1455c-0.0938,0.093201-0.147202,0.219601-0.148102,0.351303c0.000301,0.455898-0.2724,0.901798-0.6889,1.233299c-0.667799,0.5322-1.605099,0.779598-2.514198,0.772598c-1.438002,0.028-3.154701-0.8218-3.140301-2.005898c-0.0121-1.132301,1.730101-1.791801,3.140301-1.749702c1.8137-0.007599,4.115398-0.925598,4.3284-3.325001c0.020901-0.584999-0.300602-1.197899-0.677002-1.547199c-0.374699-0.364498-0.770897-0.595699-1.1507-0.808701c-0.762798-0.416-1.4963-0.745998-2.172298-1.145298l-0.0648-0.032803c-1.5065-0.681698-2.9839-1.524197-4.1761-2.588398c-1.2145-1.066799-1.9025-2.4333-0.869801-3.4286c0.232599-0.243099,0.7631-0.3459,1.137001-0.5376C26.451,31.5599,26.545,31.4981,26.6243,31.421499c0.376101-0.3638,0.640499-0.843699,0.794399-1.452099c0.0371-0.1586,0.063002-0.320601,0.0476-0.4753C27.4508,29.3393,27.394199,29.2034,27.2957,29.1029c-0.098499-0.100599-0.233101-0.160099-0.3876-0.178799c-0.154301-0.018702-0.316801,0.003799-0.476101,0.0376c-0.597198,0.1236-1.0933,0.370899-1.472099,0.7372c-0.0802,0.0774-0.146,0.1703-0.2031,0.271799c-0.2195,0.3878-0.291201,0.855701-0.625,1.214901c-0.7045,0.718399-1.101,2.0606-0.691099,3.0849c0.3631,1.018501,1.0411,1.725399,1.7215,2.3377C26.5539,37.812401,28.1117,38.659,29.7307,39.370399l-0.0648-0.0327c1.399101,0.8326,3.4624,1.4398,3.406202,2.363499c0.004898,1.166302-1.645401,2.171101-3.077801,2.1385c-0.8771,0.008102-1.769402,0.157402-2.603802,0.571602C26.5825,44.7976,25.707001,45.6525,25.7285,46.775902c0.207699,2.368397,2.573599,3.062199,4.2658,3.068897c1.104799-0.011398,2.242199-0.298599,3.162098-1.042198C33.722698,48.344002,34.207802,47.611,34.197399,46.775902z\"/><path fill=\"#eceeec\" d=\"M25.792801,46.776199c0.000898-0.131798,0.054298-0.258099,0.1481-0.351299c0.093699-0.093201,0.2202-0.1455,0.3519-0.1455c0.1318,0,0.2582,0.052299,0.351999,0.1455c0.0937,0.093201,0.1472,0.219501,0.148001,0.351299c-0.000301,0.455902,0.2724,0.901699,0.688999,1.2332c0.6677,0.5322,1.605101,0.779602,2.514099,0.772602c1.438002,0.028,3.1548-0.821701,3.1404-2.005802c0.012001-1.132298-1.730099-1.791901-3.1404-1.749798c-1.8137-0.0075-4.115398-0.925602-4.328299-3.325001c-0.021-0.5849,0.3006-1.197899,0.676899-1.5471c0.374701-0.364601,0.771-0.595699,1.150801-0.808701c0.762699-0.4161,1.496201-0.745998,2.172199-1.145401l0.0648-0.032799c1.506599-0.681599,2.984001-1.524101,4.176102-2.588299c1.214497-1.066803,1.9025-2.433403,0.869797-3.4286c-0.232597-0.2432-0.762997-0.346001-1.136997-0.537601c-0.102001-0.052799-0.1959-0.1145-0.275303-0.1912c-0.375999-0.363699-0.640499-0.843599-0.794399-1.452099c-0.037098-0.1586-0.063-0.320601-0.0476-0.475201c0.015499-0.1548,0.072102-0.290701,0.170601-0.3913s0.2332-0.16,0.3876-0.178801c0.154301-0.018599,0.316799,0.003901,0.4762,0.037701c0.597198,0.123501,1.0933,0.3708,1.472099,0.7372c0.080101,0.0774,0.145901,0.1702,0.202999,0.2717c0.219501,0.387901,0.291302,0.855801,0.625103,1.214901C36.563,31.9042,36.959499,33.246399,36.5495,34.270699c-0.363098,1.018501-1.041,1.725403-1.7215,2.3377c-1.391598,1.2043-2.949499,2.0508-4.568499,2.762302l0.0648-0.032803c-1.399101,0.832703-3.4624,1.4398-3.4062,2.363503c-0.004801,1.166298,1.645399,2.1712,3.077799,2.1385c0.8771,0.008198,1.769501,0.157497,2.603901,0.571598c0.807899,0.386299,1.683399,1.241199,1.6619,2.3647c-0.207699,2.368401-2.5735,3.062099-4.2658,3.068802c-1.1047-0.011402-2.242199-0.2985-3.1621-1.042202C26.2675,48.344299,25.782499,47.611198,25.792801,46.776199z\"/></svg>"
+  },
+  "controls": [
+    {
+      "id": "164.306(a)(1)",
+      "name": "General Rules - General requirements",
+      "description": "Ensure the confidentiality, integrity, and availability of all electronic protected health information the covered entity or business associate creates, receives, maintains, or transmits."
+    },
+    {
+      "id": "164.306(a)(2)",
+      "name": "General Rules - General requirements",
+      "description": "Protect against any reasonably anticipated threats or hazards to the security or integrity of such information."
+    },
+    {
+      "id": "164.306(a)(3)",
+      "name": "General Rules - General requirements",
+      "description": "Protect against any reasonably anticipated uses or disclosures of such information that are not permitted or required under subpart E of this part."
+    },
+    {
+      "id": "164.306(a)(4)",
+      "name": "General Rules - General requirements",
+      "description": "Ensure compliance with this subpart by its workforce."
+    },
+    {
+      "id": "164.306(b)(1)",
+      "name": "General Rules - Flexibility of approach",
+      "description": "Covered entities and business associates may use any security measures that allow the covered entity or business associate to reasonably and appropriately implement the standards and implementation specifications as specified in this subpart."
+    },
+    {
+      "id": "164.306(b)(2)",
+      "name": "General Rules - Flexibility of approach",
+      "description": "In deciding which security measures to use, a covered entity or business associate must take into account the following factors:\n\n(i) The size, complexity, and capabilities of the covered entity or business associate.\n\n(ii) The covered entity's or the business associate's technical infrastructure, hardware, and software security capabilities.\n\n(iii) The costs of security measures.\n\n(iv) The probability and criticality of potential risks to electronic protected health information."
+    },
+    {
+      "id": "164.306(c)",
+      "name": "General Rules - Standards",
+      "description": "A covered entity or business associate must comply with the applicable standards as provided in this section and in §§ 164.308, 164.310, 164.312, 164.314 and 164.316 with respect to all electronic protected health information."
+    },
+    {
+      "id": "164.306(d)(1)",
+      "name": "General Rules - Implementation specifications",
+      "description": "Implementation specifications are required or addressable. If an implementation specification is required, the word “Required” appears in parentheses after the title of the implementation specification. If an implementation specification is addressable, the word “Addressable” appears in parentheses after the title of the implementation specification"
+    },
+    {
+      "id": "164.306(d)(2)",
+      "name": "General Rules - Implementation specifications",
+      "description": "When a standard adopted in § 164.308, § 164.310, § 164.312, § 164.314, or § 164.316 includes required implementation specifications, a covered entity or business associate must implement the implementation specifications."
+    },
+    {
+      "id": "164.306(d)(3)",
+      "name": "General Rules - Implementation specifications",
+      "description": "When a standard adopted in § 164.308, § 164.310, § 164.312, § 164.314, or § 164.316 includes addressable implementation specifications, a covered entity or business associate must—\n\n(i) Assess whether each implementation specification is a reasonable and appropriate safeguard in its environment, when analyzed with reference to the likely contribution to protecting electronic protected health information; and\n\n(ii) As applicable to the covered entity or business associate—\n\n(A) Implement the implementation specification if reasonable and appropriate; or\n\n(B) If implementing the implementation specification is not reasonable and appropriate—\n\n$(1) Document why it would not be reasonable and appropriate to implement the implementation specification; and\n\n$(2) Implement an equivalent alternative measure if reasonable and appropriate."
+    },
+    {
+      "id": "164.306(e)",
+      "name": "General Rules - Maintenance",
+      "description": "A covered entity or business associate must review and modify the security measures implemented under this subpart as needed to continue provision of reasonable and appropriate protection of electronic protected health information, and update documentation of such security measures in accordance with § 164.316(b)(2)(iii)."
+    },
+    {
+      "id": "164.308(a)(1)(i)",
+      "name": "Administrative safeguards - Standard: Security management process",
+      "description": "Implement policies and procedures to prevent, detect, contain, and correct security violations."
+    },
+    {
+      "id": "164.308(a)(1)(ii)(A)",
+      "name": "Administrative safeguards - Risk analysis (Required)",
+      "description": "Conduct an accurate and thorough assessment of the potential risks and vulnerabilities to the confidentiality, integrity, and availability of electronic protected health information held by the covered entity or business associate."
+    },
+    {
+      "id": "164.308(a)(1)(ii)(B)",
+      "name": "Administrative safeguards - Risk management (Required)",
+      "description": "Implement security measures sufficient to reduce risks and vulnerabilities to a reasonable and appropriate level to comply with § 164.306(a)."
+    },
+    {
+      "id": "164.308(a)(1)(ii)(C)",
+      "name": "Administrative safeguards - Sanction policy (Required)",
+      "description": "Apply appropriate sanctions against workforce members who fail to comply with the security policies and procedures of the covered entity or business associate."
+    },
+    {
+      "id": "164.308(a)(1)(ii)(D)",
+      "name": "Administrative safeguards - Information system activity review (Required)",
+      "description": "Implement procedures to regularly review records of information system activity, such as audit logs, access reports, and security incident tracking reports."
+    },
+    {
+      "id": "164.308(a)(2)",
+      "name": "Administrative safeguards - Standard: Assigned security responsibility",
+      "description": "Identify the security official who is responsible for the development and implementation of the policies and procedures required by this subpart for the covered entity or business associate."
+    },
+    {
+      "id": "164.308(a)(3)(i)",
+      "name": "Administrative safeguards - Standard: Workforce security",
+      "description": "Implement policies and procedures to ensure that all members of its workforce have appropriate access to electronic protected health information, as provided under paragraph (a)(4) of this section, and to prevent those workforce members who do not have access under paragraph (a)(4) of this section from obtaining access to electronic protected health information."
+    },
+    {
+      "id": "164.308(a)(3)(ii)(A)",
+      "name": "Administrative safeguards - Implementation specifications:",
+      "description": "Authorization and/or supervision (Addressable).\n\nImplement procedures for the authorization and/or supervision of workforce members who work with electronic protected health information or in locations where it might be accessed."
+    },
+    {
+      "id": "164.308(a)(3)(ii)(B)",
+      "name": "Administrative safeguards - Workforce clearance procedure (Addressable)",
+      "description": "Implement procedures to determine that the access of a workforce member to electronic protected health information is appropriate."
+    },
+    {
+      "id": "164.308(a)(3)(ii)(C)",
+      "name": "Administrative safeguards - Termination procedures (Addressable)",
+      "description": "Implement procedures for terminating access to electronic protected health information when the employment of, or other arrangement with, a workforce member ends or as required by determinations made as specified in paragraph (a)(3)(ii)(B) of this section."
+    },
+    {
+      "id": "164.308(a)(4)(i)",
+      "name": "Administrative safeguards - Standard: Information access management",
+      "description": "Implement policies and procedures for authorizing access to electronic protected health information that are consistent with the applicable requirements of subpart E of this part."
+    },
+    {
+      "id": "164.308(a)(4)(ii)(A)",
+      "name": "Administrative safeguards - Isolating health care clearinghouse functions (Required)",
+      "description": "If a health care clearinghouse is part of a larger organization, the clearinghouse must implement policies and procedures that protect the electronic protected health information of the clearinghouse from unauthorized access by the larger organization."
+    },
+    {
+      "id": "164.308(a)(4)(ii)(B)",
+      "name": "Administrative safeguards - Access authorization (Addressable)",
+      "description": "Implement policies and procedures for granting access to electronic protected health information, for example, through access to a workstation, transaction, program, process, or other mechanism."
+    },
+    {
+      "id": "164.308(a)(4)(ii)(C)",
+      "name": "Administrative safeguards - Access establishment and modification (Addressable)",
+      "description": "Implement policies and procedures that, based upon the covered entity's or the business associate's access authorization policies, establish, document, review, and modify a user's right of access to a workstation, transaction, program, or process."
+    },
+    {
+      "id": "164.308(a)(5)(i)",
+      "name": "Administrative safeguards - Standard: Security awareness and training",
+      "description": "Implement a security awareness and training program for all members of its workforce (including management)."
+    },
+    {
+      "id": "164.308(a)(5)(ii)(A)",
+      "name": "Administrative safeguards - Security reminders (Addressable)",
+      "description": "Periodic security updates."
+    },
+    {
+      "id": "164.308(a)(5)(ii)(B)",
+      "name": "Administrative safeguards - Protection from malicious software (Addressable)",
+      "description": "Procedures for guarding against, detecting, and reporting malicious software."
+    },
+    {
+      "id": "164.308(a)(5)(ii)(C)",
+      "name": "Administrative safeguards - Log-in monitoring (Addressable)",
+      "description": "Procedures for monitoring log-in attempts and reporting discrepancies."
+    },
+    {
+      "id": "164.308(a)(5)(ii)(D)",
+      "name": "Administrative safeguards - Password management (Addressable)",
+      "description": "Procedures for creating, changing, and safeguarding passwords."
+    },
+    {
+      "id": "164.308(a)(6)(i)",
+      "name": "Administrative safeguards - Standard: Security incident procedures",
+      "description": "Implement policies and procedures to address security incidents."
+    },
+    {
+      "id": "164.308(a)(6)(ii)",
+      "name": "Administrative safeguards - Implementation specification: Response and reporting (Required)",
+      "description": "Identify and respond to suspected or known security incidents; mitigate, to the extent practicable, harmful effects of security incidents that are known to the covered entity or business associate; and document security incidents and their outcomes."
+    },
+    {
+      "id": "164.308(a)(7)(i)",
+      "name": "Administrative safeguards - Standard: Contingency plan",
+      "description": "Establish (and implement as needed) policies and procedures for responding to an emergency or other occurrence (for example, fire, vandalism, system failure, and natural disaster) that damages systems that contain electronic protected health information."
+    },
+    {
+      "id": "164.308(a)(7)(ii)(A)",
+      "name": "Administrative safeguards - Data backup plan (Required)",
+      "description": "Establish and implement procedures to create and maintain retrievable exact copies of electronic protected health information."
+    },
+    {
+      "id": "164.308(a)(7)(ii)(B)",
+      "name": "Administrative safeguards - Disaster recovery plan (Required)",
+      "description": "Establish (and implement as needed) procedures to restore any loss of data."
+    },
+    {
+      "id": "164.308(a)(7)(ii)(C)",
+      "name": "Administrative safeguards - Emergency mode operation plan (Required)",
+      "description": "Establish (and implement as needed) procedures to enable continuation of critical business processes for protection of the security of electronic protected health information while operating in emergency mode."
+    },
+    {
+      "id": "164.308(a)(7)(ii)(D)",
+      "name": "Administrative safeguards - Testing and revision procedures (Addressable)",
+      "description": "Implement procedures for periodic testing and revision of contingency plans."
+    },
+    {
+      "id": "164.308(a)(7)(ii)(E)",
+      "name": "Administrative safeguards - Applications and data criticality analysis (Addressable)",
+      "description": "Assess the relative criticality of specific applications and data in support of other contingency plan components."
+    },
+    {
+      "id": "164.308(a)(8)",
+      "name": "Administrative safeguards - Standard: Evaluation",
+      "description": "Perform a periodic technical and nontechnical evaluation, based initially upon the standards implemented under this rule and, subsequently, in response to environmental or operational changes affecting the security of electronic protected health information, that establishes the extent to which a covered entity's or business associate's security policies and procedures meet the requirements of this subpart."
+    },
+    {
+      "id": "164.308(b)(1)",
+      "name": "Administrative safeguards - Business associate contracts and other arrangements",
+      "description": "A covered entity may permit a business associate to create, receive, maintain, or transmit electronic protected health information on the covered entity's behalf only if the covered entity obtains satisfactory assurances, in accordance with § 164.314(a), that the business associate will appropriately safeguard the information. A covered entity is not required to obtain such satisfactory assurances from a business associate that is a subcontractor."
+    },
+    {
+      "id": "164.308(b)(2)",
+      "name": "Administrative safeguards",
+      "description": "A business associate may permit a business associate that is a subcontractor to create, receive, maintain, or transmit electronic protected health information on its behalf only if the business associate obtains satisfactory assurances, in accordance with § 164.314(a), that the subcontractor will appropriately safeguard the information."
+    },
+    {
+      "id": "164.308(b)(3)",
+      "name": "Administrative safeguards - Implementation specifications: Written contract or other arrangement (Required)",
+      "description": "Document the satisfactory assurances required by paragraph (b)(1) or (b)(2) of this section through a written contract or other arrangement with the business associate that meets the applicable requirements of § 164.314(a)."
+    },
+    {
+      "id": "164.310(a)(1)",
+      "name": "Physical Safeguards - Standard: Facility access controls",
+      "description": "Implement policies and procedures to limit physical access to its electronic information systems and the facility or facilities in which they are housed, while ensuring that properly authorized access is allowed."
+    },
+    {
+      "id": "164.310(a)(2)(i)",
+      "name": "Physical Safeguards - Contingency operations (Addressable)",
+      "description": "Establish (and implement as needed) procedures that allow facility access in support of restoration of lost data under the disaster recovery plan and emergency mode operations plan in the event of an emergency."
+    },
+    {
+      "id": "164.310(a)(2)(ii)",
+      "name": "Physical Safeguards - Facility security plan (Addressable)",
+      "description": "Implement policies and procedures to safeguard the facility and the equipment therein from unauthorized physical access, tampering, and theft."
+    },
+    {
+      "id": "164.310(a)(2)(iii)",
+      "name": "Physical Safeguards - Access control and validation procedures (Addressable)",
+      "description": "Implement procedures to control and validate a person's access to facilities based on their role or function, including visitor control, and control of access to software programs for testing and revision."
+    },
+    {
+      "id": "164.310(a)(2)(iv)",
+      "name": "Physical Safeguards - Maintenance records (Addressable)",
+      "description": "Implement policies and procedures to document repairs and modifications to the physical components of a facility which are related to security (for example, hardware, walls, doors, and locks)."
+    },
+    {
+      "id": "164.310(b)",
+      "name": "Physical Safeguards - Standard: Workstation use",
+      "description": "Implement policies and procedures that specify the proper functions to be performed, the manner in which those functions are to be performed, and the physical attributes of the surroundings of a specific workstation or class of workstation that can access electronic protected health information."
+    },
+    {
+      "id": "164.310(c)",
+      "name": "Physical Safeguards - Standard: Workstation security",
+      "description": "Implement physical safeguards for all workstations that access electronic protected health information, to restrict access to authorized users."
+    },
+    {
+      "id": "164.310(d)(1)",
+      "name": "Physical Safeguards - Standard: Device and media controls",
+      "description": "Implement policies and procedures that govern the receipt and removal of hardware and electronic media that contain electronic protected health information into and out of a facility, and the movement of these items within the facility."
+    },
+    {
+      "id": "164.310(d)(2)(i)",
+      "name": "Physical Safeguards - Disposal (Required)",
+      "description": "Implement policies and procedures to address the final disposition of electronic protected health information, and/or the hardware or electronic media on which it is stored."
+    },
+    {
+      "id": "164.310(d)(2)(ii)",
+      "name": "Physical Safeguards - Media re-use (Required)",
+      "description": "Implement procedures for removal of electronic protected health information from electronic media before the media are made available for re-use."
+    },
+    {
+      "id": "164.310(d)(2)(iii)",
+      "name": "Physical Safeguards - Accountability (Addressable)",
+      "description": "Maintain a record of the movements of hardware and electronic media and any person responsible therefore"
+    },
+    {
+      "id": "164.310(d)(2)(iv)",
+      "name": "Physical Safeguards - Data backup and storage (Addressable)",
+      "description": "Create a retrievable, exact copy of electronic protected health information, when needed, before movement of equipment."
+    },
+    {
+      "id": "164.312(a)(1)",
+      "name": "Technical Safeguards - Standard: Access control",
+      "description": "Implement technical policies and procedures for electronic information systems that maintain electronic protected health information to allow access only to those persons or software programs that have been granted access rights as specified in § 164.308(a)(4)."
+    },
+    {
+      "id": "164.312(a)(2)(i)",
+      "name": "Technical Safeguards - Unique user identification (Required)",
+      "description": "Assign a unique name and/or number for identifying and tracking user identity."
+    },
+    {
+      "id": "164.312(a)(2)(ii)",
+      "name": "Technical Safeguards - Emergency access procedure (Required)",
+      "description": "Establish (and implement as needed) procedures for obtaining necessary electronic protected health information during an emergency."
+    },
+    {
+      "id": "164.312(a)(2)(iii)",
+      "name": "Technical Safeguards - Automatic logoff (Addressable)",
+      "description": "Implement electronic procedures that terminate an electronic session after a predetermined time of inactivity."
+    },
+    {
+      "id": "164.312(a)(2)(iv)",
+      "name": "Technical Safeguards - Encryption and decryption (Addressable)",
+      "description": "Implement a mechanism to encrypt and decrypt electronic protected health information."
+    },
+    {
+      "id": "164.312(b)",
+      "name": "Technical Safeguards - Standard: Audit controls",
+      "description": "Implement hardware, software, and/or procedural mechanisms that record and examine activity in information systems that contain or use electronic protected health information."
+    },
+    {
+      "id": "164.312(c)(1)",
+      "name": "Technical Safeguards - Standard: Integrity",
+      "description": "Implement policies and procedures to protect electronic protected health information from improper alteration or destruction."
+    },
+    {
+      "id": "164.312(c)(2)",
+      "name": "Technical Safeguards",
+      "description": "Implementation specification: Mechanism to authenticate electronic protected health information (Addressable).\n\nImplement electronic mechanisms to corroborate that electronic protected health information has not been altered or destroyed in an unauthorized manner."
+    },
+    {
+      "id": "164.312(d)",
+      "name": "Technical Safeguards - Standard: Person or entity authentication",
+      "description": "Implement procedures to verify that a person or entity seeking access to electronic protected health information is the one claimed."
+    },
+    {
+      "id": "164.312(e)(1)",
+      "name": "Technical Safeguards - Standard: Transmission security",
+      "description": "Implement technical security measures to guard against unauthorized access to electronic protected health information that is being transmitted over an electronic communications network."
+    },
+    {
+      "id": "164.312(e)(2)(i)",
+      "name": "Technical Safeguards - Integrity controls (Addressable)",
+      "description": "Implement security measures to ensure that electronically transmitted electronic protected health information is not improperly modified without detection until disposed of."
+    },
+    {
+      "id": "164.312(e)(2)(ii)",
+      "name": "Technical Safeguards - Encryption (Addressable)",
+      "description": "Implement a mechanism to encrypt electronic protected health information whenever deemed appropriate."
+    },
+    {
+      "id": "164.314(a)(1)",
+      "name": "Organizational requirements. - Standard: Business associate contracts or other arrangements",
+      "description": "The contract or other arrangement required by § 164.308(b)(3) must meet the requirements of paragraph (a)(2)(i), (a)(2)(ii), or (a)(2)(iii) of this section, as applicable."
+    },
+    {
+      "id": "164.314(a)(2)(i)",
+      "name": "Organizational requirements. - Business associate contracts",
+      "description": "The contract must provide that the business associate will:\n\n(A) Comply with the applicable requirements of this subpart;\n\n(B) In accordance with § 164.308(b)(2), ensure that any subcontractors that create, receive, maintain, or transmit electronic protected health information on behalf of the business associate agree to comply with the applicable requirements of this subpart by entering into a contract or other arrangement that complies with this section; and\n\n(C) Report to the covered entity any security incident of which it becomes aware, including breaches of unsecured protected health information as required by § 164.410."
+    },
+    {
+      "id": "164.314(a)(2)(ii)",
+      "name": "Organizational requirements. - Other arrangements",
+      "description": "The covered entity is in compliance with paragraph (a)(1) of this section if it has another arrangement in place that meets the requirements of § 164.504(e)(3)."
+    },
+    {
+      "id": "164.314(a)(2)(iii)",
+      "name": "Organizational requirements. - Business associate contracts with subcontractors",
+      "description": "The requirements of paragraphs (a)(2)(i) and (a)(2)(ii) of this section apply to the contract or other arrangement between a business associate and a subcontractor required by § 164.308(b)(4) in the same manner as such requirements apply to contracts or other arrangements between a covered entity and business associate."
+    },
+    {
+      "id": "164.314(b)(1)",
+      "name": "Organizational requirements. - Standard: Requirements for group health plans",
+      "description": "Except when the only electronic protected health information disclosed to a plan sponsor is disclosed pursuant to § 164.504(f)(1)(ii) or (iii), or as authorized under § 164.508, a group health plan must ensure that its plan documents provide that the plan sponsor will reasonably and appropriately safeguard electronic protected health information created, received, maintained, or transmitted to or by the plan sponsor on behalf of the group health plan."
+    },
+    {
+      "id": "164.314(b)(2)",
+      "name": "Organizational requirements. - Implementation specifications (Required)",
+      "description": "The plan documents of the group health plan must be amended to incorporate provisions to require the plan sponsor to—\n\n(i) Implement administrative, physical, and technical safeguards that reasonably and appropriately protect the confidentiality, integrity, and availability of the electronic protected health information that it creates, receives, maintains, or transmits on behalf of the group health plan;\n\n(ii) Ensure that the adequate separation required by § 164.504(f)(2)(iii) is supported by reasonable and appropriate security measures;\n\n(iii) Ensure that any agent to whom it provides this information agrees to implement reasonable and appropriate security measures to protect the information; and\n\n(iv) Report to the group health plan any security incident of which it becomes aware."
+    },
+    {
+      "id": "164.316(a)",
+      "name": "Policies and procedures and documentation requirements. - Standard: Policies and procedures",
+      "description": "Implement reasonable and appropriate policies and procedures to comply with the standards, implementation specifications, or other requirements of this subpart, taking into account those factors specified in § 164.306(b)(2)(i), (ii), (iii), and (iv). This standard is not to be construed to permit or excuse an action that violates any other standard, implementation specification, or other requirements of this subpart. A covered entity or business associate may change its policies and procedures at any time, provided that the changes are documented and are implemented in accordance with this subpart."
+    },
+    {
+      "id": "164.316(b)(1)",
+      "name": "Policies and procedures and documentation requirements.",
+      "description": "i) Maintain the policies and procedures implemented to comply with this subpart in written (which may be electronic) form; and\n\n(ii) If an action, activity or assessment is required by this subpart to be documented, maintain a written (which may be electronic) record of the action, activity, or assessment"
+    },
+    {
+      "id": "164.316(b)(2)(i)",
+      "name": "Policies and procedures and documentation requirements. - Time limit (Required)",
+      "description": "Retain the documentation required by paragraph (b)(1) of this section for 6 years from the date of its creation or the date when it last was in effect, whichever is later."
+    },
+    {
+      "id": "164.316(b)(2)(ii)",
+      "name": "Policies and procedures and documentation requirements. - Availability (Required)",
+      "description": "Make documentation available to those persons responsible for implementing the procedures to which the documentation pertains."
+    },
+    {
+      "id": "164.316(b)(2)(iii)",
+      "name": "Policies and procedures and documentation requirements. - Updates (Required)",
+      "description": "Review documentation periodically, and update as needed, in response to environmental or operational changes affecting the security of the electronic protected health information."
+    }
+  ]
+}

@@ -1,0 +1,377 @@
+{
+  "generatedBy": "fortress/library/scripts/convert-comp.mjs",
+  "sources": {
+    "comp": "packages/db/prisma/seed/{primitives,relations}",
+    "probo": "probo/apps/console/public/data/frameworks"
+  },
+  "frameworks": [
+    {
+      "file": "frameworks/comp-iso27001.json",
+      "id": "COMP-ISO27001",
+      "name": "ISO 27001 (Comp)",
+      "compId": "frk_681ecc34e85064efdbb76993",
+      "compName": "ISO 27001",
+      "compVersion": "2022",
+      "proboEquivalent": "ISO27001-2022",
+      "requirements": 119,
+      "controls": 119,
+      "mergedDuplicates": []
+    },
+    {
+      "file": "frameworks/comp-hipaa.json",
+      "id": "COMP-HIPAA",
+      "name": "HIPAA (Comp)",
+      "compId": "frk_681fdd150f59a1560a66c89a",
+      "compName": "HIPAA",
+      "compVersion": "2025",
+      "proboEquivalent": "HIPAA",
+      "requirements": 77,
+      "controls": 77,
+      "mergedDuplicates": []
+    },
+    {
+      "file": "frameworks/comp-gdpr.json",
+      "id": "COMP-GDPR",
+      "name": "GDPR (Comp)",
+      "compId": "frk_681ef1952907deb7cb85896d",
+      "compName": "GDPR",
+      "compVersion": "1.0.0",
+      "proboEquivalent": "GDPR",
+      "requirements": 19,
+      "controls": 19,
+      "mergedDuplicates": []
+    },
+    {
+      "file": "frameworks/comp-soc2.json",
+      "id": "COMP-SOC2",
+      "name": "SOC 2 (Comp)",
+      "compId": "frk_683f377429b8408d1c85f9bd",
+      "compName": "SOC 2",
+      "compVersion": "1",
+      "proboEquivalent": "SOC2",
+      "requirements": 63,
+      "controls": 60,
+      "mergedDuplicates": [
+        {
+          "id": "P3.2",
+          "compRequirementIds": [
+            "frk_rq_683f83098dfd2e4ed385afd4",
+            "frk_rq_683f833cb9cd7f024ff9535f",
+            "frk_rq_683f8345a76125f5c3a71d5c",
+            "frk_rq_683f834daeb15e457c90c0ee"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "frameworks/comp-iso42001.json",
+      "id": "COMP-ISO42001",
+      "name": "ISO 42001 (Comp)",
+      "compId": "frk_68cc0e2a21184ed168ab2eea",
+      "compName": "ISO 42001",
+      "compVersion": "1.0.0",
+      "proboEquivalent": "ISO42001-2023",
+      "requirements": 70,
+      "controls": 70,
+      "mergedDuplicates": []
+    },
+    {
+      "file": "frameworks/comp-pci-dss.json",
+      "id": "COMP-PCI-DSS",
+      "name": "PCI DSS Level 1 (Comp)",
+      "compId": "frk_69dcfb280b550e7ee231f312",
+      "compName": "PCI DSS Level 1",
+      "compVersion": "1.0.0",
+      "proboEquivalent": "PCI-DSS",
+      "requirements": 233,
+      "controls": 233,
+      "mergedDuplicates": []
+    },
+    {
+      "file": "frameworks/comp-ccpa.json",
+      "id": "COMP-CCPA",
+      "name": "CCPA (Comp)",
+      "compId": "frk_69efd433584ba436ae00d413",
+      "compName": "CCPA",
+      "compVersion": "1.0.0",
+      "proboEquivalent": "CCPA",
+      "requirements": 12,
+      "controls": 12,
+      "mergedDuplicates": []
+    },
+    {
+      "file": "frameworks/iso9001.json",
+      "id": "ISO9001-2015",
+      "name": "ISO 9001 (2015)",
+      "compId": "frk_691e28f5474c5319f1cc70d7",
+      "compName": "ISO 9001",
+      "compVersion": "1.0.0",
+      "proboEquivalent": null,
+      "requirements": 37,
+      "controls": 37,
+      "mergedDuplicates": []
+    }
+  ],
+  "skipped": [
+    {
+      "compId": "frk_6820c8b318a6d88bf2c4586d",
+      "name": "NIS 2",
+      "version": "2022/2555",
+      "visible": false,
+      "requirements": 160,
+      "reason": "hidden (visible=false); requirements have no identifiers"
+    },
+    {
+      "compId": "frk_6820090a1653380dd386c5eb",
+      "name": "NIST CSF",
+      "version": "2.0",
+      "visible": false,
+      "requirements": 106,
+      "reason": "hidden (visible=false); requirements have no identifiers"
+    },
+    {
+      "compId": "frk_682734f304cbbfdb3a9d4f44",
+      "name": "SOC 2 v.1",
+      "version": "2025",
+      "visible": false,
+      "requirements": 13,
+      "reason": "hidden (visible=false); superseded/draft version; requirements have no identifiers"
+    },
+    {
+      "compId": "frk_681ebae2f29f0ab08eb802ec",
+      "name": "SOC 2",
+      "version": "1.0.0",
+      "visible": false,
+      "requirements": 74,
+      "reason": "hidden (visible=false); requirements have no identifiers"
+    },
+    {
+      "compId": "frk_69d7e513446cc6e0376edf60",
+      "name": "SOC 2 Type 1",
+      "version": "1.0.0",
+      "visible": false,
+      "requirements": 62,
+      "reason": "hidden (visible=false); superseded/draft version"
+    },
+    {
+      "compId": "frk_681ef4bb8eeb2b60d2d9d187",
+      "name": "PCI v0",
+      "version": "4.0.1",
+      "visible": false,
+      "requirements": 256,
+      "reason": "hidden (visible=false); superseded/draft version; requirements have no identifiers"
+    },
+    {
+      "compId": "frk_68c1ead24950f84849db81bb",
+      "name": "PCI DSS",
+      "version": "1.0.0",
+      "visible": true,
+      "requirements": 1,
+      "reason": "visible in Comp but a placeholder: one generic requirement ('PCI Requirement'), no identifier. Superseded by 'PCI DSS Level 1' (emitted as comp-pci-dss.json)."
+    },
+    {
+      "compId": "frk_68d12ec2791043b5a1555950",
+      "name": "Example PCI",
+      "version": "1.0.0",
+      "visible": false,
+      "requirements": 1,
+      "reason": "hidden (visible=false); test/example framework"
+    },
+    {
+      "compId": "frk_68e135d0212b3b6cd39ceb94",
+      "name": "NEN 7510",
+      "version": "1.0.0",
+      "visible": true,
+      "requirements": 1,
+      "reason": "visible in Comp but a placeholder: one generic requirement ('NEN 7510'), no identifier, no real clause content."
+    },
+    {
+      "compId": "frk_69e9187a649152cdc715f1ad",
+      "name": "GDPR (Test)",
+      "version": "1.0.0",
+      "visible": false,
+      "requirements": 19,
+      "reason": "hidden (visible=false); test/example framework"
+    },
+    {
+      "compId": "frk_69eb9ca15a99e0ad3107b033",
+      "name": "Cloud Cybersecurity Controls",
+      "version": "1.0.0",
+      "visible": false,
+      "requirements": 0,
+      "reason": "hidden (visible=false); no requirements"
+    },
+    {
+      "compId": "frk_6924c5bf34ae90945076508e",
+      "name": "NIST 800-53",
+      "version": "1.0.0",
+      "visible": false,
+      "requirements": 0,
+      "reason": "hidden (visible=false); no requirements"
+    },
+    {
+      "compId": "frk_69bd4011a22723c759ca8e46",
+      "name": "PCI Level 1",
+      "version": "1.0.0",
+      "visible": false,
+      "requirements": 0,
+      "reason": "hidden (visible=false); no requirements"
+    },
+    {
+      "compId": "frk_69bd93a9a68c82ba0998008d",
+      "name": "SOC 2 v2",
+      "version": "1.0.0",
+      "visible": false,
+      "requirements": 1,
+      "reason": "hidden (visible=false); superseded/draft version"
+    },
+    {
+      "compId": "frk_69f3d7821751ec330608f200",
+      "name": "PIPEDA",
+      "version": "1.0.0",
+      "visible": false,
+      "requirements": 10,
+      "reason": "hidden (visible=false)"
+    }
+  ],
+  "crosswalk": [
+    {
+      "probo": "SOC2",
+      "comp": "COMP-SOC2",
+      "proboControls": 61,
+      "proboMatched": 60,
+      "proboMatchRate": 0.984,
+      "byType": {
+        "exact": 60,
+        "ancestor": 0,
+        "descendant": 0,
+        "curated": 0,
+        "unmatched": 1
+      },
+      "compRequirements": 60,
+      "compMatched": 60,
+      "compMatchRate": 1
+    },
+    {
+      "probo": "ISO27001-2022",
+      "comp": "COMP-ISO27001",
+      "proboControls": 123,
+      "proboMatched": 121,
+      "proboMatchRate": 0.984,
+      "byType": {
+        "exact": 115,
+        "ancestor": 5,
+        "descendant": 1,
+        "curated": 0,
+        "unmatched": 2
+      },
+      "compRequirements": 119,
+      "compMatched": 119,
+      "compMatchRate": 1
+    },
+    {
+      "probo": "HIPAA",
+      "comp": "COMP-HIPAA",
+      "proboControls": 60,
+      "proboMatched": 60,
+      "proboMatchRate": 1,
+      "byType": {
+        "exact": 57,
+        "ancestor": 2,
+        "descendant": 0,
+        "curated": 1,
+        "unmatched": 0
+      },
+      "compRequirements": 77,
+      "compMatched": 59,
+      "compMatchRate": 0.766
+    },
+    {
+      "probo": "GDPR",
+      "comp": "COMP-GDPR",
+      "proboControls": 62,
+      "proboMatched": 39,
+      "proboMatchRate": 0.629,
+      "byType": {
+        "exact": 0,
+        "ancestor": 0,
+        "descendant": 0,
+        "curated": 39,
+        "unmatched": 23
+      },
+      "compRequirements": 19,
+      "compMatched": 19,
+      "compMatchRate": 1
+    },
+    {
+      "probo": "ISO42001-2023",
+      "comp": "COMP-ISO42001",
+      "proboControls": 70,
+      "proboMatched": 70,
+      "proboMatchRate": 1,
+      "byType": {
+        "exact": 70,
+        "ancestor": 0,
+        "descendant": 0,
+        "curated": 0,
+        "unmatched": 0
+      },
+      "compRequirements": 70,
+      "compMatched": 70,
+      "compMatchRate": 1
+    },
+    {
+      "probo": "PCI-DSS",
+      "comp": "COMP-PCI-DSS",
+      "proboControls": 331,
+      "proboMatched": 302,
+      "proboMatchRate": 0.912,
+      "byType": {
+        "exact": 231,
+        "ancestor": 8,
+        "descendant": 63,
+        "curated": 0,
+        "unmatched": 29
+      },
+      "compRequirements": 233,
+      "compMatched": 233,
+      "compMatchRate": 1
+    },
+    {
+      "probo": "CCPA",
+      "comp": "COMP-CCPA",
+      "proboControls": 23,
+      "proboMatched": 19,
+      "proboMatchRate": 0.826,
+      "byType": {
+        "exact": 0,
+        "ancestor": 0,
+        "descendant": 0,
+        "curated": 19,
+        "unmatched": 4
+      },
+      "compRequirements": 12,
+      "compMatched": 9,
+      "compMatchRate": 0.75
+    }
+  ],
+  "processes": {
+    "controls": 204,
+    "controlsWithRequirements": 188,
+    "controlsMappedToLibrary": 157,
+    "policies": 52,
+    "policiesLinked": 51,
+    "tasks": 148,
+    "tasksLinked": 135,
+    "links": {
+      "controlRequirement": 1453,
+      "controlPolicy": 193,
+      "controlTask": 314
+    },
+    "danglingLinks": {
+      "requirementLinks": 0,
+      "policyLinks": 0,
+      "taskLinks": 0
+    }
+  }
+}
