@@ -43,3 +43,28 @@ func TestParseRPCCalls(t *testing.T) {
 		t.Fatal("read-only tools must not be tagged; writes must be")
 	}
 }
+
+func TestMatchControls(t *testing.T) {
+	controls := []orgControl{
+		{ID: "soc-cc81", SectionTitle: "CC8.1", Framework: "SOC 2"},
+		{ID: "soc-cc61", SectionTitle: "CC6.1", Framework: "SOC 2"},
+		{ID: "iso-a832", SectionTitle: "A.8.32", Framework: "ISO 27001 (2022)"},
+		{ID: "iso-74", SectionTitle: "7.4", Framework: "ISO 27001 (2022)"},
+		{ID: "pims-74", SectionTitle: "7.4", Framework: "ISO/IEC 27701:2025"},
+		{ID: "gdpr-25-1", SectionTitle: "Art. 25(1)", Framework: "GDPR"},
+		{ID: "gdpr-250", SectionTitle: "Art. 250", Framework: "GDPR"},
+	}
+
+	got := matchControls([]string{"SOC2:CC8.1", "ISO27001:A.8.32", "ISO27701:7.4", "GDPR:Art.25", "NIST:AC-2"}, controls)
+	want := []string{"gdpr-25-1", "iso-a832", "pims-74", "soc-cc81"}
+
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}

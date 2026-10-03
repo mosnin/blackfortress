@@ -73,6 +73,7 @@ type Daemon struct {
 	procs    map[string]*Proc
 
 	postureKick chan struct{}
+	syncMu      sync.Mutex
 }
 
 func New(cfg Config, layout paths.Layout, logger *log.Logger) *Daemon {
@@ -286,6 +287,7 @@ func (d *Daemon) start(ctx context.Context) error {
 	d.setState("running", "")
 	go d.supervise(ctx)
 	go d.postureLoop(ctx)
+	go d.evidenceLoop(ctx)
 
 	return nil
 }
@@ -409,6 +411,36 @@ func (d *Daemon) postureLoop(ctx context.Context) {
 			// Coalesce bursts of agent activity into one refresh.
 			time.Sleep(2 * time.Second)
 			refresh()
+		}
+	}
+}
+
+// evidenceLoop uploads completed days of agent evidence to Probo at startup
+// and then hourly.
+func (d *Daemon) evidenceLoop(ctx context.Context) {
+	run := func() {
+		n, err := d.SyncEvidence(ctx, false)
+		if err != nil {
+			d.logger.Printf("evidence sync failed: %v", err)
+			return
+		}
+
+		if n > 0 {
+			d.logger.Printf("uploaded %d evidence reports", n)
+		}
+	}
+
+	run()
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
 		}
 	}
 }

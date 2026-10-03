@@ -20,6 +20,7 @@ Usage:
                                      Print agent configuration
   bf status                          Show runtime status
   bf ledger [verify]                 Show recent evidence, or verify the hash chain
+  bf sync                            Upload agent evidence (including today) to Probo now
   bf version
 `
 
@@ -42,6 +43,8 @@ func main() {
 		os.Exit(cli.AgentConfig(args, os.Stdout))
 	case "status":
 		os.Exit(cli.Status(os.Stdout))
+	case "sync":
+		os.Exit(cli.Sync(os.Stdout))
 	case "ledger":
 		os.Exit(cli.Ledger(args, os.Stdout))
 	case "version", "--version":

@@ -72,3 +72,37 @@ func Ledger(args []string, stdout io.Writer) int {
 
 	return 0
 }
+
+// Sync asks bfd to upload agent evidence to Probo now.
+func Sync(stdout io.Writer) int {
+	sec, err := loadSecrets()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, controlURL()+"/v1/evidence/sync", nil)
+	req.Header.Set("Authorization", "Bearer "+sec.MCPToken)
+
+	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
+	if err != nil {
+		fmt.Fprintln(stdout, "Black Fortress is not running.")
+		return 1
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		Uploaded int    `json:"uploaded"`
+		Error    string `json:"error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+
+	if out.Error != "" {
+		fmt.Fprintf(stdout, "✗ evidence sync failed after %d uploads: %s\n", out.Uploaded, out.Error)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "✓ uploaded %d evidence reports to Probo\n", out.Uploaded)
+
+	return 0
+}

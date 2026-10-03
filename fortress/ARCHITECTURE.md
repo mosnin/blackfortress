@@ -62,8 +62,12 @@ stored in `secrets.json`. The API key is what agents use for MCP.
 | GET | `/v1/events` | Server-Sent Events. Event types: `status`, `guardrail` (a blocked or flagged agent action), `evidence` (ledger entry recorded), `posture` (compliance summary changed) |
 | GET | `/v1/posture` | Compliance summary: per framework counts of controls/measures by state, open tasks, recent guardrail hits |
 | GET | `/v1/ledger?limit=N` | Recent evidence ledger entries |
-| POST | `/v1/hooks/{event}` | Ingest an agent hook payload (used by `bf hook`) and return a decision |
-| GET | `/login` | Signs the local user in to probod and redirects to the console (sets the session cookie for `localhost`) |
+| GET | `/v1/ledger/verify` | `{"valid":bool,"entries":n,"error"?}` — hash-chain check |
+| POST | `/v1/hooks/{event}` | Ingest a ledger entry already written by `bf hook` (bearer token) |
+| POST | `/v1/evidence/sync` | Upload agent evidence to Probo now, including today (bearer token) |
+| GET | `/v1/login-link` | `{"url": ".../login?nonce=..."}` — one-time, 60 s console login link |
+| ANY | `/mcp` | MCP proxy to probod (bearer `mcp_token` from `secrets.json`) |
+| GET | `/login?nonce=` | Signs the local user in to probod and redirects to the console (sets the session cookie for `localhost`) |
 
 ## `bf` CLI
 
@@ -82,6 +86,14 @@ Guardrails map agent actions to controls. Each rule has an id, a matcher
 Every evaluated action is written to the ledger with the session id, tool,
 target, decision, and control references, so change-management and
 secure-development evidence accumulates as a side effect of coding.
+
+Evidence reaches the GRC record through three Probo measures that bfd
+creates and maintains: *AI coding agent change management*, *secret and
+access safeguards*, and *privacy review*. Each is mapped to every control
+its rules reference in the organization's frameworks, set to In Progress
+(marking it Implemented is left to the owner), and receives one Markdown
+report per day with the entries, outcome counts and chain-head hash.
+Completed days upload at startup and hourly; `bf sync` uploads now.
 
 ## Branding
 

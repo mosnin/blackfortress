@@ -40,6 +40,7 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("GET /v1/ledger", s.ledger)
 	mux.HandleFunc("GET /v1/ledger/verify", s.verifyLedger)
 	mux.HandleFunc("POST /v1/hooks/{event}", s.requireToken(s.hook))
+	mux.HandleFunc("POST /v1/evidence/sync", s.requireToken(s.syncEvidence))
 	mux.HandleFunc("GET /v1/login-link", s.loginLink)
 	mux.HandleFunc("GET /login", s.login)
 	mux.Handle("/mcp", s.requireToken(s.mcpProxy()))
@@ -182,6 +183,22 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 
 	s.d.publishEntry(e)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// syncEvidence uploads agent evidence now, including a snapshot of today.
+func (s *Server) syncEvidence(w http.ResponseWriter, r *http.Request) {
+	if s.d.Status().State != "running" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runtime not running"})
+		return
+	}
+
+	n, err := s.d.SyncEvidence(r.Context(), true)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"uploaded": n, "error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"uploaded": n})
 }
 
 func (s *Server) loginLink(w http.ResponseWriter, _ *http.Request) {

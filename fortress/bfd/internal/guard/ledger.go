@@ -220,3 +220,28 @@ func readEntries(name string) ([]Entry, error) {
 
 	return entries, sc.Err()
 }
+
+// ReadDay returns the entries of one daily file (YYYY-MM-DD), oldest first.
+func ReadDay(dir, day string) ([]Entry, error) {
+	return readEntries(filepath.Join(dir, day+".jsonl"))
+}
+
+// VerifyDay checks one daily file's hash chain.
+func VerifyDay(dir, day string) (int, error) {
+	entries, err := ReadDay(dir, day)
+	if err != nil {
+		return 0, err
+	}
+
+	prev := ""
+	for i := range entries {
+		e := &entries[i]
+		if e.PrevHash != prev || hashEntry(e) != e.Hash {
+			return i, fmt.Errorf("%s: chain broken at entry %d", day, i+1)
+		}
+
+		prev = e.Hash
+	}
+
+	return len(entries), nil
+}

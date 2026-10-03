@@ -50,6 +50,12 @@ hash-chained log: `bf ledger verify` detects any edited or deleted entry.
 Rules are evaluated locally in the hook, so enforcement works even when bfd
 is stopped.
 
+Evidence then flows into Probo: bfd maintains three measures (change
+management, secret and access safeguards, privacy review) mapped to the
+controls their rules cite, and uploads a daily Markdown report of the
+matching ledger entries to each. `bf sync` uploads immediately, including
+a snapshot of today.
+
 Customize in `$BF_HOME/policy.json`: a rule with an existing id replaces the
 default, `"disabled": true` turns one off, new ids add rules.
 

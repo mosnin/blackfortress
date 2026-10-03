@@ -83,10 +83,24 @@ func (s *Session) ImportFramework(ctx context.Context, orgID, path string) error
 		return err
 	}
 
-	ops, _ := json.Marshal(map[string]any{
-		"query":     `mutation($input: ImportFrameworkInput!) { importFramework(input: $input) { frameworkEdge { node { id name } } } }`,
-		"variables": map[string]any{"input": map[string]any{"organizationId": orgID, "file": nil}},
-	})
+	const q = `mutation($input: ImportFrameworkInput!) { importFramework(input: $input) { frameworkEdge { node { id name } } } }`
+
+	return s.Upload(ctx, q, map[string]any{"organizationId": orgID}, filepath.Base(path), "application/json", data, nil)
+}
+
+// Upload runs a console mutation whose input has a single Upload field
+// named "file", following the GraphQL multipart request spec.
+func (s *Session) Upload(ctx context.Context, query string, input map[string]any, filename, contentType string, data []byte, out any) error {
+	vars := map[string]any{}
+	for k, v := range input {
+		vars[k] = v
+	}
+	vars["file"] = nil
+
+	ops, err := json.Marshal(map[string]any{"query": query, "variables": map[string]any{"input": vars}})
+	if err != nil {
+		return err
+	}
 
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -94,8 +108,8 @@ func (s *Session) ImportFramework(ctx context.Context, orgID, path string) error
 	_ = mw.WriteField("map", `{"0":["variables.input.file"]}`)
 
 	h := textproto.MIMEHeader{}
-	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="0"; filename=%q`, filepath.Base(path)))
-	h.Set("Content-Type", "application/json")
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="0"; filename=%q`, filename))
+	h.Set("Content-Type", contentType)
 
 	fw, err := mw.CreatePart(h)
 	if err != nil {
@@ -126,7 +140,8 @@ func (s *Session) ImportFramework(ctx context.Context, orgID, path string) error
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
 	var envelope struct {
-		Errors []gqlError `json:"errors"`
+		Data   json.RawMessage `json:"data"`
+		Errors []gqlError      `json:"errors"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return fmt.Errorf("unexpected response (%d): %s", resp.StatusCode, truncate(raw, 300))
@@ -134,6 +149,10 @@ func (s *Session) ImportFramework(ctx context.Context, orgID, path string) error
 
 	if len(envelope.Errors) > 0 {
 		return &GraphQLError{Errors: envelope.Errors}
+	}
+
+	if out != nil && len(envelope.Data) > 0 {
+		return json.Unmarshal(envelope.Data, out)
 	}
 
 	return nil
