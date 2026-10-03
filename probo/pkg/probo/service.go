@@ -1,0 +1,362 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package probo
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"go.gearno.de/kit/log"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/connector"
+	"go.probo.inc/probo/pkg/connector/provider"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/crypto/cipher"
+	"go.probo.inc/probo/pkg/esign"
+	"go.probo.inc/probo/pkg/filemanager"
+	"go.probo.inc/probo/pkg/filevalidation"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/html2pdf"
+	"go.probo.inc/probo/pkg/iam"
+	"go.probo.inc/probo/pkg/llm"
+	"go.probo.inc/probo/pkg/mail"
+)
+
+const (
+	NameMaxLength    = 100
+	TitleMaxLength   = 1000
+	ContentMaxLength = 5000
+)
+
+type ExportService interface {
+	BuildAndUploadExport(
+		ctx context.Context,
+		scope coredata.Scoper,
+		exportJobID gid.GID,
+	) (*coredata.ExportJob, error)
+	SendExportEmail(
+		ctx context.Context,
+		scope coredata.Scoper,
+		fileID gid.GID,
+		recipientName string,
+		recipientEmail mail.Addr,
+	) error
+}
+
+type (
+	// LLMConfig holds the model parameters used by the agents the probo
+	// service runs.
+	LLMConfig struct {
+		Model       string
+		Temperature float64
+		MaxTokens   int
+	}
+
+	Service struct {
+		pg                                    *pg.Client
+		s3                                    *s3.Client
+		bucket                                string
+		encryptionKey                         cipher.EncryptionKey
+		baseURL                               string
+		tokenSecret                           string
+		llmClient                             *llm.Client
+		llmConfig                             LLMConfig
+		html2pdfConverter                     *html2pdf.Converter
+		fileManager                           *filemanager.Service
+		logger                                *log.Logger
+		esign                                 *esign.Service
+		connectorRegistry                     *connector.Registry
+		invitationTokenValidity               time.Duration
+		Frameworks                            *FrameworkService
+		Measures                              *MeasureService
+		Evidences                             *EvidenceService
+		Organizations                         *OrganizationService
+		ThirdParties                          *ThirdPartyService
+		Documents                             *DocumentService
+		DocumentApprovals                     *DocumentApprovalService
+		Controls                              *ControlService
+		Risks                                 *RiskService
+		ThirdPartyComplianceReports           *ThirdPartyComplianceReportService
+		ThirdPartyBusinessAssociateAgreements *ThirdPartyBusinessAssociateAgreementService
+		ThirdPartyContacts                    *ThirdPartyContactService
+		ThirdPartyDataPrivacyAgreements       *ThirdPartyDataPrivacyAgreementService
+		ThirdPartyServices                    *ThirdPartyServiceService
+		Connectors                            *ConnectorService
+		Assets                                *AssetService
+		Data                                  *DatumService
+		Audits                                *AuditService
+		WebhookSubscriptions                  *WebhookSubscriptionService
+		Findings                              *FindingService
+		Obligations                           *ObligationService
+		BusinessFunctions                     *BusinessFunctionService
+		AiSystems                             *AiSystemService
+		RightsRequests                        *RightsRequestService
+		ProcessingActivities                  *ProcessingActivityService
+		DataProtectionImpactAssessments       *DataProtectionImpactAssessmentService
+		TransferImpactAssessments             *TransferImpactAssessmentService
+		StatementsOfApplicability             *StatementOfApplicabilityService
+		GeneratedDocuments                    *GeneratedDocumentService
+		Files                                 *FileService
+		LogExports                            ExportService
+	}
+)
+
+func NewService(
+	ctx context.Context,
+	encryptionKey cipher.EncryptionKey,
+	pgClient *pg.Client,
+	s3Client *s3.Client,
+	bucket string,
+	baseURL string,
+	tokenSecret string,
+	llmClient *llm.Client,
+	llmConfig LLMConfig,
+	html2pdfConverter *html2pdf.Converter,
+	fileManagerService *filemanager.Service,
+	logger *log.Logger,
+	iamService *iam.Service,
+	esignService *esign.Service,
+	connectorRegistry *connector.Registry,
+	providerRegistry *provider.Registry,
+	invitationTokenValidity time.Duration,
+) (*Service, error) {
+	if bucket == "" {
+		return nil, fmt.Errorf("bucket is required")
+	}
+
+	iamService.Authorizer.RegisterPolicySet(ProboPolicySet())
+
+	svc := &Service{
+		pg:                      pgClient,
+		s3:                      s3Client,
+		bucket:                  bucket,
+		encryptionKey:           encryptionKey,
+		baseURL:                 baseURL,
+		tokenSecret:             tokenSecret,
+		llmClient:               llmClient,
+		llmConfig:               llmConfig,
+		html2pdfConverter:       html2pdfConverter,
+		fileManager:             fileManagerService,
+		logger:                  logger,
+		esign:                   esignService,
+		connectorRegistry:       connectorRegistry,
+		invitationTokenValidity: invitationTokenValidity,
+	}
+
+	svc.Frameworks = &FrameworkService{
+		svc:               svc,
+		html2pdfConverter: html2pdfConverter,
+	}
+	svc.Measures = &MeasureService{svc: svc}
+	svc.Evidences = &EvidenceService{
+		svc: svc,
+		fileValidator: filevalidation.NewValidator(
+			filevalidation.WithCategories(
+				filevalidation.CategoryDocument,
+				filevalidation.CategorySpreadsheet,
+				filevalidation.CategoryPresentation,
+				filevalidation.CategoryData,
+				filevalidation.CategoryText,
+				filevalidation.CategoryImage,
+				filevalidation.CategoryVideo,
+			),
+		),
+	}
+	svc.ThirdParties = &ThirdPartyService{svc: svc}
+	svc.Documents = &DocumentService{
+		svc:                     svc,
+		html2pdfConverter:       html2pdfConverter,
+		invitationTokenValidity: invitationTokenValidity,
+		tokenSecret:             tokenSecret,
+	}
+	svc.DocumentApprovals = &DocumentApprovalService{
+		svc:                     svc,
+		html2pdfConverter:       html2pdfConverter,
+		invitationTokenValidity: invitationTokenValidity,
+		tokenSecret:             tokenSecret,
+	}
+	svc.Organizations = &OrganizationService{
+		svc: svc,
+		fileValidator: filevalidation.NewValidator(
+			filevalidation.WithCategories(filevalidation.CategoryImage),
+		),
+	}
+	svc.Controls = &ControlService{svc: svc}
+	svc.Risks = &RiskService{svc: svc}
+	svc.ThirdPartyComplianceReports = &ThirdPartyComplianceReportService{
+		svc: svc,
+		fileValidator: filevalidation.NewValidator(
+			filevalidation.WithCategories(filevalidation.CategoryDocument),
+			filevalidation.WithMaxFileSize(30*1024*1024), // 30MB
+		),
+	}
+	svc.ThirdPartyBusinessAssociateAgreements = &ThirdPartyBusinessAssociateAgreementService{svc: svc}
+	svc.ThirdPartyContacts = &ThirdPartyContactService{svc: svc}
+	svc.ThirdPartyDataPrivacyAgreements = &ThirdPartyDataPrivacyAgreementService{svc: svc}
+	svc.ThirdPartyServices = &ThirdPartyServiceService{svc: svc}
+	svc.Connectors = &ConnectorService{svc: svc, providerRegistry: providerRegistry}
+	svc.Assets = &AssetService{svc: svc}
+	svc.Data = &DatumService{svc: svc}
+	svc.Audits = &AuditService{svc: svc}
+	svc.WebhookSubscriptions = &WebhookSubscriptionService{svc: svc}
+	svc.Findings = &FindingService{svc: svc}
+	svc.Obligations = &ObligationService{svc: svc}
+	svc.BusinessFunctions = &BusinessFunctionService{svc: svc}
+	svc.AiSystems = &AiSystemService{svc: svc}
+	svc.RightsRequests = &RightsRequestService{svc: svc}
+	svc.ProcessingActivities = &ProcessingActivityService{svc: svc}
+	svc.DataProtectionImpactAssessments = &DataProtectionImpactAssessmentService{svc: svc}
+	svc.TransferImpactAssessments = &TransferImpactAssessmentService{svc: svc}
+	svc.StatementsOfApplicability = &StatementOfApplicabilityService{svc: svc}
+	svc.GeneratedDocuments = &GeneratedDocumentService{svc: svc}
+	svc.Files = &FileService{svc: svc}
+	svc.LogExports = iamService.LogExports
+
+	return svc, nil
+}
+
+func (s *Service) processExportJob(ctx context.Context, exportJob *coredata.ExportJob) error {
+	scope := coredata.NewScope(exportJob.ID.TenantID())
+
+	var exportService ExportService
+
+	switch exportJob.Type {
+	case coredata.ExportJobTypeFramework:
+		exportService = s.Frameworks
+	case coredata.ExportJobTypeDocument:
+		exportService = s.Documents
+	case coredata.ExportJobTypeAuditLog, coredata.ExportJobTypeSCIMEvent:
+		exportService = s.LogExports
+	default:
+		unknownTypeErr := fmt.Errorf("unknown export job type: %q", exportJob.Type)
+		if err := s.commitFailedExport(ctx, exportJob, unknownTypeErr); err != nil {
+			return fmt.Errorf("unknown export job type %q, and cannot commit failed export: %w", exportJob.Type, err)
+		}
+
+		return unknownTypeErr
+	}
+
+	updatedExportJob, buildErr := exportService.BuildAndUploadExport(ctx, scope, exportJob.ID)
+	if buildErr != nil {
+		if err := s.commitFailedExport(ctx, exportJob, buildErr); err != nil {
+			return fmt.Errorf(
+				"cannot build and upload %s export: %w, and cannot commit failed export: %w",
+				exportJob.Type,
+				buildErr,
+				err,
+			)
+		}
+
+		return fmt.Errorf("cannot build and upload %s export: %w", exportJob.Type, buildErr)
+	}
+
+	exportJob = updatedExportJob
+
+	if emailErr := exportService.SendExportEmail(
+		ctx,
+		scope,
+		*exportJob.FileID,
+		exportJob.RecipientName,
+		exportJob.RecipientEmail,
+	); emailErr != nil {
+		if err := s.commitFailedExport(ctx, exportJob, emailErr); err != nil {
+			return fmt.Errorf(
+				"cannot send completion email: %w, and cannot commit failed export: %w",
+				emailErr,
+				err,
+			)
+		}
+
+		return fmt.Errorf("cannot send completion email: %w", emailErr)
+	}
+
+	if err := s.commitSuccessfulExport(ctx, exportJob); err != nil {
+		return fmt.Errorf("cannot commit successful %s export: %w", exportJob.Type, err)
+	}
+
+	return nil
+}
+
+func (s *Service) lockExportJob(ctx context.Context) (*coredata.ExportJob, error) {
+	exportJob := &coredata.ExportJob{}
+
+	var scope coredata.Scoper
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := exportJob.LoadNextPendingForUpdateSkipLocked(ctx, tx); err != nil {
+				return fmt.Errorf("cannot load next pending export job: %w", err)
+			}
+
+			scope = coredata.NewScope(exportJob.ID.TenantID())
+
+			if err := exportJob.MarkProcessing(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot update %s export job: %w", exportJob.Type, err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot lock export job: %w", err)
+	}
+
+	return exportJob, nil
+}
+
+func (s *Service) commitFailedExport(ctx context.Context, exportJob *coredata.ExportJob, failureErr error) error {
+	exportJob.CompletedAt = new(time.Now())
+	exportJob.Status = coredata.ExportJobStatusFailed
+	errorMsg := failureErr.Error()
+	exportJob.Error = &errorMsg
+
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			scope := coredata.NewScope(exportJob.ID.TenantID())
+			if err := exportJob.UpdateIfStatus(ctx, tx, scope, coredata.ExportJobStatusProcessing); err != nil {
+				return fmt.Errorf("cannot update %s export job: %w", exportJob.Type, err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s *Service) commitSuccessfulExport(ctx context.Context, exportJob *coredata.ExportJob) error {
+	exportJob.CompletedAt = new(time.Now())
+	exportJob.Status = coredata.ExportJobStatusCompleted
+
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			scope := coredata.NewScope(exportJob.ID.TenantID())
+			if err := exportJob.UpdateIfStatus(ctx, tx, scope, coredata.ExportJobStatusProcessing); err != nil {
+				return fmt.Errorf("cannot update %s export job: %w", exportJob.Type, err)
+			}
+
+			return nil
+		},
+	)
+}

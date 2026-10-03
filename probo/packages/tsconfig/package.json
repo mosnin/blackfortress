@@ -1,0 +1,14 @@
+{
+  "name": "@probo/tsconfig",
+  "version": "0.0.1",
+  "description": "Probo default typescript configs",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "base.json",
+    "react.json",
+    "library.json"
+  ],
+  "license": "MIT"
+}

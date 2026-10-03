@@ -1,0 +1,331 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package probo
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/page"
+	"go.probo.inc/probo/pkg/validator"
+	"go.probo.inc/probo/pkg/webhook"
+	webhooktypes "go.probo.inc/probo/pkg/webhook/types"
+)
+
+type RightsRequestService struct {
+	svc *Service
+}
+
+type (
+	CreateRightsRequestRequest struct {
+		OrganizationID gid.GID
+		RequestType    *coredata.RightsRequestType
+		RequestState   *coredata.RightsRequestState
+		DataSubject    *string
+		Contact        *string
+		Details        *string
+		Deadline       *time.Time
+		ActionTaken    *string
+	}
+
+	UpdateRightsRequestRequest struct {
+		ID           gid.GID
+		RequestType  *coredata.RightsRequestType
+		RequestState *coredata.RightsRequestState
+		DataSubject  **string
+		Contact      **string
+		Details      **string
+		Deadline     **time.Time
+		ActionTaken  **string
+	}
+)
+
+func (crrr *CreateRightsRequestRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(crrr.OrganizationID, "organization_id", validator.Required(), validator.GID(coredata.OrganizationEntityType))
+	v.Check(crrr.RequestType, "request_type", validator.Required(), validator.OneOfSlice(coredata.RightsRequestTypes()))
+	v.Check(crrr.RequestState, "request_state", validator.Required(), validator.OneOfSlice(coredata.RightsRequestStates()))
+	v.Check(crrr.DataSubject, "data_subject", validator.SafeText(ContentMaxLength))
+	v.Check(crrr.Contact, "contact", validator.SafeText(ContentMaxLength))
+	v.Check(crrr.Details, "details", validator.SafeText(ContentMaxLength))
+	v.Check(crrr.ActionTaken, "action_taken", validator.SafeText(ContentMaxLength))
+
+	return v.Error()
+}
+
+func (urrr *UpdateRightsRequestRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(urrr.ID, "id", validator.Required(), validator.GID(coredata.RightsRequestEntityType))
+	v.Check(urrr.RequestType, "request_type", validator.OneOfSlice(coredata.RightsRequestTypes()))
+	v.Check(urrr.RequestState, "request_state", validator.OneOfSlice(coredata.RightsRequestStates()))
+	v.Check(urrr.DataSubject, "data_subject", validator.SafeText(ContentMaxLength))
+	v.Check(urrr.Contact, "contact", validator.SafeText(ContentMaxLength))
+	v.Check(urrr.Details, "details", validator.SafeText(ContentMaxLength))
+	v.Check(urrr.ActionTaken, "action_taken", validator.SafeText(ContentMaxLength))
+
+	return v.Error()
+}
+
+func (s RightsRequestService) Get(
+	ctx context.Context, scope coredata.Scoper,
+	rightsRequestID gid.GID,
+) (*coredata.RightsRequest, error) {
+	request := &coredata.RightsRequest{}
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := request.LoadByID(ctx, conn, scope, rightsRequestID); err != nil {
+				return fmt.Errorf("cannot load rights request: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return request, nil
+}
+
+func (s *RightsRequestService) Create(
+	ctx context.Context, scope coredata.Scoper,
+	req *CreateRightsRequestRequest,
+) (*coredata.RightsRequest, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+
+	request := &coredata.RightsRequest{
+		ID:             gid.New(scope.GetTenantID(), coredata.RightsRequestEntityType),
+		OrganizationID: req.OrganizationID,
+		RequestType:    *req.RequestType,
+		RequestState:   *req.RequestState,
+		DataSubject:    req.DataSubject,
+		Contact:        req.Contact,
+		Details:        req.Details,
+		Deadline:       req.Deadline,
+		ActionTaken:    req.ActionTaken,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	err := s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, conn pg.Tx) error {
+			organization := &coredata.Organization{}
+			if err := organization.LoadByID(ctx, conn, scope, req.OrganizationID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			if err := request.Insert(ctx, conn, scope); err != nil {
+				return fmt.Errorf("cannot insert rights request: %w", err)
+			}
+
+			if err := webhook.InsertData(
+				ctx,
+				conn,
+				scope,
+				request.OrganizationID,
+				coredata.WebhookEventTypeRightRequestCreated,
+				webhooktypes.NewRightsRequest(request),
+			); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return request, nil
+}
+
+func (s *RightsRequestService) Update(
+	ctx context.Context, scope coredata.Scoper,
+	req *UpdateRightsRequestRequest,
+) (*coredata.RightsRequest, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
+	request := &coredata.RightsRequest{}
+
+	err := s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, conn pg.Tx) error {
+			if err := request.LoadByID(ctx, conn, scope, req.ID); err != nil {
+				return fmt.Errorf("cannot load rights request: %w", err)
+			}
+
+			previousRequest := webhooktypes.NewRightsRequest(request)
+
+			if req.RequestType != nil {
+				request.RequestType = *req.RequestType
+			}
+
+			if req.RequestState != nil {
+				request.RequestState = *req.RequestState
+			}
+
+			if req.DataSubject != nil {
+				request.DataSubject = *req.DataSubject
+			}
+
+			if req.Contact != nil {
+				request.Contact = *req.Contact
+			}
+
+			if req.Details != nil {
+				request.Details = *req.Details
+			}
+
+			if req.Deadline != nil {
+				request.Deadline = *req.Deadline
+			}
+
+			if req.ActionTaken != nil {
+				request.ActionTaken = *req.ActionTaken
+			}
+
+			request.UpdatedAt = time.Now()
+
+			if err := request.Update(ctx, conn, scope); err != nil {
+				return fmt.Errorf("cannot update rights request: %w", err)
+			}
+
+			if err := webhook.InsertUpdateData(
+				ctx,
+				conn,
+				scope,
+				request.OrganizationID,
+				coredata.WebhookEventTypeRightRequestUpdated,
+				webhooktypes.NewRightsRequest(request),
+				previousRequest,
+			); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return request, nil
+}
+
+func (s *RightsRequestService) Delete(
+	ctx context.Context, scope coredata.Scoper,
+	rightsRequestID gid.GID,
+) error {
+	err := s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, conn pg.Tx) error {
+			request := &coredata.RightsRequest{}
+			if err := request.LoadByID(ctx, conn, scope, rightsRequestID); err != nil {
+				return fmt.Errorf("cannot load rights request: %w", err)
+			}
+
+			if err := webhook.InsertData(
+				ctx,
+				conn,
+				scope,
+				request.OrganizationID,
+				coredata.WebhookEventTypeRightRequestDeleted,
+				webhooktypes.NewRightsRequest(request),
+			); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			if err := request.Delete(ctx, conn, scope); err != nil {
+				return fmt.Errorf("cannot delete rights request: %w", err)
+			}
+
+			return nil
+		},
+	)
+
+	return err
+}
+
+func (s RightsRequestService) CountByOrganizationID(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+) (int, error) {
+	var count int
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) (err error) {
+			requests := coredata.RightsRequests{}
+
+			count, err = requests.CountByOrganizationID(ctx, conn, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot count rights requests: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func (s RightsRequestService) ListForOrganizationID(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+	cursor *page.Cursor[coredata.RightsRequestOrderField],
+) (*page.Page[*coredata.RightsRequest, coredata.RightsRequestOrderField], error) {
+	var requests coredata.RightsRequests
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := requests.LoadByOrganizationID(ctx, conn, scope, organizationID, cursor)
+			if err != nil {
+				return fmt.Errorf("cannot load rights requests: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(requests, cursor), nil
+}

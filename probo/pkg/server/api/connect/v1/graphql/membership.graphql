@@ -1,0 +1,44 @@
+enum MembershipRole
+  @goModel(model: "go.probo.inc/probo/pkg/coredata.MembershipRole") {
+  OWNER @goEnum(value: "go.probo.inc/probo/pkg/coredata.MembershipRoleOwner")
+  ADMIN @goEnum(value: "go.probo.inc/probo/pkg/coredata.MembershipRoleAdmin")
+  EMPLOYEE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.MembershipRoleEmployee")
+  VIEWER @goEnum(value: "go.probo.inc/probo/pkg/coredata.MembershipRoleViewer")
+  AUDITOR
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.MembershipRoleAuditor")
+  COMPLIANCE_PORTAL_MANAGER
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.MembershipRoleCompliancePortalManager"
+    )
+  COMPLIANCE_PORTAL_ACCESS_MANAGER
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.MembershipRoleCompliancePortalAccessManager"
+    )
+}
+
+type Membership implements Node {
+  id: ID!
+  createdAt: Datetime!
+  role: MembershipRole!
+
+  lastSession: Session @goField(forceResolver: true)
+
+  permission(action: String!, attributes: Map): Boolean!
+    @goField(forceResolver: true)
+    @authentication(required: PRESENT)
+}
+
+extend type Mutation {
+  updateMembership(input: UpdateMembershipInput!): UpdateMembershipPayload!
+}
+
+input UpdateMembershipInput {
+  organizationId: ID!
+  membershipId: ID!
+  role: MembershipRole!
+}
+
+type UpdateMembershipPayload {
+  membership: Membership!
+}

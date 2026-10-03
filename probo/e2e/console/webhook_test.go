@@ -1,0 +1,392 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package console_test
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/e2e/internal/factory"
+	"go.probo.inc/probo/e2e/internal/testutil"
+)
+
+func TestWebhook_SubscriptionLifecycle(t *testing.T) {
+	t.Parallel()
+
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	orgID := owner.GetOrganizationID().String()
+	initialEndpoint := unroutableWebhookEndpoint(t)
+	beforeCreate := time.Now().Add(-time.Second)
+
+	created := createWebhookSubscription(
+		t,
+		owner,
+		initialEndpoint,
+		thirdPartyWebhookEventTypes(),
+	)
+	assert.NotEmpty(t, created.ID)
+	assert.Equal(t, initialEndpoint, created.EndpointURL)
+	assert.Equal(t, thirdPartyWebhookEventTypes(), created.SelectedEvents)
+	testutil.AssertTimestampsOnCreate(t, created.CreatedAt, created.UpdatedAt, beforeCreate)
+
+	var nodeAfterCreate webhookSubscriptionNodeResponse
+
+	err := owner.Execute(
+		webhookSubscriptionNodeQuery,
+		map[string]any{"id": created.ID},
+		&nodeAfterCreate,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, nodeAfterCreate.Node)
+	assert.Equal(t, created.ID, nodeAfterCreate.Node.ID)
+	assert.NotEmpty(t, nodeAfterCreate.Node.SigningSecret)
+	assert.Equal(t, orgID, nodeAfterCreate.Node.Organization.ID)
+	assert.True(t, nodeAfterCreate.Node.Permission)
+
+	var orgList organizationWebhookSubscriptionsResponse
+
+	err = owner.Execute(
+		organizationWebhookSubscriptionsQuery,
+		map[string]any{"id": orgID},
+		&orgList,
+	)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, orgList.Node.WebhookSubscriptions.TotalCount, 1)
+	assert.True(t, organizationContainsWebhookSubscription(t, owner, orgID, created.ID))
+
+	updatedEndpoint := unroutableWebhookEndpoint(t)
+	updatedEvents := []string{"THIRD_PARTY_CREATED", "THIRD_PARTY_UPDATED"}
+
+	var updateResult struct {
+		UpdateWebhookSubscription struct {
+			WebhookSubscription webhookSubscriptionNode `json:"webhookSubscription"`
+		} `json:"updateWebhookSubscription"`
+	}
+
+	err = owner.Execute(
+		updateWebhookSubscriptionMutation,
+		map[string]any{
+			"input": map[string]any{
+				"id":             created.ID,
+				"endpointUrl":    updatedEndpoint,
+				"selectedEvents": updatedEvents,
+			},
+		},
+		&updateResult,
+	)
+	require.NoError(t, err)
+
+	updated := updateResult.UpdateWebhookSubscription.WebhookSubscription
+	assert.Equal(t, updatedEndpoint, updated.EndpointURL)
+	assert.Equal(t, updatedEvents, updated.SelectedEvents)
+	testutil.AssertTimestampsOnUpdate(
+		t,
+		updated.CreatedAt,
+		updated.UpdatedAt,
+		created.CreatedAt,
+		created.UpdatedAt,
+	)
+
+	var deleteResult struct {
+		DeleteWebhookSubscription struct {
+			DeletedWebhookSubscriptionID string `json:"deletedWebhookSubscriptionId"`
+		} `json:"deleteWebhookSubscription"`
+	}
+
+	err = owner.Execute(
+		deleteWebhookSubscriptionMutation,
+		map[string]any{
+			"input": map[string]any{
+				"webhookSubscriptionId": created.ID,
+			},
+		},
+		&deleteResult,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, created.ID, deleteResult.DeleteWebhookSubscription.DeletedWebhookSubscriptionID)
+
+	_, err = owner.Do(
+		webhookSubscriptionNodeQuery,
+		map[string]any{"id": created.ID},
+	)
+
+	var gqlErrors testutil.GraphQLErrors
+	require.ErrorAs(t, err, &gqlErrors)
+	require.NotEmpty(t, gqlErrors)
+	assert.Equal(t, "NOT_FOUND", gqlErrors[0].Code())
+
+	assert.False(
+		t,
+		organizationContainsWebhookSubscription(t, owner, orgID, created.ID),
+		"deleted subscription must not appear in organization connection",
+	)
+}
+
+func TestWebhook_Create_Validation(t *testing.T) {
+	t.Parallel()
+
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	t.Run("rejects insecure HTTP endpoint", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := owner.Do(
+			createWebhookSubscriptionMutation,
+			map[string]any{
+				"input": map[string]any{
+					"organizationId": owner.GetOrganizationID().String(),
+					"endpointUrl":    "http://example.com/webhook",
+					"selectedEvents": thirdPartyWebhookEventTypes(),
+				},
+			},
+		)
+		testutil.RequireErrorCode(t, err, "INVALID", "HTTP endpoint must be rejected")
+	})
+}
+
+func TestWebhook_ThirdPartyCreatedEvent(t *testing.T) {
+	t.Parallel()
+
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	endpoint := unroutableWebhookEndpoint(t)
+
+	subscription := createWebhookSubscription(
+		t,
+		owner,
+		endpoint,
+		[]string{"THIRD_PARTY_CREATED"},
+	)
+
+	factory.NewThirdParty(owner).
+		WithName(factory.SafeName("Webhook Third Party")).
+		Create()
+
+	eventResult := requireWebhookEventsEventually(t, owner, subscription.ID, 1)
+	require.NotNil(t, eventResult.Node)
+	assert.Equal(t, 1, eventResult.Node.Events.TotalCount)
+	require.NotEmpty(t, eventResult.Node.Events.Edges)
+
+	event := eventResult.Node.Events.Edges[0].Node
+	assert.NotEmpty(t, event.ID)
+	assert.Equal(t, subscription.ID, event.WebhookSubscriptionID)
+	assert.Equal(t, "PENDING", event.Status)
+	assert.False(t, event.CreatedAt.IsZero())
+	require.NotNil(t, event.Payload)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(*event.Payload), &payload))
+	assert.Equal(t, event.ID, payload["eventId"])
+	assert.Equal(t, "third-party:created", payload["eventType"])
+	require.Contains(t, payload, "data")
+	assert.IsType(t, map[string]any{}, payload["data"])
+}
+
+func TestWebhook_TaskLifecycleEvents(t *testing.T) {
+	t.Parallel()
+
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	endpoint := unroutableWebhookEndpoint(t)
+	taskName := factory.SafeName("Webhook Task")
+
+	subscription := createWebhookSubscription(
+		t,
+		owner,
+		endpoint,
+		[]string{"TASK_CREATED", "TASK_UPDATED", "TASK_DELETED"},
+	)
+
+	taskID := factory.NewTaskWithoutMeasure(owner).WithName(taskName).Create()
+
+	updateQuery := `
+		mutation UpdateTask($input: UpdateTaskInput!) {
+			updateTask(input: $input) {
+				task { id }
+			}
+		}
+	`
+	_, err := owner.Do(
+		updateQuery,
+		map[string]any{
+			"input": map[string]any{
+				"taskId": taskID,
+				"name":   taskName + " updated",
+			},
+		},
+	)
+	require.NoError(t, err)
+
+	deleteQuery := `
+		mutation DeleteTask($input: DeleteTaskInput!) {
+			deleteTask(input: $input) {
+				deletedTaskId
+			}
+		}
+	`
+	_, err = owner.Do(
+		deleteQuery,
+		map[string]any{
+			"input": map[string]any{"taskId": taskID},
+		},
+	)
+	require.NoError(t, err)
+
+	eventResult := requireWebhookEventsEventually(t, owner, subscription.ID, 3)
+	eventTypes, payloads := webhookEventPayloads(t, eventResult)
+	assert.ElementsMatch(t, []string{"task:created", "task:updated", "task:deleted"}, eventTypes)
+
+	for _, payload := range payloads {
+		data, ok := payload["data"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, taskID, data["id"])
+	}
+
+	updated := webhookPayloadByEventType(t, payloads, "task:updated")
+	updatedFrom, ok := updated["updatedFrom"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, taskName, updatedFrom["name"])
+}
+
+func TestWebhook_TaskCommentLifecycleEvents(t *testing.T) {
+	t.Parallel()
+
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	endpoint := unroutableWebhookEndpoint(t)
+	taskID := factory.NewTaskWithoutMeasure(owner).WithName("Task for webhook comment").Create()
+
+	subscription := createWebhookSubscription(
+		t,
+		owner,
+		endpoint,
+		[]string{"TASK_COMMENT_CREATED", "TASK_COMMENT_UPDATED", "TASK_COMMENT_DELETED"},
+	)
+
+	commentID := factory.NewTaskComment(owner, taskID).
+		WithContent("Webhook comment").
+		Create()
+
+	updateQuery := `
+		mutation UpdateTaskComment($input: UpdateTaskCommentInput!) {
+			updateTaskComment(input: $input) {
+				taskComment { id }
+			}
+		}
+	`
+	_, err := owner.Do(
+		updateQuery,
+		map[string]any{
+			"input": map[string]any{
+				"taskCommentId": commentID,
+				"content":       factory.ProseMirrorPlainText("Updated webhook comment"),
+			},
+		},
+	)
+	require.NoError(t, err)
+
+	deleteQuery := `
+		mutation DeleteTaskComment($input: DeleteTaskCommentInput!) {
+			deleteTaskComment(input: $input) {
+				deletedTaskCommentId
+			}
+		}
+	`
+	_, err = owner.Do(
+		deleteQuery,
+		map[string]any{
+			"input": map[string]any{"taskCommentId": commentID},
+		},
+	)
+	require.NoError(t, err)
+
+	eventResult := requireWebhookEventsEventually(t, owner, subscription.ID, 3)
+	eventTypes, payloads := webhookEventPayloads(t, eventResult)
+	assert.ElementsMatch(
+		t,
+		[]string{"task-comment:created", "task-comment:updated", "task-comment:deleted"},
+		eventTypes,
+	)
+
+	for _, payload := range payloads {
+		data, ok := payload["data"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, commentID, data["id"])
+		assert.Equal(t, taskID, data["taskId"])
+	}
+
+	updated := webhookPayloadByEventType(t, payloads, "task-comment:updated")
+	updatedFrom, ok := updated["updatedFrom"].(map[string]any)
+	require.True(t, ok)
+	previousContent, ok := updatedFrom["content"].(string)
+	require.True(t, ok)
+	factory.AssertProseMirrorPlainText(t, "Webhook comment", previousContent)
+}
+
+func TestWebhook_FilterEventsByPendingStatus(t *testing.T) {
+	t.Parallel()
+
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	endpoint := unroutableWebhookEndpoint(t)
+
+	subscription := createWebhookSubscription(
+		t,
+		owner,
+		endpoint,
+		[]string{"THIRD_PARTY_CREATED"},
+	)
+
+	factory.NewThirdParty(owner).
+		WithName(factory.SafeName("Webhook Third Party")).
+		Create()
+
+	eventResult := requireWebhookEventsEventually(t, owner, subscription.ID, 1)
+	require.NotNil(t, eventResult.Node)
+
+	pendingCount := 0
+
+	for _, edge := range eventResult.Node.Events.Edges {
+		if edge.Node.Status == "PENDING" {
+			pendingCount++
+		}
+	}
+
+	require.Greater(t, pendingCount, 0, "expected at least one PENDING event")
+
+	var filtered webhookSubscriptionNodeResponse
+
+	err := owner.Execute(
+		webhookSubscriptionEventsFilterQuery,
+		map[string]any{
+			"id":     subscription.ID,
+			"filter": map[string]any{"status": "PENDING"},
+		},
+		&filtered,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, filtered.Node)
+	assert.Equal(t, pendingCount, filtered.Node.Events.TotalCount)
+	require.NotEmpty(t, filtered.Node.Events.Edges)
+
+	for _, edge := range filtered.Node.Events.Edges {
+		assert.Equal(t, "PENDING", edge.Node.Status)
+	}
+}

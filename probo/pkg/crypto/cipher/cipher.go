@@ -1,0 +1,113 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package cipher
+
+import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+)
+
+type (
+	EncryptionKey [32]byte
+)
+
+func (k EncryptionKey) Bytes() []byte {
+	return k[:]
+}
+
+func (k *EncryptionKey) UnmarshalJSON(data []byte) error {
+	var key string
+	if err := json.Unmarshal(data, &key); err != nil {
+		return err
+	}
+
+	return k.UnmarshalText([]byte(key))
+}
+
+func (k *EncryptionKey) UnmarshalText(text []byte) error {
+	decoded, err := base64.StdEncoding.DecodeString(string(text))
+	if err != nil {
+		return fmt.Errorf("cannot decode base64 key: %w", err)
+	}
+
+	if len(decoded) != 32 {
+		return fmt.Errorf("key must be 32 bytes for AES-256, got %d bytes after base64 decoding", len(decoded))
+	}
+
+	copy(k[:], decoded)
+
+	return nil
+}
+
+func (k EncryptionKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(base64.StdEncoding.EncodeToString(k[:]))
+}
+
+func Encrypt(data []byte, key EncryptionKey) ([]byte, error) {
+	block, err := aes.NewCipher(key.Bytes())
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, 12)
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	ciphertext := aesgcm.Seal(nonce, nonce, data, nil)
+
+	return ciphertext, nil
+}
+
+func Decrypt(data []byte, key EncryptionKey) ([]byte, error) {
+	block, err := aes.NewCipher(key.Bytes())
+	if err != nil {
+		return nil, err
+	}
+
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data) < 12 {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+
+	nonce, ciphertext := data[:12], data[12:]
+
+	plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot decrypt: %w", err)
+	}
+
+	return plaintext, nil
+}

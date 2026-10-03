@@ -1,0 +1,120 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"github.com/jackc/pgx/v5"
+)
+
+type AccessReviewEntryFilter struct {
+	Decision    *AccessReviewEntryDecision
+	Flag        *AccessReviewEntryFlag
+	IsAdmin     *bool
+	Active      *bool
+	AuthMethod  *AccessReviewEntryAuthMethod
+	AccountType *AccessReviewEntryAccountType
+}
+
+func (f *AccessReviewEntryFilter) SQLFragment() string {
+	if f == nil {
+		return "TRUE"
+	}
+
+	return `
+(
+	CASE
+		WHEN @filter_decision::access_review_entry_decision IS NOT NULL THEN
+			decision = @filter_decision::access_review_entry_decision
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @filter_flag::text IS NOT NULL THEN
+			@filter_flag::text = ANY(flags)
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @filter_is_admin::boolean IS NOT NULL THEN
+			is_admin = @filter_is_admin::boolean
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @filter_active::boolean IS NOT NULL THEN
+			active = @filter_active::boolean
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @filter_auth_method::auth_method IS NOT NULL THEN
+			auth_method = @filter_auth_method::auth_method
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @filter_account_type::text IS NOT NULL THEN
+			account_type = @filter_account_type::text
+		ELSE TRUE
+	END
+)`
+}
+
+func (f *AccessReviewEntryFilter) SQLArguments() pgx.StrictNamedArgs {
+	if f == nil {
+		return pgx.StrictNamedArgs{}
+	}
+
+	args := pgx.StrictNamedArgs{
+		"filter_decision":     nil,
+		"filter_flag":         nil,
+		"filter_is_admin":     nil,
+		"filter_active":       nil,
+		"filter_auth_method":  nil,
+		"filter_account_type": nil,
+	}
+
+	if f.Decision != nil {
+		args["filter_decision"] = string(*f.Decision)
+	}
+
+	if f.Flag != nil {
+		args["filter_flag"] = string(*f.Flag)
+	}
+
+	if f.IsAdmin != nil {
+		args["filter_is_admin"] = *f.IsAdmin
+	}
+
+	if f.Active != nil {
+		args["filter_active"] = *f.Active
+	}
+
+	if f.AuthMethod != nil {
+		args["filter_auth_method"] = string(*f.AuthMethod)
+	}
+
+	if f.AccountType != nil {
+		args["filter_account_type"] = string(*f.AccountType)
+	}
+
+	return args
+}

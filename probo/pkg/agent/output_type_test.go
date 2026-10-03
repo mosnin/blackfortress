@@ -1,0 +1,119 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package agent
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/pkg/llm"
+)
+
+func TestNewOutputType_SetsNameAndSchema(t *testing.T) {
+	t.Parallel()
+
+	type Result struct {
+		Answer string `json:"answer"`
+		Score  int    `json:"score"`
+	}
+
+	ot, err := NewOutputType[Result]("test_result")
+	require.NoError(t, err)
+
+	assert.Equal(t, "test_result", ot.Name)
+	require.NotNil(t, ot.Schema)
+
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal(ot.Schema, &schema))
+	assert.Equal(t, "object", schema["type"])
+
+	props := schema["properties"].(map[string]any)
+	assert.Contains(t, props, "answer")
+	assert.Contains(t, props, "score")
+}
+
+func TestNewOutputType_EmptyStruct(t *testing.T) {
+	t.Parallel()
+
+	type Empty struct{}
+
+	ot, err := NewOutputType[Empty]("empty")
+	require.NoError(t, err)
+
+	assert.Equal(t, "empty", ot.Name)
+
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal(ot.Schema, &schema))
+	assert.Equal(t, "object", schema["type"])
+
+	props, ok := schema["properties"].(map[string]any)
+	require.True(t, ok)
+	assert.Empty(t, props)
+}
+
+func TestOutputType_responseFormat(t *testing.T) {
+	t.Parallel()
+
+	type Verdict struct {
+		Approved bool   `json:"approved"`
+		Reason   string `json:"reason"`
+	}
+
+	ot, err := NewOutputType[Verdict]("verdict")
+	require.NoError(t, err)
+
+	rf := ot.responseFormat()
+
+	require.NotNil(t, rf)
+	assert.Equal(t, llm.ResponseFormatJSONSchema, rf.Type)
+	require.NotNil(t, rf.JSONSchema)
+	assert.Equal(t, "verdict", rf.JSONSchema.Name)
+	assert.True(t, rf.JSONSchema.Strict)
+	assert.JSONEq(t, string(ot.Schema), string(rf.JSONSchema.Schema))
+}
+
+func TestOutputType_responseFormat_SchemaMatchesOutputType(t *testing.T) {
+	t.Parallel()
+
+	type Analysis struct {
+		Summary  string   `json:"summary"`
+		Tags     []string `json:"tags"`
+		Priority *int     `json:"priority,omitempty"`
+	}
+
+	ot, err := NewOutputType[Analysis]("analysis")
+	require.NoError(t, err)
+
+	rf := ot.responseFormat()
+
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal(rf.JSONSchema.Schema, &schema))
+
+	props := schema["properties"].(map[string]any)
+	assert.Contains(t, props, "summary")
+	assert.Contains(t, props, "tags")
+	assert.Contains(t, props, "priority")
+
+	tagsProp := props["tags"].(map[string]any)
+	assert.Equal(t, "array", tagsProp["type"])
+}

@@ -1,0 +1,299 @@
+{
+  "bannerTranslationSection": {
+    "title": "Banner",
+    "policyLinkHelp": "Gebruik {{cookie_policy_link}} en {{privacy_policy_link}} om beleidslinks in te voegen."
+  },
+  "panelTranslationSection": {
+    "title": "Voorkeurenpaneel",
+    "necessaryCategoryHelp": "Gebruik {{necessary_category}} om te verwijzen naar de naam van de categorie noodzakelijke cookies.",
+    "accessibilityLabels": "Toegankelijkheidslabels",
+    "categoryNames": "Categorienamen",
+    "translatedName": "Vertaalde naam",
+    "translatedDescription": "Vertaalde beschrijving"
+  },
+  "placeholderTranslationSection": {
+    "title": "Placeholder",
+    "description": "Wordt getoond in plaats van geblokkeerde content totdat de bezoeker toestemming geeft.",
+    "categoryHelp": "Gebruik {{category}} om te verwijzen naar de contentcategorie."
+  },
+  "translationEditor": {
+    "messages": {
+      "successTitle": "Gelukt",
+      "saved": "Vertaling opgeslagen"
+    },
+    "errors": {
+      "title": "Fout",
+      "save": "Vertaling opslaan mislukt"
+    },
+    "exampleCategory": "Analytics",
+    "actions": {
+      "saving": "Bezig met opslaan...",
+      "save": "Vertalingen opslaan"
+    },
+    "labels": {
+      "bannerTitle": "Bannertitel",
+      "bannerDescription": "Bannerbeschrijving",
+      "acceptAllButton": "Knop Alles accepteren",
+      "rejectAllButton": "Knop Alles weigeren",
+      "customizeButton": "Knop Aanpassen",
+      "cookiePolicyLinkText": "Linktekst cookiebeleid",
+      "privacyPolicyLinkText": "Linktekst privacybeleid",
+      "panelTitle": "Paneeltitel",
+      "panelDescription": "Paneelbeschrijving",
+      "saveButton": "Knop Opslaan",
+      "ariaClose": "Sluiten (ARIA)",
+      "ariaShowDetails": "Details weergeven (ARIA)",
+      "ariaHideDetails": "Details verbergen (ARIA)",
+      "ariaCookieSettings": "Cookie-instellingen (ARIA)",
+      "placeholderText": "Placeholdertekst",
+      "placeholderButton": "Placeholderknop"
+    }
+  },
+  "translationsPage": {
+    "necessaryFallback": "Noodzakelijk",
+    "languageDefault": "{{language}} (standaard)",
+    "defaultLanguageDescription": "Dit is de standaardtaal. Deze vertalingen worden getoond wanneer de taal van een bezoeker niet beschikbaar is."
+  },
+  "trackerAttribution": {
+    "firstParty": "Eerste partij",
+    "thirdParty": "Derde partij",
+    "visitorSoftware": "Bezoekerssoftware",
+    "undetermined": "Onbepaald"
+  },
+  "trackerPatternRow": {
+    "messages": { "trackerDeleted": "Tracker verwijderd", "cookieMoved": "Cookie verplaatst" },
+    "errors": { "deleteTracker": "Tracker verwijderen mislukt", "moveCookie": "Cookie verplaatsen mislukt", "updateCookie": "Cookie bijwerken mislukt" },
+    "deleteConfirmation": "Weet u zeker dat u \"{{name}}\" wilt verwijderen?",
+    "dialogs": { "deleteTitle": "Tracker verwijderen" },
+    "actions": { "include": "Opnemen", "exclude": "Uitsluiten", "delete": "Verwijderen", "cancel": "Annuleren", "more": "Meer acties", "description": "Beschrijving tonen" },
+    "types": { "cookie": "Cookie", "localStorage": "localStorage", "sessionStorage": "sessionStorage", "indexedDb": "IndexedDB", "cacheStorage": "Cache-opslag" },
+    "sources": { "script": "Script", "preExisting": "Vooraf bestaand", "http": "HTTP", "extension": "Extensie" },
+    "duration": { "session": "Sessie", "persistent": "Permanent" }
+  },
+  "trackerProperties": {
+    "messages": { "moved": "Cookie verplaatst", "updated": "Tracker bijgewerkt", "copiedTitle": "Gekopieerd", "idCopied": "ID van gemeenschappelijke tracker gekopieerd naar klembord" },
+    "errors": { "title": "Fout", "move": "Cookie verplaatsen mislukt", "update": "Tracker bijwerken mislukt", "copy": "ID van gemeenschappelijke tracker kopiëren mislukt" },
+    "properties": { "attribution": "Attributie", "sourceId": "Bron", "category": "Categorie", "maxAge": "Maximale leeftijd", "maxAgeUnit": "Eenheid", "description": "Beschrijving", "descriptionPlaceholder": "Beschrijving" },
+    "actions": { "back": "Trackers", "copyId": "ID van gemeenschappelijke tracker kopiëren" },
+    "attribution": {
+      "firstParty": "Dit is een first-party tracker.",
+      "visitorSoftware": "Deze tracker wordt geplaatst door bezoekerssoftware.",
+      "thirdParty": "Dit is een third-party tracker van {{name}}.",
+      "thirdPartyUnnamed": "Dit is een third-party tracker.",
+      "undetermined": "De attributie van deze tracker is onbepaald."
+    },
+    "manual": "Handmatig"
+  },
+  "detectedTrackersSection": {
+    "title": "Detecties",
+    "columns": { "identifier": "Identificatie", "initiatorUrl": "Initiator-URL", "maxAge": "Maximale leeftijd (seconden)", "source": "Bron", "detectionTime": "Detectietijd" },
+    "empty": "Nog geen detecties voor deze tracker.",
+    "sort": { "initiatorUrl": "Sorteren op initiator-URL", "detectionTime": "Sorteren op detectietijd" },
+    "actions": { "showMore": "Meer weergeven" },
+    "summary_one": "{{count}} detectie · Laatst overeengekomen op {{date}}",
+    "summary_other": "{{count}} detecties · Laatst overeengekomen op {{date}}",
+    "summaryNever_one": "{{count}} detectie · Nog niet overeengekomen",
+    "summaryNever_other": "{{count}} detecties · Nog niet overeengekomen"
+  },
+  "moveToCategorySelect": { "empty": "Geen categorieën" },
+  "detectedTrackerRow": {
+    "duration": { "second_one": "{{count}} seconde", "second_other": "{{count}} seconden" }
+  },
+  "trackersPage": {
+    "title": "Trackers",
+    "description": "Trackers die door deze banner zijn gedetecteerd en de categorie van elke tracker.",
+    "filters": { "search": "Zoeken op naam of beschrijving...", "allThirdParties": "Alle derde partijen", "allCategories": "Alle categorieën", "source": "Bron", "type": "Type", "category": "Categorie", "thirdParty": "Derde partij" },
+    "types": { "all": "Alle typen", "cookie": "Cookie", "localStorage": "localStorage", "sessionStorage": "sessionStorage", "indexedDb": "IndexedDB", "cacheStorage": "Cache-opslag" },
+    "sources": { "all": "Alle bronnen", "script": "Script", "preExisting": "Vooraf bestaand", "http": "HTTP", "extension": "Extensie" },
+    "columns": { "name": "Naam", "attribution": "Attributie", "source": "Bron", "category": "Categorie", "maxAge": "Maximale leeftijd", "lastMatched": "Laatst overeengekomen" },
+    "sort": { "name": "Sorteren op naam", "source": "Sorteren op bron", "lastMatched": "Sorteren op laatst overeengekomen" },
+    "actions": { "previous": "Vorige", "next": "Volgende" },
+    "empty": { "title": "Geen trackers", "description": "Er zijn nog geen trackers gedetecteerd. Ze verschijnen hier zodra ze worden gedetecteerd." },
+    "emptyFiltered": "Geen overeenkomende trackers"
+  },
+  "codeSnippets": {
+    "title": "JavaScript-snippet",
+    "messages": { "copiedTitle": "Gekopieerd", "copied": "Code gekopieerd naar klembord" },
+    "errors": { "title": "Fout", "copy": "Kopiëren naar klembord mislukt" },
+    "actions": { "copy": "Kopiëren" },
+    "documentation": "Op zoek naar ES-module- of headless-integratie? <link>Bekijk onze documentatie voor gedetailleerde integratiehandleidingen.</link>",
+    "tcfNote": "Deze banner gebruikt het IAB TCF-script. Plaats de snippet zo hoog mogelijk op de pagina zodat leveranciers verzoeken in de wachtrij kunnen plaatsen voordat de SDK is geladen."
+  },
+  "bannerSettingsForm": {
+    "title": "Instellingen",
+    "messages": { "successTitle": "Gelukt", "updated": "Bannerinstellingen bijgewerkt" },
+    "errors": { "title": "Fout", "update": "Bijwerken mislukt", "publisherCountryCode": "Moet AA of een ISO 3166-1 alpha-2-landcode zijn" },
+    "fields": {
+      "name": "Naam",
+      "origin": "Origin-URL",
+      "cookiePolicyUrl": "URL cookiebeleid",
+      "privacyPolicyUrl": "URL privacybeleid",
+      "consentExpiryDays": "Vervaltermijn toestemming (dagen)",
+      "defaultLanguage": "Standaardtaal",
+      "publisherCountryCode": "Uitgeversland",
+      "publisherCountryCodeHelp": "IAB TCF-vestigingsland (ISO 3166-1 alpha-2). Gebruik AA als het onbekend is.",
+      "resourceReportingEnabled": "Resource-rapportage",
+      "resourceReportingEnabledHelp": "Indien ingeschakeld detecteert en rapporteert de banner-SDK scripts van derden, iframes en andere resources."
+    },
+    "languages": { "english": "Engels", "french": "Frans", "german": "Duits", "spanish": "Spaans", "dutch": "Nederlands" },
+    "actions": { "saving": "Bezig met opslaan...", "save": "Opslaan" }
+  },
+  "trackerResourceRow": {
+    "messages": { "deleted": "Resource verwijderd", "moved": "Resource verplaatst" },
+    "errors": { "delete": "Resource verwijderen mislukt", "move": "Resource verplaatsen mislukt", "update": "Resource bijwerken mislukt" },
+    "deleteConfirmation": "Weet u zeker dat u \"{{name}}\" wilt verwijderen?",
+    "dialogs": { "deleteTitle": "Resource verwijderen" },
+    "actions": { "include": "Opnemen", "exclude": "Uitsluiten", "delete": "Verwijderen", "cancel": "Annuleren", "more": "Meer acties" },
+    "types": { "script": "Script", "iframe": "Iframe", "image": "Afbeelding", "stylesheet": "Stylesheet", "font": "Lettertype", "beacon": "Beacon", "fetch": "Fetch", "media": "Media", "serviceWorker": "Service worker" }
+  },
+  "resourcesPage": {
+    "title": "Resources",
+    "description": "Scripts, iframes en andere resources die door deze banner zijn gedetecteerd.",
+    "filters": { "search": "Zoeken op origin of pad...", "type": "Type" },
+    "types": { "all": "Alle typen", "script": "Script", "iframe": "Iframe", "image": "Afbeelding", "stylesheet": "Stylesheet", "font": "Lettertype", "beacon": "Beacon", "fetch": "Fetch", "media": "Media", "serviceWorker": "Service worker" },
+    "columns": { "type": "Type", "origin": "Origin", "path": "Pad", "category": "Categorie", "lastDetected": "Laatst gedetecteerd" },
+    "sort": { "origin": "Sorteren op origin", "lastDetected": "Sorteren op laatst gedetecteerd" },
+    "actions": { "previous": "Vorige", "next": "Volgende" },
+    "empty": { "title": "Geen ongecategoriseerde resources", "description": "Alle gedetecteerde resources zijn gecategoriseerd. Nieuwe resources verschijnen hier zodra ze worden gedetecteerd." },
+    "emptyFiltered": "Geen overeenkomende resources"
+  },
+  "themePreview": {
+    "title": "Thema", "defaultSnippet": "/* Standaardthema wordt gebruikt — geen aanpassingen nodig */",
+    "messages": { "copiedTitle": "Gekopieerd", "copied": "CSS-snippet gekopieerd naar klembord" },
+    "actions": { "reset": "Terugzetten naar standaardwaarden", "copy": "Kopiëren" },
+    "variables": { "bg": "Achtergrond", "text": "Tekst", "textsecondary": "Secundaire tekst", "border": "Rand", "accent": "Accent", "accenttext": "Accenttekst", "radius": "Randradius", "btnradius": "Knopradius", "fontsize": "Lettergrootte", "fontfamily": "Lettertypefamilie", "shadow": "Schaduw" },
+    "banner": { "title": "Cookievoorkeuren", "description": "Wij gebruiken cookies om uw ervaring te verbeteren en het websiteverkeer te analyseren. <policy>Privacybeleid</policy>", "acceptAll": "Alles accepteren", "rejectAll": "Alles weigeren", "customize": "Aanpassen", "privacyBy": "Privacy door" }
+  },
+  "editCookieRow": {
+    "includeTitle": "Deze cookie opnemen in de banner",
+    "fields": { "descriptionPlaceholder": "Beschrijving" },
+    "actions": { "save": "Opslaan", "cancel": "Annuleren" },
+    "trackerTypes": { "cookie": "Cookie", "localStorage": "localStorage", "sessionStorage": "sessionStorage", "indexedDb": "IndexedDB", "cacheStorage": "Cache-opslag" }
+  },
+  "editCategoryForm": {
+    "fields": { "namePlaceholder": "Categorienaam", "slugPlaceholder": "Categorie-slug", "descriptionPlaceholder": "Categoriebeschrijving" },
+    "googleConsentMode": { "title": "Google Consent Mode", "description": "Selecteer de Google Consent Mode-signalen die deze categorie regelt." },
+    "tcfPurposes": { "title": "TCF-doeleinden", "description": "Als TCF aan staat, wordt deze categorie alleen verleend wanneer elk geselecteerd doel consent of gerechtvaardigd belang heeft." },
+    "posthog": { "title": "PostHog", "description": "Bepaal de PostHog-trackingtoestemming op basis van deze categorie.", "checkbox": "PostHog-tracking in-/uitschakelen" },
+    "actions": { "saving": "Bezig met opslaan...", "save": "Opslaan", "cancel": "Annuleren" }
+  },
+  "categorySection": {
+    "messages": { "successTitle": "Gelukt", "updated": "Categorie bijgewerkt", "cookieAdded": "Cookie toegevoegd", "cookieUpdated": "Cookie bijgewerkt", "cookieDeleted": "Cookie verwijderd", "categoryDeleted": "Categorie verwijderd", "cookieMoved": "Cookie verplaatst" },
+    "errors": { "title": "Fout", "updateCategory": "Categorie bijwerken mislukt", "duplicateCookie": "Er bestaat al een cookie met deze naam in deze banner", "addCookie": "Cookie toevoegen mislukt", "updateCookie": "Cookie bijwerken mislukt", "deleteCookie": "Cookie verwijderen mislukt", "deleteCategory": "Categorie verwijderen mislukt", "reorder": "Herordenen mislukt", "moveCookie": "Cookie verplaatsen mislukt" },
+    "deleteCookieConfirmation": "Weet u zeker dat u \"{{name}}\" wilt verwijderen?",
+    "deleteCategoryConfirmation": "Weet u zeker dat u de categorie \"{{name}}\" wilt verwijderen? Alle cookies in deze categorie worden verplaatst naar Niet-gecategoriseerd.",
+    "required": "Verplicht", "blockHint": "Elementen blokkeren totdat toestemming is gegeven:", "googleConsentMode": "Google Consent Mode:", "tcfPurposes": "TCF-doeleinden:", "posthog": "PostHog:", "trackingConsent": "Trackingtoestemming",
+    "columns": { "name": "Naam", "type": "Type", "duration": "Duur" },
+    "actions": { "edit": "Bewerken", "delete": "Verwijderen", "include": "Opnemen", "exclude": "Uitsluiten", "addCookie": "Cookie toevoegen" },
+    "trackerTypes": { "cookie": "Cookie", "localStorage": "localStorage", "sessionStorage": "sessionStorage", "indexedDb": "IndexedDB", "cacheStorage": "Cache-opslag" },
+    "duration": { "session": "Sessie", "persistent": "Permanent", "year_one": "{{count}} jaar", "year_other": "{{count}} jaar", "month_one": "{{count}} maand", "month_other": "{{count}} maanden", "week_one": "{{count}} week", "week_other": "{{count}} weken", "day_one": "{{count}} dag", "day_other": "{{count}} dagen", "hour_one": "{{count}} uur", "hour_other": "{{count}} uur", "minute_one": "{{count}} minuut", "minute_other": "{{count}} minuten", "second_one": "{{count}} seconde", "second_other": "{{count}} seconden" }
+  },
+  "categoryDialog": {
+    "title": "Categorie toevoegen",
+    "messages": { "successTitle": "Gelukt", "created": "Categorie aangemaakt" },
+    "errors": { "title": "Fout", "create": "Categorie aanmaken mislukt" },
+    "fields": { "name": "Naam", "slug": "Slug", "slugHelp": "Wordt gebruikt als waarde van het data-cookie-consent-attribuut", "description": "Beschrijving" },
+    "actions": { "saving": "Bezig met opslaan...", "create": "Aanmaken" }
+  },
+  "addCookieRow": {
+    "fields": { "namePlaceholder": "Cookienaam", "descriptionPlaceholder": "Beschrijving" },
+    "actions": { "save": "Opslaan", "cancel": "Annuleren" }
+  },
+  "displayPage": {
+    "description": "Organiseer cookies in categorieën en geef aan welke cookies uw site gebruikt.",
+    "actions": { "addCategory": "Categorie toevoegen" },
+    "empty": "Nog geen categorieën. Voeg een categorie toe om cookies te gaan beheren."
+  },
+  "consentRecordsPage": {
+    "title": "Logboek",
+    "description": "Toestemmingskeuzes die bezoekers op deze banner hebben gemaakt.",
+    "filters": { "allActions": "Alle acties", "visitorId": "Bezoekers-ID", "bannerVersion": "Bannerversie" },
+    "actions": { "acceptAll": "Alles accepteren", "rejectAll": "Alles weigeren", "customize": "Aanpassen", "gpc": "GPC", "acknowledge": "Bevestigen" },
+    "columns": { "visitorId": "Bezoekers-ID", "action": "Actie", "bannerVersion": "Bannerversie", "ipAddress": "IP-adres", "sdkVersion": "SDK-versie", "regulation": "Regelgeving", "source": "Bron", "country": "Land", "subdivision": "Subdivisie", "date": "Datum" },
+    "empty": { "title": "Geen toestemmingsregistraties", "description": "Toestemmingsregistraties verschijnen hier zodra bezoekers interactie hebben met uw cookiebanner." }
+  },
+  "consentRecordPage": {
+    "title": "Toestemmingsregistratie",
+    "properties": { "visitorId": "Bezoekers-ID", "action": "Actie", "bannerVersion": "Bannerversie", "ipAddress": "IP-adres", "userAgent": "User agent", "sdkVersion": "SDK-versie", "regulation": "Regelgeving", "regulationSource": "Bron van regelgeving", "country": "Land", "subdivision": "Subdivisie", "tc": "TC-string", "date": "Datum" },
+    "actions": { "accept_all": "Alles accepteren", "reject_all": "Alles weigeren", "customize": "Aanpassen", "gpc": "GPC", "acknowledge": "Bevestigen" },
+    "consentData": "Toestemmingsgegevens",
+    "required": "(Verplicht)",
+    "consent": { "accepted": "Geaccepteerd", "rejected": "Geweigerd" },
+    "cookies": { "columns": { "cookie": "Cookie", "duration": "Duur", "description": "Beschrijving" } }
+  },
+  "configLayout": {
+    "version": "v{{version}}",
+    "draft": " (concept)",
+    "metadata": { "origin": "Origin", "id": "ID", "cookiePolicy": "Cookiebeleid" },
+    "messages": { "successTitle": "Gelukt", "copiedTitle": "Gekopieerd", "activated": "Banner geactiveerd", "deactivated": "Banner gedeactiveerd", "published": "Versie gepubliceerd", "idCopied": "Banner-ID gekopieerd naar klembord", "deleted": "Cookiebanner succesvol verwijderd" },
+    "errors": { "title": "Fout", "activate": "Activeren mislukt", "deactivate": "Deactiveren mislukt", "publish": "Publiceren mislukt", "delete": "Cookiebanner verwijderen mislukt" },
+    "deleteConfirmation": "Hiermee wordt de cookiebanner \"{{name}}\" permanent verwijderd. Deze actie kan niet ongedaan worden gemaakt.",
+    "status": { "active": "Actief", "inactive": "Inactief" },
+    "actions": { "publishing": "Bezig met publiceren...", "publish": "Wijzigingen publiceren", "activate": "Activeren", "deactivate": "Deactiveren", "delete": "Verwijderen" },
+    "tabs": { "display": "Weergave", "settings": "Instellingen", "translations": "Vertalingen" }
+  },
+  "newCookieBannerPage": {
+    "pageTitle": "Nieuwe cookiebanner",
+    "title": "Cookiebanner aanmaken",
+    "description": "Stel een nieuwe cookietoestemmingsbanner in met de origin-URL en toestemmingsconfiguratie.",
+    "messages": { "successTitle": "Gelukt", "created": "Cookiebanner succesvol aangemaakt" },
+    "errors": { "title": "Fout", "create": "Cookiebanner aanmaken mislukt" },
+    "fields": {
+      "name": "Naam", "namePlaceholder": "Mijn website",
+      "origin": "Origin-URL", "originPlaceholder": "https://example.com",
+      "cookiePolicyUrl": "URL cookiebeleid", "cookiePolicyUrlPlaceholder": "https://example.com/cookies",
+      "privacyPolicyUrl": "URL privacybeleid", "privacyPolicyUrlPlaceholder": "https://example.com/privacy",
+      "consentExpiryDays": "Vervaltermijn toestemming (dagen)"
+    },
+    "actions": { "creating": "Bezig met aanmaken...", "create": "Banner aanmaken" }
+  },
+  "tcfPage": {
+    "title": "TCF-leveranciers",
+    "description": "Kies welke IAB Global Vendor List-leveranciers deze banner bekendmaakt.",
+    "searchPlaceholder": "Leveranciers zoeken",
+    "stats": {
+      "vendors": "Leveranciers",
+      "catalog": "Catalogus",
+      "draft": "concept",
+      "live": "live",
+      "gvl": "GVL",
+      "tcfPolicy": "TCF-beleid",
+      "empty": "—",
+      "version": "v{{version}}",
+      "catalogTotal_one": "{{count}} leverancier",
+      "catalogTotal_other": "{{count}} leveranciers",
+      "unpublishedAdded_one": "{{count}} leverancier toe te voegen",
+      "unpublishedAdded_other": "{{count}} leveranciers toe te voegen",
+      "unpublishedRemoved_one": "{{count}} leverancier te verwijderen",
+      "unpublishedRemoved_other": "{{count}} leveranciers te verwijderen",
+      "unpublishedChanged": "{{added}} toe te voegen, {{removed}} te verwijderen",
+      "unpublishedNever": "Nog niet gepubliceerd"
+    },
+    "emptyCatalog": "Er zijn nog geen GVL-leveranciers geïmporteerd. Voer gvl-import uit om de catalogus te vullen.",
+    "emptyFiltered": "Geen overeenkomende leveranciers",
+    "emptyFilteredDescription": "Probeer een andere naam, IAB-leveranciers-ID of lidmaatschapsfilter.",
+    "filter": {
+      "label": "Leverancierslidmaatschap",
+      "all": "Alle leveranciers",
+      "on": "Op deze banner",
+      "off": "Niet op deze banner"
+    },
+    "previous": "Vorige",
+    "next": "Volgende",
+    "noUpdatePermission": "Je hebt geen toestemming om TCF-leveranciers te wijzigen.",
+    "iabVendorId": "IAB {{id}}",
+    "policy": "Privacybeleid",
+    "notFound": "Pagina niet gevonden",
+    "actions": {
+      "clearSearch": "Filters wissen",
+      "add": "Toevoegen",
+      "remove": "Verwijderen",
+      "addVendor": "{{name}} toevoegen aan deze banner",
+      "removeVendor": "{{name}} verwijderen van deze banner"
+    },
+    "errors": {
+      "add": "Leverancier toevoegen mislukt",
+      "remove": "Leverancier verwijderen mislukt"
+    }
+  }
+}

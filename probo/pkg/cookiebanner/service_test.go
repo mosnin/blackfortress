@@ -1,0 +1,433 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package cookiebanner
+
+import (
+	"encoding/json"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/validator"
+)
+
+func TestSnapshotsEqual(t *testing.T) {
+	t.Parallel()
+
+	baseSnapshot := func() coredata.CookieBannerVersionSnapshot {
+		policy := "https://example.com/privacy"
+		maxAge := 3600
+
+		return coredata.CookieBannerVersionSnapshot{
+			PrivacyPolicyURL:  &policy,
+			CookiePolicyURL:   "https://example.com/cookies",
+			ConsentExpiryDays: 180,
+			DefaultLanguage:   "en",
+			Categories: []coredata.CookieBannerVersionSnapshotCategory{
+				{
+					Name:        "Analytics",
+					Slug:        "analytics",
+					Description: "Analytics cookies",
+					Kind:        coredata.CookieCategoryKindNormal,
+					Cookies: coredata.CookieItems{
+						{Name: "_ga", TrackerType: coredata.TrackerTypeCookie, MaxAgeSeconds: &maxAge, Description: "Google Analytics"},
+					},
+					GCMConsentTypes: []string{"analytics_storage"},
+					PostHogConsent:  false,
+				},
+			},
+		}
+	}
+
+	t.Run("two identical snapshots are equal", func(t *testing.T) {
+		t.Parallel()
+
+		a := baseSnapshot()
+		b := baseSnapshot()
+
+		assert.True(t, snapshotsEqual(a, b))
+	})
+
+	t.Run("snapshot equals itself after json roundtrip", func(t *testing.T) {
+		t.Parallel()
+
+		a := baseSnapshot()
+
+		raw, err := json.Marshal(a)
+		require.NoError(t, err)
+
+		var b coredata.CookieBannerVersionSnapshot
+		require.NoError(t, json.Unmarshal(raw, &b))
+
+		assert.True(t, snapshotsEqual(a, b))
+	})
+
+	t.Run("differing CookiePolicyURL is not equal", func(t *testing.T) {
+		t.Parallel()
+
+		a := baseSnapshot()
+		b := baseSnapshot()
+		b.CookiePolicyURL = "https://other.example.com/cookies"
+
+		assert.False(t, snapshotsEqual(a, b))
+	})
+
+	t.Run("differing category name is not equal", func(t *testing.T) {
+		t.Parallel()
+
+		a := baseSnapshot()
+		b := baseSnapshot()
+		b.Categories[0].Name = "Tracking"
+
+		assert.False(t, snapshotsEqual(a, b))
+	})
+
+	t.Run("differing GCMConsentTypes order is not equal", func(t *testing.T) {
+		t.Parallel()
+
+		a := baseSnapshot()
+		a.Categories[0].GCMConsentTypes = []string{"analytics_storage", "ad_storage"}
+		b := baseSnapshot()
+		b.Categories[0].GCMConsentTypes = []string{"ad_storage", "analytics_storage"}
+
+		assert.False(t, snapshotsEqual(a, b))
+	})
+
+	t.Run("differing TCFPurposeIDs order is not equal", func(t *testing.T) {
+		t.Parallel()
+
+		a := baseSnapshot()
+		a.Categories[0].TCFPurposeIDs = []int{1, 7, 8}
+		b := baseSnapshot()
+		b.Categories[0].TCFPurposeIDs = []int{7, 1, 8}
+
+		assert.False(t, snapshotsEqual(a, b))
+	})
+
+	t.Run("nil vs set PrivacyPolicyURL is not equal", func(t *testing.T) {
+		t.Parallel()
+
+		a := baseSnapshot()
+		b := baseSnapshot()
+		b.PrivacyPolicyURL = nil
+
+		assert.False(t, snapshotsEqual(a, b))
+	})
+
+	t.Run("zero-value snapshots are equal", func(t *testing.T) {
+		t.Parallel()
+
+		a := coredata.CookieBannerVersionSnapshot{}
+		b := coredata.CookieBannerVersionSnapshot{}
+
+		assert.True(t, snapshotsEqual(a, b))
+	})
+}
+
+func TestUpsertCookieBannerTranslationRequest_Validate(t *testing.T) {
+	t.Parallel()
+
+	bannerID := gid.New(gid.NewTenantID(), coredata.CookieBannerEntityType)
+
+	t.Run("banner_description with cookie_policy_link passes", func(t *testing.T) {
+		t.Parallel()
+
+		translations, err := json.Marshal(map[string]string{
+			"banner_title":       "Cookie Preferences",
+			"banner_description": "We use cookies. {{cookie_policy_link}}",
+		})
+		require.NoError(t, err)
+
+		req := UpsertCookieBannerTranslationRequest{
+			CookieBannerID: bannerID,
+			Language:       "en",
+			Translations:   translations,
+		}
+
+		assert.NoError(t, req.Validate())
+	})
+
+	t.Run("banner_description without cookie_policy_link fails", func(t *testing.T) {
+		t.Parallel()
+
+		translations, err := json.Marshal(map[string]string{
+			"banner_title":       "Cookie Preferences",
+			"banner_description": "We use cookies to improve your experience.",
+		})
+		require.NoError(t, err)
+
+		req := UpsertCookieBannerTranslationRequest{
+			CookieBannerID: bannerID,
+			Language:       "en",
+			Translations:   translations,
+		}
+
+		err = req.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "translations.banner_description")
+	})
+
+	t.Run("translations without banner_description passes", func(t *testing.T) {
+		t.Parallel()
+
+		translations, err := json.Marshal(map[string]string{
+			"banner_title": "Cookie Preferences",
+			"button_save":  "Save",
+		})
+		require.NoError(t, err)
+
+		req := UpsertCookieBannerTranslationRequest{
+			CookieBannerID: bannerID,
+			Language:       "en",
+			Translations:   translations,
+		}
+
+		assert.NoError(t, req.Validate())
+	})
+}
+
+func TestBuildSnapshot_RankInvariant(t *testing.T) {
+	t.Parallel()
+
+	tenant := gid.NewTenantID()
+	bannerID := gid.New(tenant, coredata.CookieBannerEntityType)
+
+	necessaryID := gid.New(tenant, coredata.CookieCategoryEntityType)
+	analyticsID := gid.New(tenant, coredata.CookieCategoryEntityType)
+	advertisingID := gid.New(tenant, coredata.CookieCategoryEntityType)
+	uncategorisedID := gid.New(tenant, coredata.CookieCategoryEntityType)
+
+	mkCategories := func(necessaryRank, analyticsRank, advertisingRank, uncategorisedRank int) coredata.CookieCategories {
+		return coredata.CookieCategories{
+			{
+				ID:              necessaryID,
+				CookieBannerID:  bannerID,
+				Name:            "Necessary",
+				Slug:            "necessary",
+				Description:     "Required.",
+				Kind:            coredata.CookieCategoryKindNecessary,
+				Rank:            necessaryRank,
+				GCMConsentTypes: []string{"security_storage"},
+			},
+			{
+				ID:              analyticsID,
+				CookieBannerID:  bannerID,
+				Name:            "Analytics",
+				Slug:            "analytics",
+				Description:     "Analytics.",
+				Kind:            coredata.CookieCategoryKindNormal,
+				Rank:            analyticsRank,
+				GCMConsentTypes: []string{"analytics_storage"},
+			},
+			{
+				ID:              advertisingID,
+				CookieBannerID:  bannerID,
+				Name:            "Advertising",
+				Slug:            "advertising",
+				Description:     "Ads.",
+				Kind:            coredata.CookieCategoryKindNormal,
+				Rank:            advertisingRank,
+				GCMConsentTypes: []string{"ad_storage"},
+			},
+			{
+				ID:              uncategorisedID,
+				CookieBannerID:  bannerID,
+				Name:            "Uncategorised",
+				Slug:            "uncategorised",
+				Description:     "Misc.",
+				Kind:            coredata.CookieCategoryKindUncategorised,
+				Rank:            uncategorisedRank,
+				GCMConsentTypes: nil,
+			},
+		}
+	}
+
+	banner := &coredata.CookieBanner{
+		ID:                bannerID,
+		CookiePolicyURL:   "https://example.com/cookies",
+		ConsentExpiryDays: 365,
+		DefaultLanguage:   "en",
+	}
+
+	t.Run("snapshot is identical regardless of rank values", func(t *testing.T) {
+		t.Parallel()
+
+		original := buildSnapshot(banner, mkCategories(0, 1, 2, 3), nil, nil)
+		shuffled := buildSnapshot(banner, mkCategories(99, 50, 25, 10), nil, nil)
+
+		assert.True(t, snapshotsEqual(original, shuffled), "rank changes must not affect the snapshot")
+	})
+
+	t.Run("snapshot is identical regardless of input slice order", func(t *testing.T) {
+		t.Parallel()
+
+		ordered := mkCategories(0, 1, 2, 3)
+		reversed := coredata.CookieCategories{ordered[3], ordered[2], ordered[1], ordered[0]}
+
+		a := buildSnapshot(banner, ordered, nil, nil)
+		b := buildSnapshot(banner, reversed, nil, nil)
+
+		assert.True(t, snapshotsEqual(a, b))
+	})
+
+	t.Run("Necessary comes first given consent-only categories", func(t *testing.T) {
+		t.Parallel()
+
+		consentOnly := mkCategories(0, 1, 2, 3)[:3]
+		snap := buildSnapshot(banner, consentOnly, nil, nil)
+
+		require.Len(t, snap.Categories, 3)
+		assert.Equal(t, coredata.CookieCategoryKindNecessary, snap.Categories[0].Kind)
+	})
+
+	t.Run("sorts iab vendor ids so selection order does not matter", func(t *testing.T) {
+		t.Parallel()
+
+		a := buildSnapshot(banner, mkCategories(0, 1, 2, 3), nil, []int{755, 52})
+		b := buildSnapshot(banner, mkCategories(0, 1, 2, 3), nil, []int{52, 755})
+
+		assert.True(t, snapshotsEqual(a, b))
+		assert.Equal(t, []int{52, 755}, a.IABVendorIDs)
+	})
+
+	t.Run("nil TCFPurposeIDs equals an empty-slice snapshot", func(t *testing.T) {
+		t.Parallel()
+
+		nilIDs := mkCategories(0, 1, 2, 3)[:1]
+		emptyIDs := mkCategories(0, 1, 2, 3)[:1]
+		nilIDs[0].TCFPurposeIDs = nil
+		emptyIDs[0].TCFPurposeIDs = []int{}
+
+		a := buildSnapshot(banner, nilIDs, nil, nil)
+		b := buildSnapshot(banner, emptyIDs, nil, nil)
+
+		assert.Equal(t, []int{}, a.Categories[0].TCFPurposeIDs)
+		assert.True(t, snapshotsEqual(a, b))
+	})
+}
+
+func TestRecordConsentRequest_Validate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects empty visitor id", func(t *testing.T) {
+		t.Parallel()
+
+		req := RecordConsentRequest{
+			Version:   1,
+			VisitorID: "",
+			Action:    coredata.CookieConsentActionAcceptAll,
+		}
+
+		err := req.Validate()
+		require.Error(t, err)
+
+		validationErrors, ok := errors.AsType[validator.ValidationErrors](err)
+		require.True(t, ok)
+		assert.NotEmpty(t, validationErrors.ByField("visitor_id"))
+	})
+
+	t.Run("rejects invalid action", func(t *testing.T) {
+		t.Parallel()
+
+		req := RecordConsentRequest{
+			Version:   1,
+			VisitorID: "visitor-1",
+			Action:    coredata.CookieConsentAction("NOT_A_REAL_ACTION"),
+		}
+
+		err := req.Validate()
+		require.Error(t, err)
+
+		validationErrors, ok := errors.AsType[validator.ValidationErrors](err)
+		require.True(t, ok)
+		assert.NotEmpty(t, validationErrors.ByField("action"))
+	})
+}
+
+func TestBuildBannerConfig_TCF(t *testing.T) {
+	t.Parallel()
+
+	tenant := gid.NewTenantID()
+	bannerID := gid.New(tenant, coredata.CookieBannerEntityType)
+	snapshot := coredata.CookieBannerVersionSnapshot{
+		CookiePolicyURL:   "https://example.com/cookies",
+		ConsentExpiryDays: 365,
+		DefaultLanguage:   "en",
+	}
+	version := &coredata.CookieBannerVersion{Version: 1}
+
+	t.Run("leaves tcf unset until attach", func(t *testing.T) {
+		t.Parallel()
+
+		banner := &coredata.CookieBanner{
+			ID: bannerID,
+			Capabilities: coredata.CookieBannerCapabilities{
+				ResourceReporting: true,
+				TCF:               true,
+			},
+		}
+
+		config := buildBannerConfig(banner, version, &snapshot, nil, "en")
+		assert.Nil(t, config.TCF)
+		assert.True(t, config.ResourceReportingEnabled)
+	})
+
+	t.Run("defaults to disabled", func(t *testing.T) {
+		t.Parallel()
+
+		banner := &coredata.CookieBanner{
+			ID:           bannerID,
+			Capabilities: coredata.DefaultCookieBannerCapabilities(),
+		}
+
+		config := buildBannerConfig(banner, version, &snapshot, nil, "en")
+		assert.Nil(t, config.TCF)
+	})
+}
+
+func TestTCFServesGVL_Scenario(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		regulation Regulation
+		want       bool
+	}{
+		{name: "gdpr", regulation: RegulationGDPR, want: true},
+		{name: "uk gdpr", regulation: RegulationUKGDPR, want: true},
+		{name: "ccpa", regulation: RegulationCCPA, want: false},
+		{name: "none", regulation: RegulationNone, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+
+				assert.Equal(t, tt.want, tcfServesGVL(tt.regulation))
+			},
+		)
+	}
+}

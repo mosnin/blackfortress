@@ -1,0 +1,554 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { documentClassifications, documentTypes, documentWriteModes } from "@probo/helpers";
+import { useList } from "@probo/hooks";
+import { Button, Card, Checkbox, IconArchive, IconArrowDown, IconCrossLargeX, IconMagnifyingGlass, IconSignature, IconTrashCan, IconUpload, Input, Option, Select, Tbody, Th, Thead, Tr } from "@probo/ui";
+import { type ComponentProps, use, useEffect, useRef, useState, useTransition } from "react";
+import { useTranslation } from "react-i18next";
+import { usePaginationFragment } from "react-relay";
+import { ConnectionHandler, graphql } from "relay-runtime";
+
+import type { DocumentListBulkArchiveMutation } from "#/__generated__/core/DocumentListBulkArchiveMutation.graphql";
+import type { DocumentListBulkUnarchiveMutation } from "#/__generated__/core/DocumentListBulkUnarchiveMutation.graphql";
+import type { DocumentListFragment$key } from "#/__generated__/core/DocumentListFragment.graphql";
+import type { DocumentClassification, DocumentOrderField, DocumentsListQuery, DocumentType, DocumentWriteMode } from "#/__generated__/core/DocumentsListQuery.graphql";
+import { BulkExportDialog, type BulkExportDialogRef } from "#/components/documents/BulkExportDialog";
+import { type Order, SortableTable, SortableTh } from "#/components/SortableTable";
+import { useBulkExportDocumentsMutation } from "#/hooks/graph/DocumentGraph";
+import { useMutationWithToasts } from "#/hooks/useMutationWithToasts";
+import { useOrganizationId } from "#/hooks/useOrganizationId";
+import { CurrentUser } from "#/providers/CurrentUser";
+
+import { useDocumentListFilters } from "../_lib/useDocumentListFilters";
+import { useDocumentListSearch } from "../_lib/useDocumentListSearch";
+
+import { type DeleteDocumentDialogRef, DeleteDocumentsDialog } from "./DeleteDocumentDialog";
+import { DocumentListItem } from "./DocumentListItem";
+import { PublishDocumentsDialog } from "./PublishDocumentsDialog";
+import { SignatureDocumentsDialog } from "./SignatureDocumentsDialog";
+
+const fragment = graphql`
+  fragment DocumentListFragment on Organization
+  @refetchable(queryName: "DocumentsListQuery")
+  @argumentDefinitions(
+    first: { type: "Int", defaultValue: 50 }
+    order: {
+      type: "DocumentOrder"
+      defaultValue: { field: TITLE, direction: ASC }
+    }
+    after: { type: "CursorKey", defaultValue: null }
+    before: { type: "CursorKey", defaultValue: null }
+    last: { type: "Int", defaultValue: null }
+    status: { type: "[DocumentStatus!]", defaultValue: [ACTIVE] }
+    documentTypes: { type: "[DocumentType!]", defaultValue: null }
+    classifications: { type: "[DocumentClassification!]", defaultValue: null }
+    writeModes: { type: "[DocumentWriteMode!]", defaultValue: null }
+    query: { type: "String", defaultValue: null }
+  ) {
+    documents(
+      first: $first
+      after: $after
+      last: $last
+      before: $before
+      orderBy: $order
+      filter: { status: $status documentTypes: $documentTypes classifications: $classifications writeModes: $writeModes query: $query }
+    ) @connection(key: "DocumentsListQuery_documents" filters: ["orderBy", "filter"]) {
+      __id
+      edges {
+        node {
+          id
+          canUpdate: permission(action: "core:document:update")
+          canDelete: permission(action: "core:document:delete")
+          canRequestSignatures: permission(
+            action: "core:document-version:request-signature"
+          )
+          canArchive: permission(action: "core:document:archive")
+          canUnarchive: permission(action: "core:document:unarchive")
+          ...DocumentListItemFragment
+        }
+      }
+    }
+  }
+`;
+
+const bulkArchiveMutation = graphql`
+  mutation DocumentListBulkArchiveMutation($input: BulkArchiveDocumentsInput!) {
+    bulkArchiveDocuments(input: $input) {
+      documents {
+        id
+        status
+        archivedAt
+        canUpdate: permission(action: "core:document:update")
+        canArchive: permission(action: "core:document:archive")
+        canUnarchive: permission(action: "core:document:unarchive")
+      }
+    }
+  }
+`;
+
+const bulkUnarchiveMutation = graphql`
+  mutation DocumentListBulkUnarchiveMutation($input: BulkUnarchiveDocumentsInput!) {
+    bulkUnarchiveDocuments(input: $input) {
+      documents {
+        id
+        status
+        archivedAt
+        canUpdate: permission(action: "core:document:update")
+        canArchive: permission(action: "core:document:archive")
+        canUnarchive: permission(action: "core:document:unarchive")
+      }
+    }
+  }
+`;
+
+export function DocumentList(props: {
+  fKey: DocumentListFragment$key;
+  onConnectionIdChange: (connectionId: string) => void;
+  tab: "ACTIVE" | "ARCHIVED";
+}) {
+  const { fKey, onConnectionIdChange, tab } = props;
+
+  const organizationId = useOrganizationId();
+  const { email: defaultEmail } = use(CurrentUser);
+  const bulkExportDialogRef = useRef<BulkExportDialogRef>(null);
+  const deleteDocumentsDialogRef = useRef<DeleteDocumentDialogRef>(null);
+  const { t } = useTranslation();
+
+  const pagination = usePaginationFragment<DocumentsListQuery, DocumentListFragment$key>(
+    fragment,
+    fKey,
+  );
+
+  const [documentTypeFilter, setDocumentTypeFilter] = useState<DocumentType | null>(null);
+  const [classificationFilter, setClassificationFilter] = useState<DocumentClassification | null>(null);
+  const [writeModeFilter, setWriteModeFilter] = useState<DocumentWriteMode | null>(null);
+  const { query } = useDocumentListFilters();
+  const [queryInput, setQueryInput] = useDocumentListSearch();
+  const queryFilter = query || null;
+  const [isPending, startTransition] = useTransition();
+
+  const refetch = pagination.refetch;
+  useEffect(() => {
+    startTransition(() => {
+      refetch(
+        {
+          status: [tab],
+          documentTypes: documentTypeFilter ? [documentTypeFilter] : null,
+          classifications: classificationFilter ? [classificationFilter] : null,
+          writeModes: writeModeFilter ? [writeModeFilter] : null,
+          query: queryFilter,
+        },
+        { fetchPolicy: "store-and-network" },
+      );
+    });
+  }, [tab, refetch, documentTypeFilter, classificationFilter, writeModeFilter, queryFilter]);
+
+  const documents = pagination.data.documents.edges.map(({ node }) => node);
+  const connectionId = pagination.data.documents.__id;
+
+  const [bulkExportDocuments, isBulkExporting] = useBulkExportDocumentsMutation();
+  const [bulkArchiveDocuments, isBulkArchiving] = useMutationWithToasts<DocumentListBulkArchiveMutation>(
+    bulkArchiveMutation,
+    { successMessage: t("documentList.messages.archived"), errorMessage: t("documentList.errors.archive") },
+  );
+  const [bulkUnarchiveDocuments, isBulkUnarchiving] = useMutationWithToasts<DocumentListBulkUnarchiveMutation>(
+    bulkUnarchiveMutation,
+    { successMessage: t("documentList.messages.unarchived"), errorMessage: t("documentList.errors.unarchive") },
+  );
+  const { list: selection, toggle, clear, reset } = useList<string>([]);
+
+  const canDeleteAny = documents.some(({ canDelete }) => canDelete);
+  const canUpdateAny = documents.some(({ canUpdate }) => canUpdate);
+  const canRequestAnySignatures = documents.some(({ canRequestSignatures }) => canRequestSignatures);
+  const canArchiveAny = documents.some(({ canArchive }) => canArchive);
+  const canUnarchiveAny = documents.some(({ canUnarchive }) => canUnarchive);
+  const hasAnyAction = tab === "ARCHIVED" ? canUnarchiveAny || canDeleteAny : canArchiveAny || canDeleteAny || canUpdateAny;
+
+  useEffect(() => {
+    onConnectionIdChange(connectionId);
+  }, [connectionId, onConnectionIdChange]);
+
+  const handleDocumentTypeFilterChange = (value: string) => {
+    const newType = value === "ALL" ? null : (value as DocumentType);
+    clear();
+    setDocumentTypeFilter(newType);
+    onConnectionIdChange(
+      ConnectionHandler.getConnectionID(
+        organizationId,
+        "DocumentsListQuery_documents",
+        {
+          orderBy: { direction: "ASC", field: "TITLE" },
+          filter: {
+            status: [tab],
+            documentTypes: newType ? [newType] : null,
+            classifications: classificationFilter ? [classificationFilter] : null,
+            writeModes: writeModeFilter ? [writeModeFilter] : null,
+            query: queryFilter,
+          },
+        },
+      ),
+    );
+  };
+
+  const handleClassificationFilterChange = (value: string) => {
+    const newClassification = value === "ALL" ? null : (value as DocumentClassification);
+    clear();
+    setClassificationFilter(newClassification);
+    onConnectionIdChange(
+      ConnectionHandler.getConnectionID(
+        organizationId,
+        "DocumentsListQuery_documents",
+        {
+          orderBy: { direction: "ASC", field: "TITLE" },
+          filter: {
+            status: [tab],
+            documentTypes: documentTypeFilter ? [documentTypeFilter] : null,
+            classifications: newClassification ? [newClassification] : null,
+            writeModes: writeModeFilter ? [writeModeFilter] : null,
+            query: queryFilter,
+          },
+        },
+      ),
+    );
+  };
+
+  const handleWriteModeFilterChange = (value: string) => {
+    const newWriteMode = value === "ALL" ? null : (value as DocumentWriteMode);
+    clear();
+    setWriteModeFilter(newWriteMode);
+    onConnectionIdChange(
+      ConnectionHandler.getConnectionID(
+        organizationId,
+        "DocumentsListQuery_documents",
+        {
+          orderBy: { direction: "ASC", field: "TITLE" },
+          filter: {
+            status: [tab],
+            documentTypes: documentTypeFilter ? [documentTypeFilter] : null,
+            classifications: classificationFilter ? [classificationFilter] : null,
+            writeModes: newWriteMode ? [newWriteMode] : null,
+            query: queryFilter,
+          },
+        },
+      ),
+    );
+  };
+
+  const handleBulkDelete = () => {
+    deleteDocumentsDialogRef.current?.open();
+  };
+
+  const handleBulkArchive = () => {
+    void bulkArchiveDocuments({
+      variables: { input: { documentIds: selection } },
+      updater: (store) => {
+        const conn = store.get(connectionId);
+        if (conn) {
+          selection.forEach(id => ConnectionHandler.deleteNode(conn, id));
+        }
+      },
+      onSuccess: clear,
+    });
+  };
+
+  const handleBulkUnarchive = () => {
+    void bulkUnarchiveDocuments({
+      variables: { input: { documentIds: selection } },
+      updater: (store) => {
+        const conn = store.get(connectionId);
+        if (conn) {
+          selection.forEach(id => ConnectionHandler.deleteNode(conn, id));
+        }
+      },
+      onSuccess: clear,
+    });
+  };
+
+  const handleBulkExport = async (options: {
+    withWatermark: boolean;
+    withSignatures: boolean;
+    watermarkText?: string;
+  }) => {
+    const input = {
+      documentIds: selection,
+      withWatermark: options.withWatermark,
+      withSignatures: options.withSignatures,
+      ...(options.withWatermark && options.watermarkText && { watermarkText: options.watermarkText }),
+    };
+    await bulkExportDocuments({ variables: { input } });
+    clear();
+  };
+
+  const handleOrderChange = (order: Order) => {
+    onConnectionIdChange(
+      ConnectionHandler.getConnectionID(
+        organizationId,
+        "DocumentsListQuery_documents",
+        {
+          orderBy: order,
+          filter: {
+            status: [tab],
+            documentTypes: documentTypeFilter ? [documentTypeFilter] : null,
+            classifications: classificationFilter ? [classificationFilter] : null,
+            writeModes: writeModeFilter ? [writeModeFilter] : null,
+            query: queryFilter,
+          },
+        },
+      ),
+    );
+  };
+
+  const refetchWithFilters: ComponentProps<typeof SortableTable>["refetch"] = ({ order }) => {
+    pagination.refetch({
+      order: { direction: order.direction, field: order.field as DocumentOrderField },
+      status: [tab],
+      documentTypes: documentTypeFilter ? [documentTypeFilter] : null,
+      classifications: classificationFilter ? [classificationFilter] : null,
+      writeModes: writeModeFilter ? [writeModeFilter] : null,
+      query: queryFilter,
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <DeleteDocumentsDialog
+        ref={deleteDocumentsDialogRef}
+        documentIds={selection}
+        connectionId={connectionId}
+        onSuccess={clear}
+      />
+      <div className="flex items-center gap-4">
+        <Input
+          icon={IconMagnifyingGlass}
+          placeholder={t("documentList.filters.searchPlaceholder")}
+          value={queryInput}
+          onValueChange={setQueryInput}
+        />
+        <Select
+          value={writeModeFilter ?? "ALL"}
+          onValueChange={handleWriteModeFilterChange}
+        >
+          <Option value="ALL">{t("documentList.filters.allSources")}</Option>
+          {documentWriteModes.map(source => (
+            <Option key={source} value={source}>
+              {t(`documentList.writeModes.${source.toLowerCase()}`)}
+            </Option>
+          ))}
+        </Select>
+        <Select
+          value={documentTypeFilter ?? "ALL"}
+          onValueChange={handleDocumentTypeFilterChange}
+        >
+          <Option value="ALL">{t("documentList.filters.allTypes")}</Option>
+          {documentTypes.map(type => (
+            <Option key={type} value={type}>
+              {t(`documentList.documentTypes.${type.toLowerCase()}`)}
+            </Option>
+          ))}
+        </Select>
+        <Select
+          value={classificationFilter ?? "ALL"}
+          onValueChange={handleClassificationFilterChange}
+        >
+          <Option value="ALL">{t("documentList.filters.allClassifications")}</Option>
+          {documentClassifications.map(classification => (
+            <Option key={classification} value={classification}>
+              {t(`documentList.classifications.${classification.toLowerCase()}`)}
+            </Option>
+          ))}
+        </Select>
+      </div>
+      <div className={isPending ? "opacity-50 pointer-events-none transition-opacity" : ""}>
+        {documents.length > 0
+          ? (
+              <SortableTable
+                {...pagination}
+                refetch={refetchWithFilters}
+              >
+                <Thead>
+                  {selection.length === 0
+                    ? (
+                        <Tr>
+                          <Th className="w-18">
+                            <Checkbox
+                              checked={selection.length === documents.length && documents.length > 0}
+                              onChange={() => reset(documents.map(d => d.id))}
+                            />
+                          </Th>
+                          <SortableTh field="TITLE" className="min-w-0 pr-12" onOrderChange={handleOrderChange}>
+                            {t("documentList.columns.name")}
+                          </SortableTh>
+                          <Th className="w-24">{t("documentList.columns.status")}</Th>
+                          <Th className="w-20">{t("documentList.columns.version")}</Th>
+                          <SortableTh field="DOCUMENT_TYPE" className="w-28" onOrderChange={handleOrderChange}>
+                            {t("documentList.columns.type")}
+                          </SortableTh>
+                          <Th className="w-32">{t("documentList.columns.classification")}</Th>
+                          <Th className="w-60">{t("documentList.columns.approvers")}</Th>
+                          <Th className="w-40">{t("documentList.columns.lastUpdate")}</Th>
+                          <Th className="w-20">{t("documentList.columns.signatures")}</Th>
+                          {hasAnyAction && <Th className="w-18"></Th>}
+                        </Tr>
+                      )
+                    : (
+                        <Tr>
+                          <Th colspan={hasAnyAction ? 10 : 9} compact>
+                            <div className="flex justify-between items-center h-8">
+                              <div className="flex gap-2 items-center">
+                                {t("documentList.selected", { count: selection.length })}
+                                {" "}
+                                -
+                                <button
+                                  onClick={clear}
+                                  className="flex gap-1 items-center hover:text-txt-primary"
+                                >
+                                  <IconCrossLargeX size={12} />
+                                  {t("documentList.actions.clearSelection")}
+                                </button>
+                              </div>
+                              <div className="flex gap-2 items-center">
+                                {tab === "ARCHIVED"
+                                  ? (
+                                      <>
+                                        {canUnarchiveAny && (
+                                          <Button
+                                            variant="secondary"
+                                            icon={IconArchive}
+                                            onClick={handleBulkUnarchive}
+                                            disabled={isBulkUnarchiving}
+                                            className="py-0.5 px-2 text-xs h-6 min-h-6"
+                                          >
+                                            {t("documentList.actions.unarchive")}
+                                          </Button>
+                                        )}
+                                        {canDeleteAny && (
+                                          <Button
+                                            variant="danger"
+                                            icon={IconTrashCan}
+                                            onClick={handleBulkDelete}
+                                            className="py-0.5 px-2 text-xs h-6 min-h-6"
+                                          >
+                                            {t("documentList.actions.delete")}
+                                          </Button>
+                                        )}
+                                      </>
+                                    )
+                                  : (
+                                      <>
+                                        {canUpdateAny && (
+                                          <PublishDocumentsDialog documentIds={selection} onSave={clear}>
+                                            <Button
+                                              icon={IconUpload}
+                                              className="py-0.5 px-2 text-xs h-6 min-h-6"
+                                            >
+                                              {t("documentList.actions.publish")}
+                                            </Button>
+                                          </PublishDocumentsDialog>
+                                        )}
+                                        {canRequestAnySignatures && (
+                                          <SignatureDocumentsDialog documentIds={selection} onSave={clear}>
+                                            <Button
+                                              variant="secondary"
+                                              icon={IconSignature}
+                                              className="py-0.5 px-2 text-xs h-6 min-h-6"
+                                            >
+                                              {t("documentList.actions.requestSignature")}
+                                            </Button>
+                                          </SignatureDocumentsDialog>
+                                        )}
+                                        <BulkExportDialog
+                                          ref={bulkExportDialogRef}
+                                          onExport={handleBulkExport}
+                                          isLoading={isBulkExporting}
+                                          defaultEmail={defaultEmail}
+                                          selectedCount={selection.length}
+                                        >
+                                          <Button
+                                            variant="secondary"
+                                            icon={IconArrowDown}
+                                            className="py-0.5 px-2 text-xs h-6 min-h-6"
+                                          >
+                                            {t("documentList.actions.export")}
+                                          </Button>
+                                        </BulkExportDialog>
+                                        {canArchiveAny && (
+                                          <Button
+                                            variant="secondary"
+                                            icon={IconArchive}
+                                            onClick={handleBulkArchive}
+                                            disabled={isBulkArchiving}
+                                            className="py-0.5 px-2 text-xs h-6 min-h-6"
+                                          >
+                                            {t("documentList.actions.archive")}
+                                          </Button>
+                                        )}
+                                        {canDeleteAny && (
+                                          <Button
+                                            variant="danger"
+                                            icon={IconTrashCan}
+                                            onClick={handleBulkDelete}
+                                            className="py-0.5 px-2 text-xs h-6 min-h-6"
+                                          >
+                                            {t("documentList.actions.delete")}
+                                          </Button>
+                                        )}
+                                      </>
+                                    )}
+                              </div>
+                            </div>
+                          </Th>
+                        </Tr>
+                      )}
+                </Thead>
+                <Tbody>
+                  {documents.map(document => (
+                    <DocumentListItem
+                      checked={selection.includes(document.id)}
+                      onCheck={() => toggle(document.id)}
+                      key={document.id}
+                      fragmentRef={document}
+                      connectionId={connectionId}
+                      hasAnyAction={hasAnyAction}
+                    />
+                  ))}
+                </Tbody>
+              </SortableTable>
+            )
+          : (
+              <Card padded>
+                <div className="text-center py-12">
+                  <h3 className="text-lg font-semibold mb-2">
+                    {tab === "ARCHIVED"
+                      ? t("documentList.empty.archivedTitle")
+                      : t("documentList.empty.title")}
+                  </h3>
+                  {tab !== "ARCHIVED" && (
+                    <p className="text-txt-tertiary mb-4">
+                      {t("documentList.empty.description")}
+                    </p>
+                  )}
+                </div>
+              </Card>
+            )}
+      </div>
+    </div>
+  );
+}

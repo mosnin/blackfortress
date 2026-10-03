@@ -1,0 +1,284 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package list
+
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+
+	"github.com/spf13/cobra"
+	"go.probo.inc/probo/pkg/cli/api"
+	"go.probo.inc/probo/pkg/cmd/cmdutil"
+)
+
+const listByOrgQuery = `
+query($id: ID!, $first: Int, $after: CursorKey, $orderBy: RiskOrder, $filter: RiskFilter) {
+  node(id: $id) {
+    __typename
+    ... on Organization {
+      risks(first: $first, after: $after, orderBy: $orderBy, filter: $filter) {
+        totalCount
+        edges {
+          node {
+            id
+            referenceId
+            name
+            category
+            treatment
+            inherentRiskScore
+            residualRiskScore
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+}
+`
+
+const listByAnalysisQuery = `
+query($id: ID!, $first: Int, $after: CursorKey, $orderBy: RiskOrder, $filter: RiskFilter) {
+  node(id: $id) {
+    __typename
+    ... on RiskAnalysis {
+      scenarioRisks(first: $first, after: $after, orderBy: $orderBy, filter: $filter) {
+        totalCount
+        edges {
+          node {
+            id
+            referenceId
+            name
+            category
+            treatment
+            inherentRiskScore
+            residualRiskScore
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+}
+`
+
+type risk struct {
+	ID                string  `json:"id"`
+	ReferenceID       string  `json:"referenceId"`
+	Name              string  `json:"name"`
+	Category          string  `json:"category"`
+	Treatment         *string `json:"treatment"`
+	InherentRiskScore *int    `json:"inherentRiskScore"`
+	ResidualRiskScore *int    `json:"residualRiskScore"`
+}
+
+func NewCmdList(f *cmdutil.Factory) *cobra.Command {
+	var (
+		flagOrg          string
+		flagRiskAnalysis string
+		flagLimit        int
+		flagOrderBy      string
+		flagOrderDir     string
+		flagFilter       string
+		flagOutput       *string
+	)
+
+	cmd := &cobra.Command{
+		Use:     "list",
+		Short:   "List risks in an organization or unplanned risks on an analysis",
+		Aliases: []string{"ls"},
+		Example: `  # List risks in the default organization
+  prb risk list
+
+  # Filter risks by name
+  prb risk list --filter "data breach"
+
+  # List unplanned scenario-linked risks on an analysis
+  prb risk ls --risk-analysis <id>
+
+  # List risks sorted by inherent score
+  prb risk ls --order-by INHERENT_RISK_SCORE --json`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := cmdutil.ValidateOutputFlag(flagOutput); err != nil {
+				return err
+			}
+
+			cfg, err := f.Config()
+			if err != nil {
+				return err
+			}
+
+			host, hc, err := cfg.DefaultHost()
+			if err != nil {
+				return err
+			}
+
+			client := api.NewClient(
+				host,
+				hc.Token,
+				"/api/console/v1/graphql",
+				cfg.HTTPTimeoutDuration(),
+				cmdutil.TokenRefreshOption(cfg, host, hc),
+			)
+
+			query := listByOrgQuery
+			parentID := flagOrg
+			expectedType := "Organization"
+			missingParent := "organization is required; pass --org or set a default with 'prb auth login'"
+
+			if flagRiskAnalysis != "" {
+				query = listByAnalysisQuery
+				parentID = flagRiskAnalysis
+				expectedType = "RiskAnalysis"
+				missingParent = "risk analysis is required; pass --risk-analysis"
+			} else if parentID == "" {
+				parentID = hc.Organization
+			}
+
+			if parentID == "" {
+				return fmt.Errorf("%s", missingParent)
+			}
+
+			variables := map[string]any{
+				"id": parentID,
+			}
+
+			if flagOrderBy != "" {
+				if err := cmdutil.ValidateEnum("order-by", flagOrderBy, []string{"CREATED_AT", "REFERENCE_ID", "NAME", "CATEGORY", "TREATMENT", "INHERENT_RISK_SCORE", "RESIDUAL_RISK_SCORE"}); err != nil {
+					return err
+				}
+
+				variables["orderBy"] = map[string]any{
+					"field":     flagOrderBy,
+					"direction": flagOrderDir,
+				}
+			}
+
+			if flagFilter != "" {
+				variables["filter"] = map[string]any{
+					"query": flagFilter,
+				}
+			}
+
+			risks, totalCount, err := api.Paginate(
+				client,
+				query,
+				variables,
+				flagLimit,
+				func(data json.RawMessage) (*api.Connection[risk], error) {
+					var resp struct {
+						Node *struct {
+							Typename      string               `json:"__typename"`
+							Risks         api.Connection[risk] `json:"risks"`
+							ScenarioRisks api.Connection[risk] `json:"scenarioRisks"`
+						} `json:"node"`
+					}
+					if err := json.Unmarshal(data, &resp); err != nil {
+						return nil, err
+					}
+
+					if resp.Node == nil || resp.Node.Typename != expectedType {
+						return nil, fmt.Errorf("%s %s not found", expectedType, parentID)
+					}
+
+					if expectedType == "RiskAnalysis" {
+						return &resp.Node.ScenarioRisks, nil
+					}
+
+					return &resp.Node.Risks, nil
+				},
+			)
+			if err != nil {
+				return err
+			}
+
+			if *flagOutput == cmdutil.OutputJSON {
+				return cmdutil.PrintJSON(f.IOStreams.Out, risks)
+			}
+
+			if len(risks) == 0 {
+				_, _ = fmt.Fprintln(f.IOStreams.Out, "No risks found.")
+				return nil
+			}
+
+			rows := make([][]string, 0, len(risks))
+			for _, r := range risks {
+				rows = append(rows, []string{
+					r.ID,
+					r.ReferenceID,
+					r.Name,
+					r.Category,
+					formatOptionalString(r.Treatment),
+					formatOptionalInt(r.InherentRiskScore),
+					formatOptionalInt(r.ResidualRiskScore),
+				})
+			}
+
+			t := cmdutil.NewTable("ID", "REFERENCE", "NAME", "CATEGORY", "TREATMENT", "INHERENT", "RESIDUAL").Rows(rows...)
+
+			_, _ = fmt.Fprintln(f.IOStreams.Out, t)
+
+			if totalCount > len(risks) {
+				_, _ = fmt.Fprintf(
+					f.IOStreams.ErrOut,
+					"\nShowing %d of %d risks\n",
+					len(risks),
+					totalCount,
+				)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&flagOrg, "org", "", "Organization ID")
+	cmd.Flags().StringVar(&flagRiskAnalysis, "risk-analysis", "", "List unplanned scenario-linked risks on a risk analysis")
+	cmd.Flags().IntVarP(&flagLimit, "limit", "L", 30, "Maximum number of risks to list")
+	cmd.Flags().StringVar(&flagOrderBy, "order-by", "", "Order by field (CREATED_AT, REFERENCE_ID, NAME, CATEGORY, TREATMENT, INHERENT_RISK_SCORE, RESIDUAL_RISK_SCORE)")
+	cmd.Flags().StringVar(&flagOrderDir, "order-direction", "DESC", "Sort direction (ASC, DESC)")
+	cmd.Flags().StringVarP(&flagFilter, "filter", "q", "", "Filter risks by search query")
+	flagOutput = cmdutil.AddOutputFlag(cmd)
+
+	return cmd
+}
+
+func formatOptionalString(v *string) string {
+	if v == nil || *v == "" {
+		return "-"
+	}
+
+	return *v
+}
+
+func formatOptionalInt(v *int) string {
+	if v == nil {
+		return "-"
+	}
+
+	return strconv.Itoa(*v)
+}

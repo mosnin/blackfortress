@@ -1,0 +1,177 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package mailman
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"go.gearno.de/kit/log"
+	"go.gearno.de/kit/pg"
+	"go.gearno.de/kit/worker"
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+type mailingListHandler struct {
+	service    *Service
+	pg         *pg.Client
+	logger     *log.Logger
+	staleAfter time.Duration
+}
+
+func NewMailingListWorker(
+	service *Service,
+	pgClient *pg.Client,
+	logger *log.Logger,
+	opts ...worker.Option,
+) *worker.Worker[coredata.MailingListUpdate] {
+	h := &mailingListHandler{
+		service:    service,
+		pg:         pgClient,
+		logger:     logger,
+		staleAfter: 5 * time.Minute,
+	}
+
+	return worker.New(
+		"mailing-list-worker",
+		h,
+		logger,
+		opts...,
+	)
+}
+
+func (h *mailingListHandler) Claim(ctx context.Context) (coredata.MailingListUpdate, error) {
+	var mlu coredata.MailingListUpdate
+
+	if err := h.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := mlu.LoadNextEnqueuedForUpdateSkipLocked(ctx, tx); err != nil {
+				return err
+			}
+
+			scope := coredata.NewScopeFromObjectID(mlu.ID)
+			mlu.Status = coredata.MailingListUpdateStatusProcessing
+			mlu.UpdatedAt = time.Now()
+
+			if err := mlu.Update(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot claim mailing list update: %w", err)
+			}
+
+			return nil
+		},
+	); err != nil {
+		if errors.Is(err, coredata.ErrResourceNotFound) {
+			return coredata.MailingListUpdate{}, worker.ErrNoTask
+		}
+
+		return coredata.MailingListUpdate{}, err
+	}
+
+	return mlu, nil
+}
+
+func (h *mailingListHandler) Process(ctx context.Context, mlu coredata.MailingListUpdate) error {
+	if err := h.sendAndCommit(ctx, &mlu); err != nil {
+		h.logger.ErrorCtx(
+			ctx,
+			"cannot send mailing list update",
+			log.Error(err),
+			log.String("mailing_list_update_id", mlu.ID.String()),
+		)
+
+		if err := h.resetEnqueued(ctx, &mlu); err != nil {
+			h.logger.ErrorCtx(
+				ctx,
+				"cannot reset mailing list update to enqueued",
+				log.Error(err),
+				log.String("mailing_list_update_id", mlu.ID.String()),
+			)
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+func (h *mailingListHandler) RecoverStale(ctx context.Context) error {
+	return h.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := coredata.ResetStaleProcessingMailingListUpdates(ctx, tx, h.staleAfter); err != nil {
+				return fmt.Errorf("cannot reset stale processing mailing list updates: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (h *mailingListHandler) sendAndCommit(ctx context.Context, mlu *coredata.MailingListUpdate) error {
+	if err := h.service.CreateUpdateEmails(ctx, mlu.MailingListID, mlu.ID, mlu.Title, mlu.Body); err != nil {
+		return fmt.Errorf("cannot create update emails: %w", err)
+	}
+
+	return h.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			scope := coredata.NewScopeFromObjectID(mlu.ID)
+
+			var current coredata.MailingListUpdate
+			if err := current.LoadByID(ctx, tx, scope, mlu.ID); err != nil {
+				return fmt.Errorf("cannot reload mailing list update: %w", err)
+			}
+
+			if current.Status != coredata.MailingListUpdateStatusProcessing {
+				return fmt.Errorf("unexpected status %s, expected PROCESSING", current.Status)
+			}
+
+			mlu.Status = coredata.MailingListUpdateStatusSent
+			mlu.UpdatedAt = time.Now()
+
+			if err := mlu.Update(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot mark mailing list update as sent: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (h *mailingListHandler) resetEnqueued(ctx context.Context, mlu *coredata.MailingListUpdate) error {
+	return h.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			scope := coredata.NewScopeFromObjectID(mlu.ID)
+			mlu.Status = coredata.MailingListUpdateStatusEnqueued
+			mlu.UpdatedAt = time.Now()
+
+			if err := mlu.Update(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot reset mailing list update: %w", err)
+			}
+
+			return nil
+		},
+	)
+}

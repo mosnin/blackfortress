@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import type { PropsWithChildren } from "react";
+
+import { headerBand } from "./variants";
+
+export type HeaderBandProps = PropsWithChildren<{
+  // Drop the band's bottom padding so trailing content (e.g. a tab bar) aligns
+  // with the band's bottom border.
+  flushBottomSpace?: boolean;
+}>;
+
+// Pure layout shell: the white band + centered content column. Consumers (Hero,
+// PageHeader) supply a single content column and own its internal spacing.
+export function HeaderBand({ children, flushBottomSpace }: HeaderBandProps) {
+  const { band, inner } = headerBand({ flushBottomSpace });
+
+  return (
+    <header className={band()}>
+      <div className={inner()}>{children}</div>
+    </header>
+  );
+}

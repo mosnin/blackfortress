@@ -1,0 +1,41 @@
+{
+  "name": "@probo/eslint-config",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared ESLint configuration for Probo monorepo",
+  "main": "./src/index.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    }
+  },
+  "imports": {
+    "#baseConfigs": "./src/baseConfigs.ts",
+    "#tsConfigs": "./src/tsConfigs.ts",
+    "#reactConfigs": "./src/reactConfigs.ts",
+    "#relayConfigs": "./src/relayConfigs.ts",
+    "#importsConfigs": "./src/importsConfigs.ts",
+    "#languageOptionsConfigs": "./src/languageOptionsConfigs.ts",
+    "#stylisticConfigs": "./src/stylisticConfigs.ts"
+  },
+  "scripts": {},
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@probo/eslint-plugin-relay-types": "^1.0.0",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.16.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-relay": "^2.1.0",
+    "eslint": "^10.9.1",
+    "globals": "^17.11.0",
+    "jiti": "^2.2.0",
+    "typescript-eslint": "^8.68.0",
+    "typescript": "6.0.2"
+  }
+}

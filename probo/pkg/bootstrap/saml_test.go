@@ -1,0 +1,74 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package bootstrap
+
+import (
+	"crypto/x509"
+	"encoding/pem"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestGenerateSAMLCertificate(t *testing.T) {
+	cert, key, err := GenerateSAMLCertificate()
+	require.NoError(t, err)
+
+	certBlock, _ := pem.Decode([]byte(cert))
+	require.NotNil(t, certBlock, "certificate should be valid PEM")
+	assert.Equal(t, "CERTIFICATE", certBlock.Type)
+
+	keyBlock, _ := pem.Decode([]byte(key))
+	require.NotNil(t, keyBlock, "private key should be valid PEM")
+	assert.Equal(t, "RSA PRIVATE KEY", keyBlock.Type)
+
+	parsedCert, err := x509.ParseCertificate(certBlock.Bytes)
+	require.NoError(t, err)
+
+	assert.Equal(t, "probo-saml", parsedCert.Subject.CommonName)
+	assert.Equal(t, []string{"Probo"}, parsedCert.Subject.Organization)
+	assert.Equal(t, []string{"US"}, parsedCert.Subject.Country)
+
+	assert.True(t, parsedCert.NotBefore.Before(time.Now().Add(time.Minute)))
+	assert.True(t, parsedCert.NotAfter.After(time.Now().AddDate(9, 0, 0)))
+	assert.True(t, parsedCert.NotAfter.Before(time.Now().AddDate(11, 0, 0)))
+}
+
+func TestGenerateSAMLCertificate_UniqueSerials(t *testing.T) {
+	cert1, _, err := GenerateSAMLCertificate()
+	require.NoError(t, err)
+
+	cert2, _, err := GenerateSAMLCertificate()
+	require.NoError(t, err)
+
+	block1, _ := pem.Decode([]byte(cert1))
+	block2, _ := pem.Decode([]byte(cert2))
+
+	parsed1, err := x509.ParseCertificate(block1.Bytes)
+	require.NoError(t, err)
+
+	parsed2, err := x509.ParseCertificate(block2.Bytes)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, parsed1.SerialNumber, parsed2.SerialNumber)
+}

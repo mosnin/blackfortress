@@ -1,0 +1,701 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/policy"
+	"go.probo.inc/probo/pkg/page"
+)
+
+type (
+	Finding struct {
+		ID                 gid.GID         `db:"id"`
+		OrganizationID     gid.GID         `db:"organization_id"`
+		Kind               FindingKind     `db:"kind"`
+		ReferenceID        string          `db:"reference_id"`
+		Description        *string         `db:"description"`
+		Source             *string         `db:"source"`
+		IdentifiedOn       *time.Time      `db:"identified_on"`
+		RootCause          *string         `db:"root_cause"`
+		CorrectiveAction   *string         `db:"corrective_action"`
+		OwnerID            *gid.GID        `db:"owner_id"`
+		DueDate            *time.Time      `db:"due_date"`
+		Status             FindingStatus   `db:"status"`
+		Priority           FindingPriority `db:"priority"`
+		RiskID             *gid.GID        `db:"risk_id"`
+		EffectivenessCheck *string         `db:"effectiveness_check"`
+		CreatedAt          time.Time       `db:"created_at"`
+		UpdatedAt          time.Time       `db:"updated_at"`
+	}
+
+	Findings []*Finding
+)
+
+func (f *Finding) CursorKey(field FindingOrderField) page.CursorKey {
+	switch field {
+	case FindingOrderFieldCreatedAt:
+		return page.NewCursorKey(f.ID, f.CreatedAt)
+	case FindingOrderFieldIdentifiedOn:
+		return page.NewCursorKey(f.ID, f.IdentifiedOn)
+	case FindingOrderFieldDueDate:
+		return page.NewCursorKey(f.ID, f.DueDate)
+	case FindingOrderFieldStatus:
+		return page.NewCursorKey(f.ID, f.Status)
+	case FindingOrderFieldPriority:
+		return page.NewCursorKey(f.ID, f.Priority)
+	case FindingOrderFieldReferenceId:
+		return page.NewCursorKey(f.ID, f.ReferenceID)
+	case FindingOrderFieldKind:
+		return page.NewCursorKey(f.ID, f.Kind)
+	}
+
+	panic(fmt.Sprintf("unsupported order by: %s", field))
+}
+
+func (f *Finding) AuthorizationAttributes(
+	ctx context.Context,
+	conn pg.Querier,
+	resourceIDs []gid.GID,
+) (policy.AttributesByID, error) {
+	q := `SELECT id, organization_id FROM findings WHERE id = ANY(@resource_ids::text[])`
+
+	args := pgx.StrictNamedArgs{
+		"resource_ids": resourceIDs,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query authorization attributes: %w", err)
+	}
+
+	defer rows.Close()
+
+	attrsByID := make(policy.AttributesByID)
+
+	for rows.Next() {
+		var id, organizationID gid.GID
+
+		if err := rows.Scan(&id, &organizationID); err != nil {
+			return nil, fmt.Errorf("cannot scan authorization attributes: %w", err)
+		}
+
+		attrsByID[id] = policy.Attributes{
+			"organization_id": organizationID.String(),
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cannot iterate authorization attributes: %w", err)
+	}
+
+	return attrsByID, nil
+}
+
+func (f *Finding) LoadByID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	findingID gid.GID,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	kind,
+	reference_id,
+	description,
+	source,
+	identified_on,
+	root_cause,
+	corrective_action,
+	owner_id,
+	due_date,
+	status,
+	priority,
+	risk_id,
+	effectiveness_check,
+	created_at,
+	updated_at
+FROM
+	findings
+WHERE
+	%s
+	AND id = @finding_id
+LIMIT 1;
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"finding_id": findingID}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query finding: %w", err)
+	}
+
+	finding, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[Finding])
+	if err != nil {
+		return fmt.Errorf("cannot collect finding: %w", err)
+	}
+
+	*f = finding
+
+	return nil
+}
+
+func (fs *Findings) CountByOrganizationID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	organizationID gid.GID,
+	filter *FindingFilter,
+) (int, error) {
+	q := `
+SELECT
+	COUNT(id)
+FROM
+	findings
+WHERE
+	%s
+	AND organization_id = @organization_id
+	AND %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment(), filter.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"organization_id": organizationID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, filter.SQLArguments())
+
+	row := conn.QueryRow(ctx, q, args)
+
+	var count int
+
+	err := row.Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("cannot count findings: %w", err)
+	}
+
+	return count, nil
+}
+
+func (fs *Findings) LoadByOrganizationID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	organizationID gid.GID,
+	cursor *page.Cursor[FindingOrderField],
+	filter *FindingFilter,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	kind,
+	reference_id,
+	description,
+	source,
+	identified_on,
+	root_cause,
+	corrective_action,
+	owner_id,
+	due_date,
+	status,
+	priority,
+	risk_id,
+	effectiveness_check,
+	created_at,
+	updated_at
+FROM
+	findings
+WHERE
+	%s
+	AND organization_id = @organization_id
+	AND %s
+	AND %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment(), filter.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"organization_id": organizationID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, filter.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query findings: %w", err)
+	}
+
+	findings, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[Finding])
+	if err != nil {
+		return fmt.Errorf("cannot collect findings: %w", err)
+	}
+
+	*fs = findings
+
+	return nil
+}
+
+func (f *Finding) Insert(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	lockQuery := `SELECT pg_advisory_xact_lock(hashtext(@organization_id::text))`
+
+	lockArgs := pgx.StrictNamedArgs{
+		"organization_id": f.OrganizationID,
+	}
+
+	if _, err := conn.Exec(ctx, lockQuery, lockArgs); err != nil {
+		return fmt.Errorf("cannot acquire advisory lock: %w", err)
+	}
+
+	q := `
+WITH next_ref AS (
+	SELECT
+		COALESCE(
+			MAX(CAST(SUBSTRING(reference_id FROM 5) AS INTEGER)),
+			0
+		) + 1 AS next_num
+	FROM findings
+	WHERE organization_id = @organization_id
+)
+INSERT INTO findings (
+	id,
+	tenant_id,
+	organization_id,
+	kind,
+	reference_id,
+	description,
+	source,
+	identified_on,
+	root_cause,
+	corrective_action,
+	owner_id,
+	due_date,
+	status,
+	priority,
+	risk_id,
+	effectiveness_check,
+	created_at,
+	updated_at
+)
+SELECT
+	@id,
+	@tenant_id,
+	@organization_id,
+	@kind,
+	'FND-' || LPAD(next_ref.next_num::TEXT, 3, '0'),
+	@description,
+	@source,
+	@identified_on,
+	@root_cause,
+	@corrective_action,
+	@owner_id,
+	@due_date,
+	@status,
+	@priority,
+	@risk_id,
+	@effectiveness_check,
+	@created_at,
+	@updated_at
+FROM next_ref
+RETURNING reference_id
+`
+
+	args := pgx.StrictNamedArgs{
+		"id":                  f.ID,
+		"tenant_id":           scope.GetTenantID(),
+		"organization_id":     f.OrganizationID,
+		"kind":                f.Kind,
+		"description":         f.Description,
+		"source":              f.Source,
+		"identified_on":       f.IdentifiedOn,
+		"root_cause":          f.RootCause,
+		"corrective_action":   f.CorrectiveAction,
+		"owner_id":            f.OwnerID,
+		"due_date":            f.DueDate,
+		"status":              f.Status,
+		"priority":            f.Priority,
+		"risk_id":             f.RiskID,
+		"effectiveness_check": f.EffectivenessCheck,
+		"created_at":          f.CreatedAt,
+		"updated_at":          f.UpdatedAt,
+	}
+
+	err := conn.QueryRow(ctx, q, args).Scan(&f.ReferenceID)
+	if err != nil {
+		return fmt.Errorf("cannot insert finding: %w", err)
+	}
+
+	return nil
+}
+
+func (f *Finding) Update(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+UPDATE findings
+SET
+	description = @description,
+	source = @source,
+	identified_on = @identified_on,
+	root_cause = @root_cause,
+	corrective_action = @corrective_action,
+	owner_id = @owner_id,
+	due_date = @due_date,
+	status = @status,
+	priority = @priority,
+	risk_id = @risk_id,
+	effectiveness_check = @effectiveness_check,
+	updated_at = @updated_at
+WHERE
+	%s
+	AND id = @id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"id":                  f.ID,
+		"description":         f.Description,
+		"source":              f.Source,
+		"identified_on":       f.IdentifiedOn,
+		"root_cause":          f.RootCause,
+		"corrective_action":   f.CorrectiveAction,
+		"owner_id":            f.OwnerID,
+		"due_date":            f.DueDate,
+		"status":              f.Status,
+		"priority":            f.Priority,
+		"risk_id":             f.RiskID,
+		"effectiveness_check": f.EffectivenessCheck,
+		"updated_at":          f.UpdatedAt,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot update finding: %w", err)
+	}
+
+	return nil
+}
+
+func (f *Finding) Delete(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+DELETE FROM findings
+WHERE
+	%s
+	AND id = @id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"id": f.ID}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot delete finding: %w", err)
+	}
+
+	return nil
+}
+
+func (fs *Findings) LoadByAuditID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	auditID gid.GID,
+	cursor *page.Cursor[FindingOrderField],
+	filter *FindingFilter,
+) error {
+	q := `
+WITH f AS (
+	SELECT
+		fi.id,
+		fi.tenant_id,
+		fi.organization_id,
+		fi.kind,
+		fi.reference_id,
+		fi.description,
+		fi.source,
+		fi.identified_on,
+		fi.root_cause,
+		fi.corrective_action,
+		fi.owner_id,
+		fi.due_date,
+		fi.status,
+		fi.priority,
+		fi.risk_id,
+		fi.effectiveness_check,
+		fi.created_at,
+		fi.updated_at
+	FROM
+		findings fi
+	INNER JOIN
+		findings_audits fa ON fi.id = fa.finding_id
+	WHERE
+		fa.audit_id = @audit_id
+)
+SELECT
+	id,
+	organization_id,
+	kind,
+	reference_id,
+	description,
+	source,
+	identified_on,
+	root_cause,
+	corrective_action,
+	owner_id,
+	due_date,
+	status,
+	priority,
+	risk_id,
+	effectiveness_check,
+	created_at,
+	updated_at
+FROM
+	f
+WHERE %s
+	AND %s
+	AND %s
+`
+	q = fmt.Sprintf(q, scope.SQLFragment(), filter.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"audit_id": auditID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, filter.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query findings: %w", err)
+	}
+
+	findings, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[Finding])
+	if err != nil {
+		return fmt.Errorf("cannot collect findings: %w", err)
+	}
+
+	*fs = findings
+
+	return nil
+}
+
+func (fs *Findings) CountByAuditID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	auditID gid.GID,
+	filter *FindingFilter,
+) (int, error) {
+	q := `
+WITH f AS (
+	SELECT
+		fi.id,
+		fi.tenant_id
+	FROM
+		findings fi
+	INNER JOIN
+		findings_audits fa ON fi.id = fa.finding_id
+	WHERE
+		fa.audit_id = @audit_id
+)
+SELECT
+	COUNT(id)
+FROM
+	f
+WHERE
+	%s
+	AND %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment(), filter.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"audit_id": auditID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, filter.SQLArguments())
+
+	row := conn.QueryRow(ctx, q, args)
+
+	var count int
+
+	err := row.Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("cannot count findings: %w", err)
+	}
+
+	return count, nil
+}
+
+func (f Finding) GetGeneratedDocumentID(
+	ctx context.Context,
+	conn pg.Querier,
+	organizationID gid.GID,
+) (*gid.GID, error) {
+	var documentID *gid.GID
+
+	err := conn.QueryRow(
+		ctx,
+		`
+SELECT
+	findings_document_id
+FROM
+	generated_documents
+WHERE
+	organization_id = @organization_id
+`,
+		pgx.NamedArgs{"organization_id": organizationID},
+	).Scan(&documentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("cannot get finding list document ID: %w", err)
+	}
+
+	return documentID, nil
+}
+
+func (f Finding) UpsertGeneratedDocumentID(
+	ctx context.Context,
+	conn pg.Tx,
+	organizationID gid.GID,
+	tenantID gid.TenantID,
+	documentID gid.GID,
+) error {
+	now := time.Now()
+
+	_, err := conn.Exec(
+		ctx,
+		`
+INSERT INTO generated_documents (
+	organization_id,
+	tenant_id,
+	findings_document_id,
+	created_at,
+	updated_at
+) VALUES (
+	@organization_id,
+	@tenant_id,
+	@findings_document_id,
+	@created_at,
+	@updated_at
+)
+ON CONFLICT (organization_id) DO UPDATE
+SET
+	findings_document_id = @findings_document_id,
+	updated_at = @updated_at
+`,
+		pgx.NamedArgs{
+			"organization_id":      organizationID,
+			"tenant_id":            tenantID,
+			"findings_document_id": documentID,
+			"created_at":           now,
+			"updated_at":           now,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("cannot upsert finding list document ID: %w", err)
+	}
+
+	return nil
+}
+
+func (f Finding) ClearGeneratedDocumentID(
+	ctx context.Context,
+	conn pg.Tx,
+	documentIDs []gid.GID,
+) error {
+	ids := make([]string, len(documentIDs))
+	for i, id := range documentIDs {
+		ids[i] = id.String()
+	}
+
+	_, err := conn.Exec(
+		ctx,
+		`
+UPDATE
+	generated_documents
+SET
+	findings_document_id = NULL,
+	updated_at = @now
+WHERE
+	findings_document_id = ANY(@ids)
+`,
+		pgx.NamedArgs{
+			"ids": ids,
+			"now": time.Now(),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("cannot clear finding list document references: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Findings) DeleteByOrganizationID(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+	organizationID gid.GID,
+) error {
+	q := `
+DELETE FROM findings
+WHERE
+	%s
+	AND organization_id = @organization_id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"organization_id": organizationID}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot delete findings: %w", err)
+	}
+
+	return nil
+}

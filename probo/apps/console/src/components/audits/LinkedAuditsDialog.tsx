@@ -1,0 +1,304 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { getAuditStateVariant } from "@probo/helpers";
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  Field,
+  IconMagnifyingGlass,
+  IconPlusLarge,
+  IconTrashCan,
+  InfiniteScrollTrigger,
+  Input,
+  Spinner,
+} from "@probo/ui";
+import { type ReactNode, Suspense, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useLazyLoadQuery, usePaginationFragment } from "react-relay";
+import { graphql } from "relay-runtime";
+
+import type {
+  LinkedAuditsDialogFragment$data,
+  LinkedAuditsDialogFragment$key,
+} from "#/__generated__/core/LinkedAuditsDialogFragment.graphql";
+import type { LinkedAuditsDialogQuery } from "#/__generated__/core/LinkedAuditsDialogQuery.graphql";
+import type { LinkedAuditsDialogQuery_fragment } from "#/__generated__/core/LinkedAuditsDialogQuery_fragment.graphql";
+import { useOrganizationId } from "#/hooks/useOrganizationId";
+import type { NodeOf } from "#/types";
+
+const auditsQuery = graphql`
+  query LinkedAuditsDialogQuery($organizationId: ID!) {
+    organization: node(id: $organizationId) {
+      id
+      ... on Organization {
+        ...LinkedAuditsDialogFragment
+      }
+    }
+  }
+`;
+
+const auditsFragment = graphql`
+  fragment LinkedAuditsDialogFragment on Organization
+  @refetchable(queryName: "LinkedAuditsDialogQuery_fragment")
+  @argumentDefinitions(
+    first: { type: "Int", defaultValue: 20 }
+    order: { type: "AuditOrder", defaultValue: null }
+    after: { type: "CursorKey", defaultValue: null }
+    before: { type: "CursorKey", defaultValue: null }
+    last: { type: "Int", defaultValue: null }
+  ) {
+    audits(
+      first: $first
+      after: $after
+      last: $last
+      before: $before
+      orderBy: $order
+    ) @connection(key: "LinkedAuditsDialogQuery_audits") {
+      edges {
+        node {
+          id
+          name
+          state
+          framework {
+            id
+            name
+          }
+        }
+      }
+    }
+  }
+`;
+
+type Props = {
+  children: ReactNode;
+  disabled?: boolean;
+  linkedAudits?: { id: string }[];
+  referenceIdRequired?: boolean;
+  onLink: (auditId: string, referenceId?: string) => void;
+  onUnlink?: (auditId: string) => void;
+};
+
+export function LinkedAuditsDialog({ children, ...props }: Props) {
+  const { t } = useTranslation();
+
+  return (
+    <Dialog trigger={children} title={t("linkedAuditsDialog.title")}>
+      <DialogContent>
+        <Suspense fallback={<Spinner centered />}>
+          <LinkedAuditsDialogContent {...props} />
+        </Suspense>
+      </DialogContent>
+      <DialogFooter exitLabel={t("linkedAuditsDialog.actions.close")} />
+    </Dialog>
+  );
+}
+
+function LinkedAuditsDialogContent(props: Omit<Props, "children">) {
+  const organizationId = useOrganizationId();
+  const query = useLazyLoadQuery<LinkedAuditsDialogQuery>(auditsQuery, {
+    organizationId,
+  });
+  const { data, loadNext, hasNext, isLoadingNext }
+    = usePaginationFragment<LinkedAuditsDialogQuery_fragment, LinkedAuditsDialogFragment$key>(
+      auditsFragment,
+      query.organization as LinkedAuditsDialogFragment$key,
+    );
+  const { t } = useTranslation();
+  const [search, setSearch] = useState("");
+  const [referenceId, setReferenceId] = useState("");
+  const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
+  const audits = useMemo(
+    () => data.audits?.edges?.map(edge => edge.node) ?? [],
+    [data.audits],
+  );
+  const linkedIds = useMemo(() => {
+    return new Set(props.linkedAudits?.map(a => a.id) ?? []);
+  }, [props.linkedAudits]);
+
+  const filteredAudits = useMemo(() => {
+    const normalizedSearch = search.toLowerCase();
+
+    return audits.filter((audit) => {
+      return (audit.name || "").toLowerCase().includes(normalizedSearch)
+        || (audit.framework?.name || "")
+          .toLowerCase()
+          .includes(normalizedSearch);
+    });
+  }, [audits, search]);
+  const selectedAudit = audits.find(audit => audit.id === selectedAuditId);
+
+  function onSelectAudit(auditId: string) {
+    if (props.referenceIdRequired) {
+      setReferenceId("");
+      setSelectedAuditId(auditId);
+      return;
+    }
+
+    props.onLink(auditId);
+  }
+
+  function onLink() {
+    if (!selectedAudit) {
+      return;
+    }
+
+    props.onLink(selectedAudit.id, referenceId.trim());
+    setReferenceId("");
+    setSelectedAuditId(null);
+  }
+
+  if (selectedAudit && props.referenceIdRequired) {
+    return (
+      <div className="space-y-5 px-6 py-5">
+        <div className="flex items-center gap-4 rounded-lg border border-border-low bg-subtle p-4">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="font-medium">{selectedAudit.framework?.name}</div>
+            {selectedAudit.name && (
+              <div className="text-sm text-txt-secondary">
+                {selectedAudit.name}
+              </div>
+            )}
+          </div>
+          <Badge color={getAuditStateVariant(selectedAudit.state)}>
+            {selectedAudit.state.replace(/_/g, " ")}
+          </Badge>
+        </div>
+        <Field
+          label={t("linkedAuditsDialog.referenceIdLabel")}
+          help={t("linkedAuditsDialog.referenceIdDescription")}
+          name="auditReference"
+        >
+          <Input
+            autoFocus
+            id="auditReference"
+            name="auditReference"
+            required
+            value={referenceId}
+            placeholder={t("linkedAuditsDialog.referenceIdPlaceholder")}
+            onValueChange={setReferenceId}
+          />
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setReferenceId("");
+              setSelectedAuditId(null);
+            }}
+          >
+            {t("linkedAuditsDialog.actions.back")}
+          </Button>
+          <Button
+            disabled={props.disabled || !referenceId.trim()}
+            icon={IconPlusLarge}
+            onClick={onLink}
+          >
+            {t("linkedAuditsDialog.actions.confirmLink")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-2 sticky top-0 relative py-4 bg-linear-to-b from-50% from-level-2 to-level-2/0 px-6">
+        <Input
+          icon={IconMagnifyingGlass}
+          placeholder={t("linkedAuditsDialog.searchPlaceholder")}
+          onValueChange={setSearch}
+        />
+      </div>
+      <div className="divide-y divide-border-low">
+        {filteredAudits.length === 0 && (
+          <div className="px-6 py-10 text-center text-sm text-txt-secondary">
+            {t("linkedAuditsDialog.empty")}
+          </div>
+        )}
+        {filteredAudits.map(audit => (
+          <AuditRow
+            key={audit.id}
+            audit={audit}
+            linkedAudits={linkedIds}
+            onLink={onSelectAudit}
+            onUnlink={props.onUnlink}
+            disabled={props.disabled}
+          />
+        ))}
+        {hasNext && (
+          <InfiniteScrollTrigger
+            loading={isLoadingNext}
+            onView={() => loadNext(20)}
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+type Audit = NodeOf<LinkedAuditsDialogFragment$data["audits"]>;
+
+type RowProps = {
+  audit: Audit;
+  linkedAudits: Set<string>;
+  disabled?: boolean;
+  onLink: (auditId: string) => void;
+  onUnlink?: (auditId: string) => void;
+};
+
+function AuditRow(props: RowProps) {
+  const { t } = useTranslation();
+
+  const isLinked = props.linkedAudits.has(props.audit.id);
+  const onClick = isLinked ? props.onUnlink : props.onLink;
+  const IconComponent = isLinked ? IconTrashCan : IconPlusLarge;
+  const disabled = props.disabled || (isLinked && !props.onUnlink);
+
+  return (
+    <div
+      className="py-4 flex items-center gap-4 px-6 w-full h-[100px]"
+    >
+      <div className="flex flex-col items-start gap-1">
+        <div className="font-medium">{props.audit.framework?.name}</div>
+        {props.audit.name && (
+          <div className="text-sm text-txt-secondary">{props.audit.name}</div>
+        )}
+      </div>
+      <Badge color={getAuditStateVariant(props.audit.state)}>
+        {props.audit.state.replace(/_/g, " ")}
+      </Badge>
+      <Button
+        disabled={disabled}
+        className="ml-auto"
+        variant={isLinked ? "secondary" : "primary"}
+        icon={IconComponent}
+        onClick={() => onClick?.(props.audit.id)}
+      >
+        {isLinked
+          ? t("linkedAuditsDialog.actions.unlink")
+          : t("linkedAuditsDialog.actions.link")}
+      </Button>
+    </div>
+  );
+}

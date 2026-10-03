@@ -1,0 +1,1090 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package console_test
+
+import (
+	"fmt"
+	"maps"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/e2e/internal/factory"
+	"go.probo.inc/probo/e2e/internal/testutil"
+)
+
+func TestDocument_Create(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	tests := []struct {
+		name        string
+		input       map[string]any
+		assertField string
+		assertValue string
+	}{
+		{
+			name: "with full details",
+			input: map[string]any{
+				"title":          "Security Policy",
+				"content":        testutil.ProseMirrorTextDoc("This is the security policy content."),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			assertField: "versionTitle",
+			assertValue: "Security Policy",
+		},
+		{
+			name: "with POLICY type",
+			input: map[string]any{
+				"title":          "Policy Document",
+				"content":        testutil.ProseMirrorTextDoc("Policy content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			assertField: "documentType",
+			assertValue: "POLICY",
+		},
+		{
+			name: "with PROCEDURE type",
+			input: map[string]any{
+				"title":          "Procedure Document",
+				"content":        testutil.ProseMirrorTextDoc("Procedure content"),
+				"documentType":   "PROCEDURE",
+				"classification": "INTERNAL",
+			},
+			assertField: "documentType",
+			assertValue: "PROCEDURE",
+		},
+		{
+			name: "with GOVERNANCE type",
+			input: map[string]any{
+				"title":          "Governance Document",
+				"content":        testutil.ProseMirrorTextDoc("Governance content"),
+				"documentType":   "GOVERNANCE",
+				"classification": "INTERNAL",
+			},
+			assertField: "documentType",
+			assertValue: "GOVERNANCE",
+		},
+		{
+			name: "with OTHER type",
+			input: map[string]any{
+				"title":          "Other Document",
+				"content":        testutil.ProseMirrorTextDoc("Other content"),
+				"documentType":   "OTHER",
+				"classification": "INTERNAL",
+			},
+			assertField: "documentType",
+			assertValue: "OTHER",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := `
+				mutation CreateDocument($input: CreateDocumentInput!) {
+					createDocument(input: $input) {
+						documentEdge {
+							node {
+								id
+							}
+						}
+						documentVersionEdge {
+							node {
+								id
+								title
+								documentType
+							}
+						}
+					}
+				}
+			`
+
+			input := map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+			}
+			maps.Copy(input, tt.input)
+
+			var result struct {
+				CreateDocument struct {
+					DocumentEdge struct {
+						Node struct {
+							ID string `json:"id"`
+						} `json:"node"`
+					} `json:"documentEdge"`
+					DocumentVersionEdge struct {
+						Node struct {
+							ID           string `json:"id"`
+							Title        string `json:"title"`
+							DocumentType string `json:"documentType"`
+						} `json:"node"`
+					} `json:"documentVersionEdge"`
+				} `json:"createDocument"`
+			}
+
+			err := owner.Execute(query, map[string]any{"input": input}, &result)
+			require.NoError(t, err)
+
+			node := result.CreateDocument.DocumentEdge.Node
+			assert.NotEmpty(t, node.ID)
+
+			versionNode := result.CreateDocument.DocumentVersionEdge.Node
+
+			switch tt.assertField {
+			case "versionTitle":
+				assert.Equal(t, tt.assertValue, versionNode.Title)
+			case "documentType":
+				assert.Equal(t, tt.assertValue, versionNode.DocumentType)
+			}
+		})
+	}
+}
+
+func TestDocument_Create_Validation(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	tests := []struct {
+		name              string
+		input             map[string]any
+		skipOrganization  bool
+		wantErrorContains string
+	}{
+		{
+			name: "missing organizationId",
+			input: map[string]any{
+				"title":          "Test Document",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			skipOrganization:  true,
+			wantErrorContains: "organizationId",
+		},
+		{
+			name: "title with HTML tags",
+			input: map[string]any{
+				"title":          "<script>alert('xss')</script>",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			wantErrorContains: "HTML",
+		},
+		{
+			name: "title with newline",
+			input: map[string]any{
+				"title":          "Test\nDocument",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			wantErrorContains: "newline",
+		},
+		{
+			name: "title with carriage return",
+			input: map[string]any{
+				"title":          "Test\rDocument",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			wantErrorContains: "carriage return",
+		},
+		{
+			name: "title with null byte",
+			input: map[string]any{
+				"title":          "Test\x00Document",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			wantErrorContains: "control character",
+		},
+		{
+			name: "title with tab character",
+			input: map[string]any{
+				"title":          "Test\tDocument",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			wantErrorContains: "control character",
+		},
+		{
+			name: "title with zero-width space",
+			input: map[string]any{
+				"title":          "Test\u200BDocument",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			wantErrorContains: "zero-width",
+		},
+		{
+			name: "title with zero-width joiner",
+			input: map[string]any{
+				"title":          "Test\u200DDocument",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			wantErrorContains: "zero-width",
+		},
+		{
+			name: "title with right-to-left override",
+			input: map[string]any{
+				"title":          "Test\u202EDocument",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+			wantErrorContains: "bidirectional",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := `
+				mutation CreateDocument($input: CreateDocumentInput!) {
+					createDocument(input: $input) {
+						documentEdge {
+							node {
+								id
+							}
+						}
+					}
+				}
+			`
+
+			input := make(map[string]any)
+			if !tt.skipOrganization {
+				input["organizationId"] = owner.GetOrganizationID().String()
+			}
+
+			maps.Copy(input, tt.input)
+
+			_, err := owner.Do(query, map[string]any{"input": input})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrorContains)
+		})
+	}
+}
+
+func TestDocument_Update(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	t.Run(
+		"update title via document",
+		func(t *testing.T) {
+			t.Parallel()
+
+			doc := factory.NewDocument(owner).
+				WithTitle("Document to Update")
+			documentID := doc.Create()
+
+			query := `
+				mutation UpdateDocument($input: UpdateDocumentInput!) {
+					updateDocument(input: $input) {
+						documentVersion {
+							id
+							title
+						}
+					}
+				}
+			`
+
+			var result struct {
+				UpdateDocument struct {
+					DocumentVersion struct {
+						ID    string `json:"id"`
+						Title string `json:"title"`
+					} `json:"documentVersion"`
+				} `json:"updateDocument"`
+			}
+
+			err := owner.Execute(query, map[string]any{
+				"input": map[string]any{
+					"id":    documentID,
+					"title": "Updated Document Title",
+				},
+			}, &result)
+			require.NoError(t, err)
+			assert.Equal(t, "Updated Document Title", result.UpdateDocument.DocumentVersion.Title)
+		},
+	)
+}
+
+func TestDocument_Update_TitleValidation(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	doc := factory.NewDocument(owner).WithTitle("Validation Test Document")
+	baseDocumentID := doc.Create()
+
+	tests := []struct {
+		name              string
+		setup             func() string
+		input             func(id string) map[string]any
+		wantErrorContains string
+	}{
+		{
+			name:  "title with HTML tags",
+			setup: func() string { return baseDocumentID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "title": "<script>alert('xss')</script>"}
+			},
+			wantErrorContains: "HTML",
+		},
+		{
+			name:  "title with newline",
+			setup: func() string { return baseDocumentID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "title": "Test\nDocument"}
+			},
+			wantErrorContains: "newline",
+		},
+		{
+			name:  "title with carriage return",
+			setup: func() string { return baseDocumentID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "title": "Test\rDocument"}
+			},
+			wantErrorContains: "carriage return",
+		},
+		{
+			name:  "title with null byte",
+			setup: func() string { return baseDocumentID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "title": "Test\x00Document"}
+			},
+			wantErrorContains: "control character",
+		},
+		{
+			name:  "title with zero-width space",
+			setup: func() string { return baseDocumentID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "title": "Test\u200BDocument"}
+			},
+			wantErrorContains: "zero-width",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			documentID := tt.setup()
+
+			query := `
+				mutation UpdateDocument($input: UpdateDocumentInput!) {
+					updateDocument(input: $input) {
+						documentVersion {
+							id
+						}
+					}
+				}
+			`
+
+			_, err := owner.Do(query, map[string]any{"input": tt.input(documentID)})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrorContains)
+		})
+	}
+}
+
+func TestDocument_Delete(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	t.Run("delete existing document", func(t *testing.T) {
+		documentID := factory.NewDocument(owner).WithTitle("Document to Delete").Create()
+
+		query := `
+			mutation DeleteDocument($input: DeleteDocumentInput!) {
+				deleteDocument(input: $input) {
+					deletedDocumentId
+				}
+			}
+		`
+
+		var result struct {
+			DeleteDocument struct {
+				DeletedDocumentID string `json:"deletedDocumentId"`
+			} `json:"deleteDocument"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"input": map[string]any{"documentId": documentID},
+		}, &result)
+		require.NoError(t, err)
+		assert.Equal(t, documentID, result.DeleteDocument.DeletedDocumentID)
+	})
+}
+
+func TestDocument_Delete_Validation(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	tests := []struct {
+		name              string
+		documentID        string
+		wantErrorContains string
+	}{
+		{
+			name:              "invalid ID format",
+			documentID:        "invalid-id-format",
+			wantErrorContains: "base64",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := `
+				mutation DeleteDocument($input: DeleteDocumentInput!) {
+					deleteDocument(input: $input) {
+						deletedDocumentId
+					}
+				}
+			`
+
+			_, err := owner.Do(query, map[string]any{
+				"input": map[string]any{"documentId": tt.documentID},
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrorContains)
+		})
+	}
+}
+
+func TestDocument_List(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	documentTitles := []string{"Document A", "Document B", "Document C"}
+	for _, title := range documentTitles {
+		factory.NewDocument(owner).WithTitle(title).Create()
+	}
+
+	query := `
+		query GetDocuments($id: ID!) {
+			node(id: $id) {
+				... on Organization {
+					documents(first: 10) {
+						edges {
+							node {
+								id
+							}
+						}
+						totalCount
+					}
+				}
+			}
+		}
+	`
+
+	var result struct {
+		Node struct {
+			Documents struct {
+				Edges []struct {
+					Node struct {
+						ID string `json:"id"`
+					} `json:"node"`
+				} `json:"edges"`
+				TotalCount int `json:"totalCount"`
+			} `json:"documents"`
+		} `json:"node"`
+	}
+
+	err := owner.Execute(query, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, result.Node.Documents.TotalCount, 3)
+}
+
+func TestDocument_ListByTitle(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	cryptographicAccessID := factory.NewDocument(owner).
+		WithTitle("Cryptographic Access Policy").
+		Create()
+	cryptographicRetentionID := factory.NewDocument(owner).
+		WithTitle("Cryptographic Retention Procedure").
+		Create()
+	vendorAccessID := factory.NewDocument(owner).
+		WithTitle("Vendor Access Policy").
+		Create()
+
+	const query = `
+		query GetDocuments($id: ID!, $query: String) {
+			node(id: $id) {
+				... on Organization {
+					documents(first: 10, filter: { query: $query }) {
+						edges {
+							node {
+								id
+							}
+						}
+						totalCount
+					}
+				}
+			}
+		}
+	`
+
+	tests := []struct {
+		name        string
+		searchQuery string
+		expectedIDs []string
+	}{
+		{
+			name:        "matches a title prefix",
+			searchQuery: "Crypto",
+			expectedIDs: []string{cryptographicAccessID, cryptographicRetentionID},
+		},
+		{
+			name:        "matches every word prefix",
+			searchQuery: "Crypto Acc",
+			expectedIDs: []string{cryptographicAccessID},
+		},
+		{
+			name:        "matches a complete title word",
+			searchQuery: "Vendor",
+			expectedIDs: []string{vendorAccessID},
+		},
+		{
+			name:        "returns no unrelated documents",
+			searchQuery: "Incident",
+			expectedIDs: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var result struct {
+				Node struct {
+					Documents struct {
+						Edges []struct {
+							Node struct {
+								ID string `json:"id"`
+							} `json:"node"`
+						} `json:"edges"`
+						TotalCount int `json:"totalCount"`
+					} `json:"documents"`
+				} `json:"node"`
+			}
+
+			err := owner.Execute(
+				query,
+				map[string]any{
+					"id":    owner.GetOrganizationID().String(),
+					"query": tt.searchQuery,
+				},
+				&result,
+			)
+			require.NoError(t, err)
+
+			actualIDs := make([]string, len(result.Node.Documents.Edges))
+			for i, edge := range result.Node.Documents.Edges {
+				actualIDs[i] = edge.Node.ID
+			}
+
+			assert.ElementsMatch(t, tt.expectedIDs, actualIDs)
+			assert.Equal(t, len(tt.expectedIDs), result.Node.Documents.TotalCount)
+		})
+	}
+}
+
+func TestDocument_Query(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	t.Run("query with non-existent ID returns error", func(t *testing.T) {
+		query := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Document {
+						id
+					}
+				}
+			}
+		`
+
+		err := owner.ExecuteShouldFail(query, map[string]any{
+			"id": "V0wtM0tMNmJBQ1lBQUFBQUFackhLSTJfbXJJRUFZVXo",
+		})
+		require.Error(t, err, "Non-existent ID should return error")
+	})
+}
+
+func TestDocument_Timestamps(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	t.Run("createdAt and updatedAt are set on create", func(t *testing.T) {
+		beforeCreate := time.Now().Add(-time.Second)
+
+		query := `
+			mutation CreateDocument($input: CreateDocumentInput!) {
+				createDocument(input: $input) {
+					documentEdge {
+						node {
+							id
+							createdAt
+							updatedAt
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			CreateDocument struct {
+				DocumentEdge struct {
+					Node struct {
+						ID        string    `json:"id"`
+						CreatedAt time.Time `json:"createdAt"`
+						UpdatedAt time.Time `json:"updatedAt"`
+					} `json:"node"`
+				} `json:"documentEdge"`
+			} `json:"createDocument"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"input": map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+				"title":          "Timestamp Test Document",
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+		}, &result)
+		require.NoError(t, err)
+
+		node := result.CreateDocument.DocumentEdge.Node
+		testutil.AssertTimestampsOnCreate(t, node.CreatedAt, node.UpdatedAt, beforeCreate)
+	})
+
+	t.Run("updatedAt changes on update", func(t *testing.T) {
+		documentID := factory.NewDocument(owner).WithTitle("Timestamp Update Test").Create()
+
+		getQuery := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Document {
+						createdAt
+						updatedAt
+					}
+				}
+			}
+		`
+
+		var getResult struct {
+			Node struct {
+				CreatedAt time.Time `json:"createdAt"`
+				UpdatedAt time.Time `json:"updatedAt"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(getQuery, map[string]any{"id": documentID}, &getResult)
+		require.NoError(t, err)
+
+		initialCreatedAt := getResult.Node.CreatedAt
+		initialUpdatedAt := getResult.Node.UpdatedAt
+
+		updateQuery := `
+			mutation UpdateDocument($input: UpdateDocumentInput!) {
+				updateDocument(input: $input) {
+					document {
+						createdAt
+						updatedAt
+					}
+				}
+			}
+		`
+
+		var updateResult struct {
+			UpdateDocument struct {
+				Document struct {
+					CreatedAt time.Time `json:"createdAt"`
+					UpdatedAt time.Time `json:"updatedAt"`
+				} `json:"document"`
+			} `json:"updateDocument"`
+		}
+
+		err = owner.Execute(updateQuery, map[string]any{
+			"input": map[string]any{
+				"id":             documentID,
+				"classification": "CONFIDENTIAL",
+			},
+		}, &updateResult)
+		require.NoError(t, err)
+
+		doc := updateResult.UpdateDocument.Document
+		testutil.AssertTimestampsOnUpdate(t, doc.CreatedAt, doc.UpdatedAt, initialCreatedAt, initialUpdatedAt)
+	})
+}
+
+func TestDocument_SubResolvers(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	documentID := factory.NewDocument(owner).WithTitle("SubResolver Test Document").Create()
+
+	t.Run("organization sub-resolver", func(t *testing.T) {
+		query := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Document {
+						id
+						organization {
+							id
+							name
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			Node struct {
+				ID           string `json:"id"`
+				Organization struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"organization"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(query, map[string]any{"id": documentID}, &result)
+		require.NoError(t, err)
+		assert.Equal(t, owner.GetOrganizationID().String(), result.Node.Organization.ID)
+		assert.NotEmpty(t, result.Node.Organization.Name)
+	})
+}
+
+func TestDocument_MaxLength_Validation(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	longTitle := strings.Repeat("a", 1001)
+
+	t.Run("create with long title", func(t *testing.T) {
+		query := `
+			mutation CreateDocument($input: CreateDocumentInput!) {
+				createDocument(input: $input) {
+					documentEdge {
+						node { id }
+					}
+				}
+			}
+		`
+
+		_, err := owner.Do(query, map[string]any{
+			"input": map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+				"title":          longTitle,
+				"content":        testutil.ProseMirrorTextDoc("Test content"),
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "title")
+	})
+
+	t.Run("update document with long title", func(t *testing.T) {
+		doc := factory.NewDocument(owner).WithTitle("Max Length Test")
+		documentID := doc.Create()
+
+		query := `
+			mutation UpdateDocument($input: UpdateDocumentInput!) {
+				updateDocument(input: $input) {
+					documentVersion { id }
+				}
+			}
+		`
+
+		_, err := owner.Do(query, map[string]any{
+			"input": map[string]any{
+				"id":    documentID,
+				"title": longTitle,
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "title")
+	})
+
+	t.Run("create with long content", func(t *testing.T) {
+		query := `
+			mutation CreateDocument($input: CreateDocumentInput!) {
+				createDocument(input: $input) {
+					documentEdge {
+						node { id }
+					}
+				}
+			}
+		`
+
+		longContent := testutil.ProseMirrorTextDoc(strings.Repeat("a", 200_001))
+
+		_, err := owner.Do(query, map[string]any{
+			"input": map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+				"title":          "Content Length Test",
+				"content":        longContent,
+				"documentType":   "POLICY",
+				"classification": "INTERNAL",
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "content")
+	})
+
+	t.Run("update document with long content", func(t *testing.T) {
+		docID, _ := createTestDocument(t, owner)
+		require.NotEmpty(t, docID)
+
+		query := `
+			mutation UpdateDocument($input: UpdateDocumentInput!) {
+				updateDocument(input: $input) {
+					document { id }
+				}
+			}
+		`
+
+		longContent := testutil.ProseMirrorTextDoc(strings.Repeat("a", 200_001))
+
+		_, err := owner.Do(query, map[string]any{
+			"input": map[string]any{
+				"id":      docID,
+				"content": longContent,
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "content")
+	})
+}
+
+func TestDocument_Pagination(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	for i := range 5 {
+		factory.NewDocument(owner).
+			WithTitle(fmt.Sprintf("Pagination Document %d", i)).
+			Create()
+	}
+
+	t.Run("first/after pagination", func(t *testing.T) {
+		query := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Organization {
+						documents(first: 2) {
+							edges {
+								node { id }
+								cursor
+							}
+							pageInfo {
+								hasNextPage
+								hasPreviousPage
+								startCursor
+								endCursor
+							}
+							totalCount
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			Node struct {
+				Documents struct {
+					Edges []struct {
+						Node struct {
+							ID string `json:"id"`
+						} `json:"node"`
+						Cursor string `json:"cursor"`
+					} `json:"edges"`
+					PageInfo   testutil.PageInfo `json:"pageInfo"`
+					TotalCount int               `json:"totalCount"`
+				} `json:"documents"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(
+			query,
+			map[string]any{
+				"id": owner.GetOrganizationID().String(),
+			},
+			&result,
+		)
+		require.NoError(t, err)
+
+		testutil.AssertFirstPage(t, len(result.Node.Documents.Edges), result.Node.Documents.PageInfo, 2, true)
+		assert.GreaterOrEqual(t, result.Node.Documents.TotalCount, 5)
+
+		testutil.AssertHasMorePages(t, result.Node.Documents.PageInfo)
+
+		queryAfter := `
+			query($id: ID!, $after: CursorKey) {
+				node(id: $id) {
+					... on Organization {
+						documents(first: 2, after: $after) {
+							edges {
+								node { id }
+							}
+							pageInfo {
+								hasNextPage
+								hasPreviousPage
+							}
+						}
+					}
+				}
+			}
+		`
+
+		var resultAfter struct {
+			Node struct {
+				Documents struct {
+					Edges []struct {
+						Node struct {
+							ID string `json:"id"`
+						} `json:"node"`
+					} `json:"edges"`
+					PageInfo testutil.PageInfo `json:"pageInfo"`
+				} `json:"documents"`
+			} `json:"node"`
+		}
+
+		err = owner.Execute(queryAfter, map[string]any{
+			"id":    owner.GetOrganizationID().String(),
+			"after": *result.Node.Documents.PageInfo.EndCursor,
+		}, &resultAfter)
+		require.NoError(t, err)
+
+		testutil.AssertMiddlePage(t, len(resultAfter.Node.Documents.Edges), resultAfter.Node.Documents.PageInfo, 2)
+	})
+
+	t.Run("last/before pagination", func(t *testing.T) {
+		query := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Organization {
+						documents(last: 2) {
+							edges {
+								node { id }
+							}
+							pageInfo {
+								hasNextPage
+								hasPreviousPage
+							}
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			Node struct {
+				Documents struct {
+					Edges []struct {
+						Node struct {
+							ID string `json:"id"`
+						} `json:"node"`
+					} `json:"edges"`
+					PageInfo testutil.PageInfo `json:"pageInfo"`
+				} `json:"documents"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"id": owner.GetOrganizationID().String(),
+		}, &result)
+		require.NoError(t, err)
+
+		testutil.AssertLastPage(t, len(result.Node.Documents.Edges), result.Node.Documents.PageInfo, 2, true)
+	})
+}
+
+func TestDocument_Ordering(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	factory.NewDocument(owner).WithTitle("AAA Order Test").Create()
+	factory.NewDocument(owner).WithTitle("ZZZ Order Test").Create()
+
+	t.Run("order by created_at descending", func(t *testing.T) {
+		query := `
+			query($id: ID!, $orderBy: DocumentOrder) {
+				node(id: $id) {
+					... on Organization {
+						documents(first: 100, orderBy: $orderBy) {
+							edges {
+								node {
+									id
+									createdAt
+								}
+							}
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			Node struct {
+				Documents struct {
+					Edges []struct {
+						Node struct {
+							ID        string    `json:"id"`
+							CreatedAt time.Time `json:"createdAt"`
+						} `json:"node"`
+					} `json:"edges"`
+				} `json:"documents"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"id": owner.GetOrganizationID().String(),
+			"orderBy": map[string]any{
+				"field":     "CREATED_AT",
+				"direction": "DESC",
+			},
+		}, &result)
+		require.NoError(t, err)
+
+		times := make([]time.Time, len(result.Node.Documents.Edges))
+		for i, edge := range result.Node.Documents.Edges {
+			times[i] = edge.Node.CreatedAt
+		}
+
+		testutil.AssertTimesOrderedDescending(t, times, "createdAt")
+	})
+}

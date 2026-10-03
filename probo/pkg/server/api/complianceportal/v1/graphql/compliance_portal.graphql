@@ -1,0 +1,571 @@
+type CompliancePortalCapabilities
+  @goModel(model: "go.probo.inc/probo/pkg/coredata.CompliancePortalCapabilities") {
+  rightsRequests: Boolean!
+}
+
+type CompliancePortal implements Node {
+  id: ID!
+  active: Boolean!
+  capabilities: CompliancePortalCapabilities!
+  slug: String!
+  logo: File @goField(forceResolver: true)
+  darkLogo: File @goField(forceResolver: true)
+
+  description: String
+  websiteUrl: String
+  email: String
+  headquarterAddress: String
+  entityName: String!
+
+  nonDisclosureAgreement: NonDisclosureAgreement @goField(forceResolver: true)
+
+  viewerSubscription: MailingListSubscriber @goField(forceResolver: true)
+
+  # True once the signed-in visitor has requested private access (document,
+  # report, or file) via the visitor request flow. Admin-granted rows alone do
+  # not flip this; used to defer NDA prompts until the visitor asks for access.
+  viewerHasRequestedAccess: Boolean! @goField(forceResolver: true)
+
+  documents(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+    filter: CompliancePortalVisibilityFilter
+  ): DocumentConnection! @goField(forceResolver: true)
+
+  audits(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+    filter: CompliancePortalVisibilityFilter
+  ): AuditConnection! @goField(forceResolver: true)
+
+  subprocessors(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+    filter: SubprocessorFilter
+  ): SubprocessorConnection! @goField(forceResolver: true)
+
+  subprocessorCategories: [SubprocessorCategory!]!
+    @goField(forceResolver: true)
+
+  subprocessorCountries: [CountryCode!]! @goField(forceResolver: true)
+
+  references(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+  ): CompliancePortalReferenceConnection! @goField(forceResolver: true)
+
+  commitmentGroups(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+  ): CompliancePortalCommitmentGroupConnection! @goField(forceResolver: true)
+
+  compliancePortalFiles(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+    filter: CompliancePortalVisibilityFilter
+  ): CompliancePortalFileConnection! @goField(forceResolver: true)
+
+  complianceFrameworks(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+  ): ComplianceFrameworkConnection! @goField(forceResolver: true)
+
+  customLinks(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+  ): ComplianceCustomLinkConnection! @goField(forceResolver: true)
+
+  updates(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+  ): MailingListUpdateConnection! @goField(forceResolver: true)
+}
+
+enum DocumentType
+  @goModel(model: "go.probo.inc/probo/pkg/coredata.DocumentType") {
+  OTHER @goEnum(value: "go.probo.inc/probo/pkg/coredata.DocumentTypeOther")
+  GOVERNANCE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.DocumentTypeGovernance")
+  POLICY @goEnum(value: "go.probo.inc/probo/pkg/coredata.DocumentTypePolicy")
+  PROCEDURE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.DocumentTypeProcedure")
+  PLAN @goEnum(value: "go.probo.inc/probo/pkg/coredata.DocumentTypePlan")
+  REGISTER
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.DocumentTypeRegister")
+  RECORD @goEnum(value: "go.probo.inc/probo/pkg/coredata.DocumentTypeRecord")
+  REPORT @goEnum(value: "go.probo.inc/probo/pkg/coredata.DocumentTypeReport")
+  TEMPLATE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.DocumentTypeTemplate")
+  STATEMENT_OF_APPLICABILITY
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.DocumentTypeStatementOfApplicability"
+    )
+}
+
+enum CompliancePortalVisibility
+  @goModel(model: "go.probo.inc/probo/pkg/coredata.CompliancePortalVisibility") {
+  RESTRICTED
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalVisibilityRestricted")
+  PUBLIC
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalVisibilityPublic")
+}
+
+input CompliancePortalVisibilityFilter {
+  visibility: CompliancePortalVisibility
+}
+
+type Document implements Node {
+  id: ID!
+  title: String!
+  documentType: DocumentType!
+  alias: String @goField(forceResolver: true)
+  isUserAuthorized: Boolean! @goField(forceResolver: true)
+  access: DocumentAccess @goField(forceResolver: true)
+}
+
+type DocumentConnection {
+  edges: [DocumentEdge!]!
+  pageInfo: PageInfo!
+}
+
+type DocumentEdge {
+  cursor: CursorKey!
+  node: Document!
+}
+
+type Framework implements Node {
+  id: ID!
+  name: String!
+  lightLogo: File @goField(forceResolver: true)
+  darkLogo: File @goField(forceResolver: true)
+}
+
+type AuditReport implements Node {
+  id: ID!
+  fileName: String!
+  alias: String @goField(forceResolver: true)
+  isUserAuthorized: Boolean! @goField(forceResolver: true)
+  access: DocumentAccess @goField(forceResolver: true)
+}
+
+type Audit implements Node {
+  id: ID!
+  name: String
+  framework: Framework! @goField(forceResolver: true)
+  reportFile: AuditReport @goField(forceResolver: true)
+}
+
+type AuditConnection {
+  edges: [AuditEdge!]!
+  pageInfo: PageInfo!
+}
+
+type AuditEdge {
+  cursor: CursorKey!
+  node: Audit!
+}
+
+type ComplianceFramework implements Node {
+  id: ID!
+  framework: Framework! @goField(forceResolver: true)
+}
+
+type ComplianceFrameworkConnection
+  @goModel(
+    model: "go.probo.inc/probo/pkg/server/api/complianceportal/v1/types.ComplianceFrameworkConnection"
+  ) {
+  edges: [ComplianceFrameworkEdge!]!
+  pageInfo: PageInfo!
+}
+
+type ComplianceFrameworkEdge {
+  cursor: CursorKey!
+  node: ComplianceFramework!
+}
+
+enum SubprocessorCategory
+  @goModel(model: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategory") {
+  ANALYTICS
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryAnalytics")
+  CLOUD_MONITORING
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryCloudMonitoring"
+    )
+  CLOUD_PROVIDER
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryCloudProvider"
+    )
+  COLLABORATION
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryCollaboration"
+    )
+  CUSTOMER_SUPPORT
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryCustomerSupport"
+    )
+  DATA_STORAGE_AND_PROCESSING
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryDataStorageAndProcessing"
+    )
+  DOCUMENT_MANAGEMENT
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryDocumentManagement"
+    )
+  EMPLOYEE_MANAGEMENT
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryEmployeeManagement"
+    )
+  ENGINEERING
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryEngineering")
+  FINANCE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryFinance")
+  IDENTITY_PROVIDER
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryIdentityProvider"
+    )
+  IT @goEnum(value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryIT")
+  MARKETING
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryMarketing")
+  OFFICE_OPERATIONS
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryOfficeOperations"
+    )
+  OTHER @goEnum(value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryOther")
+  PASSWORD_MANAGEMENT
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryPasswordManagement"
+    )
+  PRODUCT_AND_DESIGN
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryProductAndDesign"
+    )
+  PROFESSIONAL_SERVICES
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryProfessionalServices"
+    )
+  RECRUITING
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryRecruiting")
+  SALES @goEnum(value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategorySales")
+  SECURITY
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategorySecurity")
+  VERSION_CONTROL
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.ThirdPartyCategoryVersionControl"
+    )
+}
+
+type Subprocessor implements Node {
+  id: ID!
+  name: String!
+  description: String
+  category: SubprocessorCategory!
+  websiteUrl: String
+  privacyPolicyUrl: String
+  countries: [CountryCode!]!
+}
+
+input SubprocessorFilter {
+  query: String
+  category: SubprocessorCategory
+  country: CountryCode
+}
+
+type SubprocessorConnection
+  @goModel(
+    model: "go.probo.inc/probo/pkg/server/api/complianceportal/v1/types.SubprocessorConnection"
+  ) {
+  edges: [SubprocessorEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int! @goField(forceResolver: true)
+}
+
+type SubprocessorEdge {
+  cursor: CursorKey!
+  node: Subprocessor!
+}
+
+type CompliancePortalReference implements Node {
+  id: ID!
+  name: String!
+  description: String
+  websiteUrl: String!
+  logo: File! @goField(forceResolver: true)
+}
+
+type CompliancePortalReferenceConnection {
+  edges: [CompliancePortalReferenceEdge!]!
+  pageInfo: PageInfo!
+}
+
+type CompliancePortalReferenceEdge {
+  cursor: CursorKey!
+  node: CompliancePortalReference!
+}
+
+enum CompliancePortalCommitmentIcon
+  @goModel(model: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIcon") {
+  LOCK_KEY
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconLockKey")
+  EYE_SLASH
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconEyeSlash")
+  FINGERPRINT
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconFingerprint")
+  SHIELD_WARNING
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconShieldWarning")
+  SHIELD_CHECK
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconShieldCheck")
+  SIREN
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconSiren")
+  KEY
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconKey")
+  LOCK
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconLock")
+  CLOUD
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconCloud")
+  DATABASE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconDatabase")
+  GLOBE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconGlobe")
+  EYE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconEye")
+  USERS
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconUsers")
+  CERTIFICATE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconCertificate")
+  GAVEL
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconGavel")
+  HEARTBEAT
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconHeartbeat")
+  BELL
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconBell")
+  BUG
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconBug")
+  CODE
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconCode")
+  SERVER
+    @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconServer")
+}
+
+type CompliancePortalCommitmentGroup implements Node {
+  id: ID!
+  title: String!
+  description: String!
+
+  commitments(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+  ): CompliancePortalCommitmentConnection! @goField(forceResolver: true)
+}
+
+type CompliancePortalCommitmentGroupConnection {
+  edges: [CompliancePortalCommitmentGroupEdge!]!
+  pageInfo: PageInfo!
+}
+
+type CompliancePortalCommitmentGroupEdge {
+  cursor: CursorKey!
+  node: CompliancePortalCommitmentGroup!
+}
+
+type CompliancePortalCommitment implements Node {
+  id: ID!
+  icon: CompliancePortalCommitmentIcon!
+  eyebrow: String!
+  title: String!
+  description: String!
+}
+
+type CompliancePortalCommitmentConnection {
+  edges: [CompliancePortalCommitmentEdge!]!
+  pageInfo: PageInfo!
+}
+
+type CompliancePortalCommitmentEdge {
+  cursor: CursorKey!
+  node: CompliancePortalCommitment!
+}
+
+type CompliancePortalFile implements Node {
+  id: ID!
+  name: String!
+  category: String!
+  alias: String @goField(forceResolver: true)
+  isUserAuthorized: Boolean! @goField(forceResolver: true)
+  access: DocumentAccess @goField(forceResolver: true)
+}
+
+type CompliancePortalFileConnection {
+  edges: [CompliancePortalFileEdge!]!
+  pageInfo: PageInfo!
+}
+
+type CompliancePortalFileEdge {
+  cursor: CursorKey!
+  node: CompliancePortalFile!
+}
+
+type ComplianceCustomLink implements Node {
+  id: ID!
+  name: String!
+  url: String!
+  rank: Int!
+}
+
+type ComplianceCustomLinkConnection {
+  edges: [ComplianceCustomLinkEdge!]!
+  pageInfo: PageInfo!
+}
+
+type ComplianceCustomLinkEdge {
+  cursor: CursorKey!
+  node: ComplianceCustomLink!
+}
+
+type CompliancePortalAccess implements Node {
+  id: ID!
+  email: EmailAddr!
+  name: String!
+  createdAt: Datetime!
+  updatedAt: Datetime!
+}
+
+enum DocumentAccessStatus
+  @goModel(
+    model: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatus"
+  ) {
+  REQUESTED
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatusRequested"
+    )
+  GRANTED
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatusGranted"
+    )
+  REJECTED
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatusRejected"
+    )
+  REVOKED
+    @goEnum(
+      value: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatusRevoked"
+    )
+}
+
+type DocumentAccess implements Node {
+  id: ID!
+  status: DocumentAccessStatus!
+}
+
+extend type Mutation {
+  exportDocumentPDF(input: ExportDocumentPDFInput!): ExportDocumentPDFPayload!
+    @authentication(required: OPTIONAL)
+
+  exportReportPDF(input: ExportReportPDFInput!): ExportReportPDFPayload!
+    @authentication(required: OPTIONAL)
+
+  exportCompliancePortalFile(
+    input: ExportCompliancePortalFileInput!
+  ): ExportCompliancePortalFilePayload! @authentication(required: OPTIONAL)
+
+  requestDocumentAccess(
+    input: RequestDocumentAccessInput!
+  ): RequestDocumentAccessPayload! @authentication(required: PRESENT)
+
+  requestReportAccess(
+    input: RequestReportAccessInput!
+  ): RequestReportAccessPayload! @authentication(required: PRESENT)
+
+  requestCompliancePortalFileAccess(
+    input: RequestCompliancePortalFileAccessInput!
+  ): RequestFileAccessPayload! @authentication(required: PRESENT)
+
+  requestAccesses(
+    input: RequestAccessesInput!
+  ): RequestAccessesResultPayload! @authentication(required: PRESENT)
+}
+
+type RequestDocumentAccessPayload {
+  document: Document
+  compliancePortal: CompliancePortal!
+}
+
+type RequestReportAccessPayload {
+  audit: Audit
+  compliancePortal: CompliancePortal!
+}
+
+type RequestFileAccessPayload {
+  file: CompliancePortalFile
+  compliancePortal: CompliancePortal!
+}
+
+# Returns the affected nodes so the client can update each row in place. Mirrors
+# the per-resource payloads but for a selection-scoped batch request.
+type RequestAccessesResultPayload {
+  documents: [Document!]!
+  audits: [Audit!]!
+  files: [CompliancePortalFile!]!
+  compliancePortal: CompliancePortal!
+}
+
+input ExportDocumentPDFInput {
+  documentId: ID!
+}
+
+input ExportReportPDFInput {
+  reportId: ID!
+}
+
+input RequestDocumentAccessInput {
+  documentId: ID!
+}
+
+input RequestReportAccessInput {
+  reportId: ID!
+}
+
+input RequestCompliancePortalFileAccessInput {
+  compliancePortalFileId: ID!
+}
+
+input RequestAccessesInput {
+  documentIds: [ID!]!
+  reportIds: [ID!]!
+  compliancePortalFileIds: [ID!]!
+}
+
+input ExportCompliancePortalFileInput {
+  compliancePortalFileId: ID!
+}
+
+type ExportDocumentPDFPayload {
+  data: String!
+}
+
+type ExportReportPDFPayload {
+  data: String!
+}
+
+type ExportCompliancePortalFilePayload {
+  data: String!
+}

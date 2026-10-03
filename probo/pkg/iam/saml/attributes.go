@@ -1,0 +1,148 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package saml
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/crewjam/saml"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/mail"
+)
+
+func extractUserAttributes(assertion *saml.Assertion, config *coredata.SAMLConfiguration) (mail.Addr, string, *coredata.MembershipRole, error) {
+	var (
+		email    mail.Addr
+		fullname string
+		role     *coredata.MembershipRole
+	)
+
+	if len(assertion.AttributeStatements) == 0 {
+		if assertion.Subject != nil && assertion.Subject.NameID != nil {
+			email, err := mail.ParseAddr(assertion.Subject.NameID.Value)
+			if err != nil {
+				return mail.Nil, "", nil, fmt.Errorf("cannot parse email: %w", err)
+			}
+
+			fullname = email.String()
+			role = nil
+
+			return email, fullname, role, nil
+		}
+
+		return mail.Nil, "", nil, fmt.Errorf("no attribute statement and no NameID in assertion")
+	}
+
+	emailString, err := extractAttributeValue(assertion, config.AttributeEmail)
+	if err != nil {
+		if assertion.Subject != nil && assertion.Subject.NameID != nil {
+			emailString = assertion.Subject.NameID.Value
+		} else {
+			return mail.Nil, "", nil, fmt.Errorf("cannot extract email: %w", err)
+		}
+	}
+
+	email, err = mail.ParseAddr(emailString)
+	if err != nil {
+		return mail.Nil, "", nil, fmt.Errorf("cannot parse email: %w", err)
+	}
+
+	firstname, err := extractAttributeValue(assertion, config.AttributeFirstname)
+	if err != nil {
+		firstname = ""
+	}
+
+	lastname, err := extractAttributeValue(assertion, config.AttributeLastname)
+	if err != nil {
+		lastname = ""
+	}
+
+	firstname = strings.TrimSpace(firstname)
+	lastname = strings.TrimSpace(lastname)
+
+	if firstname != "" && lastname != "" {
+		fullname = firstname + " " + lastname
+	} else if firstname != "" {
+		fullname = firstname
+	} else if lastname != "" {
+		fullname = lastname
+	} else {
+		fullname = email.String()
+	}
+
+	roleString, err := extractAttributeValue(assertion, config.AttributeRole)
+	if err != nil {
+		role = nil
+	}
+
+	if roleString != "" {
+		role = mapSAMLRoleToSystemRole(roleString)
+	}
+
+	return email, strings.TrimSpace(fullname), role, nil
+}
+
+func extractAttributeValue(assertion *saml.Assertion, attributeName string) (string, error) {
+	if len(assertion.AttributeStatements) == 0 {
+		return "", fmt.Errorf("no attribute statement in assertion")
+	}
+
+	for _, statement := range assertion.AttributeStatements {
+		for _, attr := range statement.Attributes {
+			if attr.Name == attributeName {
+				if len(attr.Values) == 0 {
+					return "", fmt.Errorf("attribute %q has no values", attributeName)
+				}
+
+				return attr.Values[0].Value, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("attribute %q not found in assertion", attributeName)
+}
+
+func mapSAMLRoleToSystemRole(samlRole string) *coredata.MembershipRole {
+	if samlRole != "" && isValidSAMLRole(samlRole) {
+		role := coredata.MembershipRole(samlRole)
+		return &role
+	}
+
+	return nil
+}
+
+// isValidSAMLRole keeps the IdP-claimable set explicit. MembershipRole.IsValid
+// also accepts AUDITOR, which remains assignable in-app but is not granted via
+// SAML attribute mapping.
+func isValidSAMLRole(role string) bool {
+	switch role {
+	case "OWNER",
+		"ADMIN",
+		"EMPLOYEE",
+		"VIEWER",
+		"COMPLIANCE_PORTAL_MANAGER",
+		"COMPLIANCE_PORTAL_ACCESS_MANAGER":
+		return true
+	default:
+		return false
+	}
+}

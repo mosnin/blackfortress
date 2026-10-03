@@ -1,0 +1,502 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package iam
+
+import (
+	"fmt"
+
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/mail"
+)
+
+type ErrInvalidToken struct{ message string }
+
+func NewInvalidTokenError() error {
+	return &ErrInvalidToken{"invalid token"}
+}
+
+func (e ErrInvalidToken) Error() string {
+	return e.message
+}
+
+type ErrTokenAlreadyUsed struct{ message string }
+
+func NewTokenAlreadyUsedError() error {
+	return &ErrTokenAlreadyUsed{"this magic link has already been used"}
+}
+
+func (e ErrTokenAlreadyUsed) Error() string {
+	return e.message
+}
+
+type ErrExpiredToken struct{ message string }
+
+func NewExpiredTokenError() error {
+	return &ErrExpiredToken{"token has expired"}
+}
+
+func (e ErrExpiredToken) Error() string {
+	return e.message
+}
+
+type ErrInvitationAlreadyAccepted struct{ InvitationID gid.GID }
+
+func NewInvitationAlreadyAcceptedError(invitationID gid.GID) error {
+	return &ErrInvitationAlreadyAccepted{InvitationID: invitationID}
+}
+
+func (e ErrInvitationAlreadyAccepted) Error() string {
+	return fmt.Sprintf("invitation %q already accepted", e.InvitationID)
+}
+
+type ErrInvitationNotFound struct{ InvitationID gid.GID }
+
+func NewInvitationNotFoundError(invitationID gid.GID) error {
+	return &ErrInvitationNotFound{InvitationID: invitationID}
+}
+
+func (e ErrInvitationNotFound) Error() string {
+	return fmt.Sprintf("invitation %q not found", e.InvitationID)
+}
+
+type ErrInvitationExpired struct{ InvitationID gid.GID }
+
+func NewInvitationExpiredError(invitationID gid.GID) error {
+	return &ErrInvitationExpired{InvitationID: invitationID}
+}
+
+func (e ErrInvitationExpired) Error() string {
+	return fmt.Sprintf("invitation %q expired", e.InvitationID)
+}
+
+type ErrIdentityAlreadyExists struct{ EmailAddress mail.Addr }
+
+func NewIdentityAlreadyExistsError(emailAddress mail.Addr) error {
+	return &ErrIdentityAlreadyExists{EmailAddress: emailAddress}
+}
+
+func (e ErrIdentityAlreadyExists) Error() string {
+	return fmt.Sprintf("identity %q already exists", e.EmailAddress.String())
+}
+
+type ErrEmailNotVerified struct{ message string }
+
+func NewEmailNotVerifiedError() error {
+	return &ErrEmailNotVerified{"email address not verified"}
+}
+
+func (e ErrEmailNotVerified) Error() string {
+	return e.message
+}
+
+type ErrIdentityNotFound struct{ IdentityID gid.GID }
+
+func NewIdentityNotFoundError(identityID gid.GID) error {
+	return &ErrIdentityNotFound{identityID}
+}
+
+func (e ErrIdentityNotFound) Error() string {
+	return fmt.Sprintf("identity %q not found", e.IdentityID)
+}
+
+type ErrInvalidPassword struct{ message string }
+
+func NewInvalidPasswordError(message string) error {
+	return &ErrInvalidPassword{message}
+}
+
+func (e ErrInvalidPassword) Error() string {
+	return e.message
+}
+
+type ErrEmailVerificationMismatch struct{ message string }
+
+func NewEmailVerificationMismatchError() error {
+	return &ErrEmailVerificationMismatch{"email verification mismatch"}
+}
+
+func (e ErrEmailVerificationMismatch) Error() string {
+	return e.message
+}
+
+type ErrMembershipNotFound struct {
+	MembershipID gid.GID
+}
+
+func NewMembershipNotFoundError(membershipID gid.GID) error {
+	return &ErrMembershipNotFound{MembershipID: membershipID}
+}
+
+func (e ErrMembershipNotFound) Error() string {
+	return fmt.Sprintf("membership %q not found", e.MembershipID)
+}
+
+type ErrUserInactive struct {
+	ProfileID gid.GID
+}
+
+func NewUserInactiveError(profileID gid.GID) error {
+	return &ErrUserInactive{ProfileID: profileID}
+}
+
+func (e ErrUserInactive) Error() string {
+	return fmt.Sprintf("user %q is inactive", e.ProfileID)
+}
+
+type ErrUserManagedBySCIM struct {
+	ProfileID gid.GID
+}
+
+func NewUserManagedBySCIMError(profileID gid.GID) error {
+	return &ErrUserManagedBySCIM{ProfileID: profileID}
+}
+
+func (e ErrUserManagedBySCIM) Error() string {
+	return fmt.Sprintf("user %q is managed by SCIM and cannot be deleted manually", e.ProfileID)
+}
+
+type ErrLastActiveOwner struct {
+	MembershipID gid.GID
+}
+
+func NewLastActiveOwnerError(membershipID gid.GID) error {
+	return &ErrLastActiveOwner{MembershipID: membershipID}
+}
+
+func (e ErrLastActiveOwner) Error() string {
+	return fmt.Sprintf("cannot remove profile %q: last active owner of the organization", e.MembershipID)
+}
+
+type ErrProfileInUse struct {
+	ProfileID gid.GID
+}
+
+func NewProfileInUseError(profileID gid.GID) error {
+	return &ErrProfileInUse{ProfileID: profileID}
+}
+
+func (e ErrProfileInUse) Error() string {
+	return fmt.Sprintf("cannot remove profile %q: referenced by other resources", e.ProfileID)
+}
+
+type ErrOrganizationNotFound struct{ OrganizationID gid.GID }
+
+func NewOrganizationNotFoundError(organizationID gid.GID) error {
+	return &ErrOrganizationNotFound{OrganizationID: organizationID}
+}
+
+func (e ErrOrganizationNotFound) Error() string {
+	return fmt.Sprintf("organization %q not found", e.OrganizationID)
+}
+
+type ErrInsufficientPermissions struct {
+	IdentityID gid.GID
+	EntityID   gid.GID
+	Action     Action
+}
+
+func NewInsufficientPermissionsError(identityID gid.GID, entityID gid.GID, action Action) error {
+	return &ErrInsufficientPermissions{IdentityID: identityID, EntityID: entityID, Action: action}
+}
+
+func (e ErrInsufficientPermissions) Error() string {
+	return fmt.Sprintf("identity %q does not have sufficient permissions to perform action %s on entity %q", e.IdentityID, e.Action, e.EntityID)
+}
+
+type ErrInsufficientOAuth2Scope struct {
+	IdentityID gid.GID
+	Scopes     []coredata.OAuth2Scope
+}
+
+func NewInsufficientOAuth2ScopeError(identityID gid.GID, scopes ...coredata.OAuth2Scope) error {
+	return &ErrInsufficientOAuth2Scope{IdentityID: identityID, Scopes: scopes}
+}
+
+func (e ErrInsufficientOAuth2Scope) Error() string {
+	return fmt.Sprintf(
+		"identity %q does not have an OAuth2 scope granting the requested action",
+		e.IdentityID,
+	)
+}
+
+type ErrMixedOrganizationBatch struct {
+	Action          Action
+	OrganizationIDs []string
+}
+
+func NewMixedOrganizationBatchError(action Action, organizationIDs []string) error {
+	return &ErrMixedOrganizationBatch{Action: action, OrganizationIDs: organizationIDs}
+}
+
+func (e ErrMixedOrganizationBatch) Error() string {
+	return fmt.Sprintf(
+		"cannot authorize batch action %s across organization ids %q",
+		e.Action,
+		e.OrganizationIDs,
+	)
+}
+
+type ErrMixedEntityTypeBatch struct {
+	Action      Action
+	EntityTypes []uint16
+}
+
+func NewMixedEntityTypeBatchError(action Action, entityTypes []uint16) error {
+	return &ErrMixedEntityTypeBatch{Action: action, EntityTypes: entityTypes}
+}
+
+func (e ErrMixedEntityTypeBatch) Error() string {
+	return fmt.Sprintf(
+		"cannot authorize batch action %s across entity types %v",
+		e.Action,
+		e.EntityTypes,
+	)
+}
+
+type ErrEmptyResourceBatch struct {
+	Action Action
+}
+
+func NewEmptyResourceBatchError(action Action) error {
+	return &ErrEmptyResourceBatch{Action: action}
+}
+
+func (e ErrEmptyResourceBatch) Error() string {
+	return fmt.Sprintf("cannot authorize batch action %s with an empty resource set", e.Action)
+}
+
+type ErrBatchAuthorizationUnsupportedResourceType struct {
+	EntityType uint16
+}
+
+func NewBatchAuthorizationUnsupportedResourceTypeError(entityType uint16) error {
+	return &ErrBatchAuthorizationUnsupportedResourceType{EntityType: entityType}
+}
+
+func (e ErrBatchAuthorizationUnsupportedResourceType) Error() string {
+	return fmt.Sprintf("resource type %d does not support batch authorization attributes", e.EntityType)
+}
+
+type ErrAssumptionRequired struct {
+	IdentityID   gid.GID
+	MembershipID gid.GID
+}
+
+func NewAssumptionRequiredError(identityID gid.GID, membershipID gid.GID) error {
+	return &ErrAssumptionRequired{IdentityID: identityID, MembershipID: membershipID}
+}
+
+func (e ErrAssumptionRequired) Error() string {
+	return fmt.Sprintf("assumption for identity %q required for membership %q", e.IdentityID, e.MembershipID)
+}
+
+type ErrSessionNotFound struct{ SessionID gid.GID }
+
+func NewSessionNotFoundError(sessionID gid.GID) error {
+	return &ErrSessionNotFound{SessionID: sessionID}
+}
+
+func (e ErrSessionNotFound) Error() string {
+	if e.SessionID == gid.Nil {
+		return "session not found"
+	}
+
+	return fmt.Sprintf("session %q not found", e.SessionID)
+}
+
+type ErrSessionExpired struct{ SessionID gid.GID }
+
+func NewSessionExpiredError(sessionID gid.GID) error {
+	return &ErrSessionExpired{SessionID: sessionID}
+}
+
+func (e ErrSessionExpired) Error() string {
+	return fmt.Sprintf("session %q expired", e.SessionID)
+}
+
+type ErrUserAlreadyExists struct {
+	IdentityID     gid.GID
+	OrganizationID gid.GID
+}
+
+func NewUserAlreadyExistsError(identityID gid.GID, organizationID gid.GID) error {
+	return &ErrUserAlreadyExists{IdentityID: identityID, OrganizationID: organizationID}
+}
+
+func (e ErrUserAlreadyExists) Error() string {
+	return fmt.Sprintf("user already exists for identity %q in organization %q", e.IdentityID, e.OrganizationID)
+}
+
+type ErrSAMLConfigurationNotFound struct{ ConfigID gid.GID }
+
+func NewSAMLConfigurationNotFoundError(configID gid.GID) error {
+	return &ErrSAMLConfigurationNotFound{ConfigID: configID}
+}
+
+func (e ErrSAMLConfigurationNotFound) Error() string {
+	return fmt.Sprintf("SAML configuration %q not found", e.ConfigID)
+}
+
+type ErrPersonalAPIKeyNotFound struct{ PersonalAPIKeyID gid.GID }
+
+func NewPersonalAPIKeyNotFoundError(personalAPIKeyID gid.GID) error {
+	return &ErrPersonalAPIKeyNotFound{PersonalAPIKeyID: personalAPIKeyID}
+}
+
+func (e ErrPersonalAPIKeyNotFound) Error() string {
+	return fmt.Sprintf("personal API key %q not found", e.PersonalAPIKeyID)
+}
+
+type ErrProfileNotFound struct{ ProfileID gid.GID }
+
+func NewProfileNotFoundError(profileID gid.GID) error {
+	return &ErrProfileNotFound{ProfileID: profileID}
+}
+
+func (e ErrProfileNotFound) Error() string {
+	return fmt.Sprintf("profile %q not found", e.ProfileID)
+}
+
+type ErrPersonalAPIKeyExpired struct{ PersonalAPIKeyID gid.GID }
+
+func NewPersonalAPIKeyExpiredError(personalAPIKeyID gid.GID) error {
+	return &ErrPersonalAPIKeyExpired{PersonalAPIKeyID: personalAPIKeyID}
+}
+
+func (e ErrPersonalAPIKeyExpired) Error() string {
+	return fmt.Sprintf("personal API key %q expired", e.PersonalAPIKeyID)
+}
+
+type ErrUnsupportedPrincipalType struct{ EntityType uint16 }
+
+func NewUnsupportedPrincipalTypeError(entityType uint16) error {
+	return &ErrUnsupportedPrincipalType{EntityType: entityType}
+}
+
+func (e ErrUnsupportedPrincipalType) Error() string {
+	return fmt.Sprintf("unsupported principal type: %d", e.EntityType)
+}
+
+type ErrSignupDisabled struct{}
+
+func NewErrSignupDisabled() error {
+	return &ErrSignupDisabled{}
+}
+
+func (e ErrSignupDisabled) Error() string {
+	return "signup is disabled"
+}
+
+type ErrInvalidCredentials struct{ message string }
+
+func NewInvalidCredentialsError(message string) error {
+	return &ErrInvalidCredentials{message}
+}
+
+func (e ErrInvalidCredentials) Error() string {
+	return e.message
+}
+
+type ErrPasswordAuthenticationRequired struct {
+	Reason string
+}
+
+func NewPasswordAuthenticationRequiredError(reason string) *ErrPasswordAuthenticationRequired {
+	return &ErrPasswordAuthenticationRequired{Reason: reason}
+}
+
+func (e *ErrPasswordAuthenticationRequired) Error() string {
+	return fmt.Sprintf("password authentication required: %s", e.Reason)
+}
+
+type ErrSAMLAuthenticationRequired struct {
+	Reason string
+}
+
+func NewSAMLAuthenticationRequiredError(reason string) *ErrSAMLAuthenticationRequired {
+	return &ErrSAMLAuthenticationRequired{Reason: reason}
+}
+
+func (e *ErrSAMLAuthenticationRequired) Error() string {
+	return fmt.Sprintf("SAML authentication required: %s", e.Reason)
+}
+
+type ErrSAMLConfigurationEmailDomainAlreadyExists struct{ EmailDomain string }
+
+func NewSAMLConfigurationEmailDomainAlreadyExistsError(emailDomain string) error {
+	return &ErrSAMLConfigurationEmailDomainAlreadyExists{EmailDomain: emailDomain}
+}
+
+func (e ErrSAMLConfigurationEmailDomainAlreadyExists) Error() string {
+	return fmt.Sprintf("SAML configuration email domain %q already exists", e.EmailDomain)
+}
+
+type ErrNoSCIMConfigurationFound struct{ OrganizationID gid.GID }
+
+func NewNoSCIMConfigurationFoundError(organizationID gid.GID) error {
+	return &ErrNoSCIMConfigurationFound{OrganizationID: organizationID}
+}
+
+func (e ErrNoSCIMConfigurationFound) Error() string {
+	return fmt.Sprintf("SCIM configuration not found for organization %q", e.OrganizationID)
+}
+
+type ErrSCIMBridgeNotFound struct{ BridgeID gid.GID }
+
+func NewSCIMBridgeNotFoundError(bridgeID gid.GID) error {
+	return &ErrSCIMBridgeNotFound{BridgeID: bridgeID}
+}
+
+func (e ErrSCIMBridgeNotFound) Error() string {
+	return fmt.Sprintf("SCIM bridge %q not found", e.BridgeID)
+}
+
+type ErrConnectorNotFound struct{ ConnectorID gid.GID }
+
+func NewConnectorNotFoundError(connectorID gid.GID) error {
+	return &ErrConnectorNotFound{ConnectorID: connectorID}
+}
+
+func (e ErrConnectorNotFound) Error() string {
+	return fmt.Sprintf("connector %q not found", e.ConnectorID)
+}
+
+type ErrInvalidLogExportTimeRange struct{ message string }
+
+const maxLogExportTimeRangeYears = 1
+
+func NewInvalidLogExportTimeRangeError() error {
+	return &ErrInvalidLogExportTimeRange{message: "from_time must be before to_time"}
+}
+
+func NewLogExportTimeRangeTooLargeError() error {
+	return &ErrInvalidLogExportTimeRange{
+		message: fmt.Sprintf(
+			"export time range must not exceed %d year",
+			maxLogExportTimeRangeYears,
+		),
+	}
+}
+
+func (e ErrInvalidLogExportTimeRange) Error() string {
+	return e.message
+}

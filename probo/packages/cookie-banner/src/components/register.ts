@@ -1,0 +1,61 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { ProboBanner } from "./banner";
+import {
+  ProboAcceptButton,
+  ProboAcknowledgeButton,
+  ProboCustomizeButton,
+  ProboRejectButton,
+} from "./buttons";
+import { ProboCategory } from "./category";
+import { ProboCategoryList } from "./category-list";
+import { ProboCategoryToggle } from "./category-toggle";
+import { ProboCookieBannerRoot } from "./cookie-banner-root";
+import { ProboCookie, ProboCookieList } from "./cookie-list";
+import { ProboPreferencePanel, ProboSaveButton } from "./preference-panel";
+import { ProboPrivacyChoices } from "./privacy-choices";
+import { ProboSettingsLink } from "./settings-link";
+
+const elements: [string, CustomElementConstructor][] = [
+  ["probo-cookie-banner-root", ProboCookieBannerRoot],
+  ["probo-banner", ProboBanner],
+  ["probo-accept-button", ProboAcceptButton],
+  ["probo-acknowledge-button", ProboAcknowledgeButton],
+  ["probo-reject-button", ProboRejectButton],
+  ["probo-customize-button", ProboCustomizeButton],
+  ["probo-preference-panel", ProboPreferencePanel],
+  ["probo-privacy-choices", ProboPrivacyChoices],
+  ["probo-category-list", ProboCategoryList],
+  ["probo-category", ProboCategory],
+  ["probo-category-toggle", ProboCategoryToggle],
+  ["probo-cookie-list", ProboCookieList],
+  ["probo-cookie", ProboCookie],
+  ["probo-save-button", ProboSaveButton],
+  ["probo-settings-link", ProboSettingsLink],
+];
+
+export function registerHeadlessComponents(): void {
+  for (const [name, ctor] of elements) {
+    if (!customElements.get(name)) {
+      customElements.define(name, ctor);
+    }
+  }
+}

@@ -1,0 +1,142 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package oauth2
+
+import (
+	"context"
+	"fmt"
+	"sync/atomic"
+	"time"
+
+	"go.gearno.de/kit/log"
+	"go.gearno.de/kit/pg"
+	"go.gearno.de/kit/worker"
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+const (
+	DefaultGCInterval = 5 * time.Minute
+
+	// deviceCodeExpiryGracePeriod delays the hard delete of expired device
+	// codes past DefaultGCInterval so a client's terminal poll racing the GC
+	// sweep still finds the row and gets ErrExpiredToken instead of falling
+	// into the "not found" ErrInvalidGrant branch.
+	deviceCodeExpiryGracePeriod = 15 * time.Minute
+)
+
+type GarbageCollector = worker.Worker[struct{}]
+
+type gcHandler struct {
+	pg        *pg.Client
+	logger    *log.Logger
+	lastRunAt atomic.Int64
+}
+
+func NewGarbageCollector(
+	pgClient *pg.Client,
+	logger *log.Logger,
+	opts ...worker.Option,
+) *GarbageCollector {
+	h := &gcHandler{
+		pg:     pgClient,
+		logger: logger.Named("oauth.garbage_collector"),
+	}
+
+	return worker.New(
+		"oauth.garbage_collector",
+		h,
+		logger,
+		append(
+			[]worker.Option{
+				worker.WithInterval(DefaultGCInterval),
+				worker.WithMaxConcurrency(1),
+			},
+			opts...,
+		)...,
+	)
+}
+
+func (h *gcHandler) Claim(_ context.Context) (struct{}, error) {
+	now := time.Now().UnixNano()
+	last := h.lastRunAt.Load()
+
+	if last > 0 && now-last < int64(DefaultGCInterval) {
+		return struct{}{}, worker.ErrNoTask
+	}
+
+	if !h.lastRunAt.CompareAndSwap(last, now) {
+		return struct{}{}, worker.ErrNoTask
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *gcHandler) Process(ctx context.Context, _ struct{}) error {
+	return h.cleanup(ctx)
+}
+
+func (h *gcHandler) cleanup(ctx context.Context) error {
+	now := time.Now()
+
+	return h.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			var authCode coredata.OAuth2AuthorizationCode
+
+			authCodesDeleted, err := authCode.DeleteExpired(ctx, tx, now)
+			if err != nil {
+				return fmt.Errorf("cannot delete expired authorization codes: %w", err)
+			}
+
+			var accessToken coredata.OAuth2AccessToken
+
+			accessTokensDeleted, err := accessToken.DeleteExpired(ctx, tx, now)
+			if err != nil {
+				return fmt.Errorf("cannot delete expired access tokens: %w", err)
+			}
+
+			var refreshToken coredata.OAuth2RefreshToken
+
+			refreshTokensDeleted, err := refreshToken.DeleteExpired(ctx, tx, now)
+			if err != nil {
+				return fmt.Errorf("cannot delete expired refresh tokens: %w", err)
+			}
+
+			var deviceCode coredata.OAuth2DeviceCode
+
+			deviceCodesDeleted, err := deviceCode.DeleteExpired(ctx, tx, now.Add(-deviceCodeExpiryGracePeriod))
+			if err != nil {
+				return fmt.Errorf("cannot delete expired device codes: %w", err)
+			}
+
+			h.logger.InfoCtx(
+				ctx,
+				"oauth2 server garbage collector cleaned up",
+				log.Int64("authorization_codes_deleted", authCodesDeleted),
+				log.Int64("access_tokens_deleted", accessTokensDeleted),
+				log.Int64("refresh_tokens_deleted", refreshTokensDeleted),
+				log.Int64("device_codes_deleted", deviceCodesDeleted),
+			)
+
+			return nil
+		},
+	)
+}

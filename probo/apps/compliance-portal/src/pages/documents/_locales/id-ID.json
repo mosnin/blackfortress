@@ -1,0 +1,54 @@
+{
+  "title": "Dokumen",
+  "tabs": {
+    "all": "Semua",
+    "public": "Publik",
+    "restricted": "Terbatas"
+  },
+  "sections": {
+    "reports": "Laporan kepatuhan"
+  },
+  "types": {
+    "OTHER": "Lainnya",
+    "GOVERNANCE": "Tata Kelola",
+    "POLICY": "Kebijakan",
+    "PROCEDURE": "Prosedur",
+    "PLAN": "Rencana",
+    "REGISTER": "Register",
+    "RECORD": "Catatan",
+    "REPORT": "Laporan",
+    "TEMPLATE": "Templat",
+    "STATEMENT_OF_APPLICABILITY": "Pernyataan Keberlakuan"
+  },
+  "actions": {
+    "view": "Lihat",
+    "getAccess": "Minta Akses",
+    "requested": "Akses telah diminta"
+  },
+  "selection": {
+    "count": "{{count}} dipilih",
+    "clear": "Hapus pilihan",
+    "selectAll": "Pilih semua",
+    "requestAccess": "Minta Akses ({{count}})",
+    "selectRow": "Pilih {{title}}"
+  },
+  "empty": {
+    "title": "Belum ada dokumen yang tersedia",
+    "description": "Portal kepatuhan ini belum mempublikasikan dokumen apa pun.",
+    "filteredTitle": "Tidak ada dokumen yang cocok dengan filter ini",
+    "filteredDescription": "Coba tab lain untuk melihat dokumen yang tersedia."
+  },
+  "viewer": {
+    "back": "Dokumen",
+    "copyLink": "Salin tautan",
+    "linkCopied": "Tautan disalin ke clipboard",
+    "download": "Unduh",
+    "previewUnavailable": "Pratinjau tidak tersedia",
+    "downloadToView": "Jenis file ini tidak dapat dipratinjau di sini. Unduh untuk melihatnya.",
+    "locked": {
+      "title": "Akses diperlukan",
+      "description": "Anda belum memiliki akses ke dokumen ini.",
+      "signNda": "Tinjau dan tanda tangani NDA"
+    }
+  }
+}

@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <style>
+        /* A4 Page Setup for printing */
+        @page {
+            size: A4{{if .Landscape}} landscape{{end}};
+            margin: 2.5cm;
+
+            @bottom-right {
+                content: "Page " counter(page) " of " counter(pages);
+                font-family: Arial, sans-serif;
+                font-size: 9pt;
+                color: #666;
+            }
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 20px 0;
+            background: #f5f5f5;
+        }
+
+        /* Document container that simulates A4 pages */
+        .document-container {
+            width: 21cm;
+            margin: 0 auto;
+            background: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Individual page sections */
+        .page-section {
+            padding: 2.5cm;
+            position: relative;
+            min-height: 24.7cm;
+            /* A4 height minus padding */
+            border-bottom: 2px dashed #ddd;
+            page-break-after: always;
+        }
+
+        .page-section:last-child {
+            border-bottom: none;
+            page-break-after: auto;
+        }
+
+        .document-header {
+            padding-bottom: 0;
+            margin-bottom: 25px;
+            page-break-after: avoid;
+        }
+
+        .company-header {
+            margin-bottom: 25px;
+            page-break-after: avoid;
+        }
+
+        .company-logo {
+            max-height: 50px;
+            max-width: 100%;
+            height: auto;
+            width: auto;
+            display: block;
+        }
+
+        .document-title {
+            font-size: 22pt;
+            font-weight: normal;
+            color: #1a1a1a;
+            margin: 0 0 25px 0;
+            text-align: left;
+        }
+
+        .company-header+.document-title {
+            margin-top: 30px;
+        }
+
+        .document-meta {
+            margin: 25px 0 0 0;
+            font-size: 9pt;
+        }
+
+        .meta-table {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid #333;
+        }
+
+        .meta-table td {
+            padding: 6px 8px;
+            border: 1px solid #333;
+            vertical-align: middle;
+        }
+
+        .meta-table td:first-child {
+            font-weight: 600;
+            width: 25%;
+            background: #f8f8f8;
+            color: #333;
+        }
+
+        .classification {
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        /* Content styling with page break controls */
+        .document-content {
+            orphans: 3;
+            widows: 3;
+        }
+
+        .document-content hr {
+            border: none;
+            margin: 0;
+            padding: 0;
+            height: 0;
+            page-break-after: always;
+        }
+
+        .document-content h1 {
+            font-size: 18pt;
+            font-weight: bold;
+            color: #000;
+            margin: 20px 0 12px 0;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 4px;
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+
+        .document-content h2 {
+            font-size: 13pt;
+            font-weight: bold;
+            color: #000;
+            margin: 18px 0 10px 0;
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+
+        .document-content h3 {
+            font-size: 12pt;
+            font-weight: bold;
+            color: #000;
+            margin: 16px 0 8px 0;
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+
+        .document-content h4 {
+            font-size: 11pt;
+            font-weight: bold;
+            color: #000;
+            margin: 14px 0 6px 0;
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+
+        .document-content p {
+            margin: 0 0 12px 0;
+            text-align: justify;
+            orphans: 3;
+            widows: 3;
+        }
+
+        .document-content ul,
+        .document-content ol {
+            padding-left: 40px;
+            margin: 12px 0;
+            page-break-inside: avoid;
+        }
+
+        .document-content li {
+            margin-bottom: 4px;
+        }
+
+        .document-content strong {
+            font-weight: bold;
+        }
+
+        .document-content em {
+            font-style: italic;
+        }
+
+        /* Signatures section */
+        .signatures-section {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px solid #ccc;
+            page-break-before: always;
+            page-break-inside: avoid;
+        }
+
+        .signatures-title {
+            font-size: 13pt;
+            font-weight: bold;
+            color: #000;
+            margin-bottom: 15px;
+            page-break-after: avoid;
+        }
+
+        .signatures-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9pt;
+            margin-top: 10px;
+            page-break-inside: avoid;
+        }
+
+        .signatures-table th,
+        .signatures-table td {
+            padding: 6px 8px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+
+        .signatures-table th {
+            background: #f5f5f5;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .signatures-table tr {
+            page-break-inside: avoid;
+        }
+
+        .signature-signed {
+            color: #000;
+            font-weight: bold;
+        }
+
+        .signature-requested {
+            color: #666;
+            font-style: italic;
+        }
+
+        .footer {
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+            font-size: 8pt;
+            color: #666;
+            text-align: center;
+        }
+
+        /* Prevent bad page breaks */
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        h6 {
+            page-break-after: avoid;
+            page-break-inside: avoid;
+        }
+
+        p,
+        li {
+            page-break-inside: avoid;
+        }
+
+        table,
+        .signatures-section {
+            page-break-inside: avoid;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .document-container {
+                box-shadow: none;
+                width: auto;
+            }
+
+            .page-section {
+                box-shadow: none;
+                border-bottom: none;
+                padding: 0;
+                min-height: auto;
+            }
+
+
+        }
+
+        @media screen and (max-width: 21cm) {
+            .document-container {
+                width: 95%;
+                margin: 0 auto;
+            }
+        }
+
+        .document-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 10pt;
+            page-break-inside: avoid;
+            table-layout: auto;
+            word-wrap: break-word;
+        }
+
+        .document-content table th,
+        .document-content table td {
+            padding: 6px 8px;
+            text-align: left;
+            border: 1px solid #ddd;
+            vertical-align: top;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .document-content table th {
+            background: #f5f5f5;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .document-content table tr {
+            page-break-inside: avoid;
+        }
+
+        .document-content pre {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 12px;
+            margin: 12px 0;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 10pt;
+            background: transparent;
+            overflow-x: auto;
+            page-break-inside: avoid;
+        }
+
+        .document-content code {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 10pt;
+        }
+
+        .document-content pre code {
+            padding: 0;
+            background: transparent;
+            border: none;
+        }
+
+        .document-content pre.mermaid {
+            border: none;
+            padding: 0;
+            background: transparent;
+            text-align: center;
+        }
+
+        .document-content pre.mermaid svg {
+            max-width: 100%;
+            height: auto;
+        }
+
+        .document-content blockquote {
+            border-left: 4px solid #ccc;
+            padding-left: 16px;
+            margin: 12px 0;
+        }
+    </style>
+    <script>{{.MermaidJS}}</script>
+    <script>
+        window.__mermaidReady = false;
+        mermaid.initialize({ startOnLoad: false, theme: 'neutral', suppressErrorRendering: true });
+        document.addEventListener('DOMContentLoaded', function () {
+            mermaid.run().then(function () {
+                window.__mermaidReady = true;
+            }).catch(function () {
+                window.__mermaidReady = true;
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <div class="document-container">
+        <div class="page-section">
+            <div class="document-header">
+                {{- if .CompanyHorizontalLogoBase64}}
+                <div class="company-header">
+                    {{imgTag .CompanyHorizontalLogoBase64 "Company Logo" "company-logo"}}
+                </div>
+                {{- end}}
+                <h1 class="document-title">{{.Title}}</h1>
+
+                <div class="document-meta">
+                    <table class="meta-table">
+                        <tr>
+                            <td>Classification</td>
+                            <td>
+                                <span class="classification">{{.Classification | classificationString}}</span>
+                            </td>
+                        </tr>
+                        {{- if gt (len .Approvers) 0}}
+                        <tr>
+                            <td>Approver{{- if gt (len .Approvers) 1}}s{{- end}}</td>
+                            <td>
+                                {{- if eq (len .Approvers) 1}}
+                                {{index .Approvers 0}}
+                                {{- else}}
+                                <ul style="margin: 0; padding-left: 18px;">
+                                    {{- range .Approvers}}
+                                    <li>{{.}}</li>
+                                    {{- end}}
+                                </ul>
+                                {{- end}}
+                            </td>
+                        </tr>
+                        {{- end}}
+                        <tr>
+                            <td>Version:</td>
+                            <td>{{.Major}}.{{.Minor}}</td>
+                        </tr>
+                        {{- if .PublishedAt}}
+                        <tr>
+                            <td>Published</td>
+                            <td>{{.PublishedAt.Format "January 2, 2006"}}</td>
+                        </tr>
+                        {{- end}}
+                    </table>
+                </div>
+            </div>
+
+            <div class="document-content">
+                {{.BodyHTML}}
+            </div>
+
+            {{- if .Signatures}}
+            <div class="signatures-section">
+                <h2 class="signatures-title">Document Signatures</h2>
+                <table class="signatures-table">
+                    <thead>
+                        <tr>
+                            <th>Signatory</th>
+                            <th>Status</th>
+                            <th>Requested Date</th>
+                            <th>Signed Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{- range .Signatures}}
+                        <tr>
+                            <td>{{.SignedBy}}</td>
+                            <td>
+                                {{- if eq (string .State) "SIGNED"}}
+                                <span class="signature-signed">{{string .State}}</span>
+                                {{- else}}
+                                <span class="signature-requested">{{string .State}}</span>
+                                {{- end}}
+                            </td>
+                            <td>{{.RequestedAt.Format "Jan 2, 2006"}}</td>
+                            <td>
+                                {{- if .SignedAt}}
+                                {{.SignedAt.Format "Jan 2, 2006"}}
+                                {{- else}}
+                                -
+                                {{- end}}
+                            </td>
+                        </tr>
+                        {{- end}}
+                    </tbody>
+                </table>
+            </div>
+            {{- end}}
+        </div>
+    </div>
+</body>
+
+</html>

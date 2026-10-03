@@ -1,0 +1,119 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package service
+
+import (
+	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+// Install registers and starts the Windows service via sc.exe.
+func Install(cfg Config) error {
+	if cfg.ExePath == "" {
+		return errors.New("executable path is required")
+	}
+
+	if cfg.Dir == "" {
+		return errors.New("state directory is required")
+	}
+
+	name := DefaultWindowsName
+
+	// Remove any previous registration so install is idempotent
+	// (matches Darwin's bootout-before-bootstrap). sc delete is
+	// asynchronous; wait until the name is gone before create.
+	_ = Uninstall(cfg)
+	if err := waitUntilWindowsServiceGone(
+		func() (string, error) {
+			out, err := exec.Command("sc.exe", "query", name).CombinedOutput()
+
+			return string(out), err
+		},
+		15*time.Second,
+		time.Sleep,
+	); err != nil {
+		return err
+	}
+
+	bin := fmt.Sprintf(`"%s" run --dir "%s"`, cfg.ExePath, cfg.Dir)
+	if out, err := exec.Command(
+		"sc.exe",
+		"create",
+		name,
+		"binPath=",
+		bin,
+		"start=",
+		"auto",
+		"DisplayName=",
+		"Probo Device Posture Agent",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("cannot run sc.exe create: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	// Restart on failure, including SERVICE_STOPPED with a nonzero
+	// Win32 exit code. Without failureflag, SCM only recovers from
+	// crashes that never report stopped.
+	if out, err := exec.Command(
+		"sc.exe",
+		"failure",
+		name,
+		"reset=",
+		"86400",
+		"actions=",
+		"restart/1000/restart/1000/restart/1000",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("cannot run sc.exe failure: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	if out, err := exec.Command(
+		"sc.exe",
+		"failureflag",
+		name,
+		"1",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("cannot run sc.exe failureflag: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	if out, err := exec.Command("sc.exe", "start", name).CombinedOutput(); err != nil {
+		return fmt.Errorf("cannot run sc.exe start: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	return nil
+}
+
+func Uninstall(cfg Config) error {
+	name := DefaultWindowsName
+
+	_ = exec.Command("sc.exe", "stop", name).Run()
+	if out, err := exec.Command("sc.exe", "delete", name).CombinedOutput(); err != nil {
+		msg := strings.TrimSpace(string(out))
+		if isWindowsServiceMissing(msg) {
+			return nil
+		}
+
+		return fmt.Errorf("cannot run sc.exe delete: %w: %s", err, msg)
+	}
+
+	return nil
+}

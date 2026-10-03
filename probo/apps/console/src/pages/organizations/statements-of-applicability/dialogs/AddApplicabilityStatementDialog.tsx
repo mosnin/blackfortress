@@ -1,0 +1,557 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import {
+  Badge,
+  Breadcrumb,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  IconCheckmark1,
+  IconChevronDown,
+  IconChevronUp,
+  IconMagnifyingGlass,
+  Input,
+  Option,
+  Select,
+  Spinner,
+  Textarea,
+  useDialogRef,
+} from "@probo/ui";
+import { forwardRef, Suspense, useImperativeHandle, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { graphql, useLazyLoadQuery } from "react-relay";
+
+import type { AddApplicabilityStatementDialogQuery } from "#/__generated__/core/AddApplicabilityStatementDialogQuery.graphql";
+import { useMutationWithToasts } from "#/hooks/useMutationWithToasts";
+
+const query = graphql`
+    query AddApplicabilityStatementDialogQuery($statementOfApplicabilityId: ID!, $organizationId: ID!) {
+        statementOfApplicability: node(id: $statementOfApplicabilityId) {
+            ... on StatementOfApplicability {
+                id
+                applicabilityStatements(first: 10000) {
+                    edges {
+                        node {
+                            id
+                            applicability
+                            justification
+                            control {
+                                id
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        organization: node(id: $organizationId) {
+            ... on Organization {
+                id
+                controls(first: 10000, orderBy: { direction: ASC, field: CREATED_AT }) {
+                    edges {
+                        node {
+                            id
+                            sectionTitle
+                            name
+                            framework {
+                                id
+                                name
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+`;
+
+const createApplicabilityStatementMutation = graphql`
+    mutation AddApplicabilityStatementDialogCreateMutation(
+        $input: CreateApplicabilityStatementInput!
+        $connections: [ID!]!
+    ) {
+        createApplicabilityStatement(input: $input) {
+            applicabilityStatementEdge @appendEdge(connections: $connections) {
+                node {
+                    id
+                    applicability
+                    justification
+                    control {
+                        id
+                        sectionTitle
+                        name
+                        bestPractice
+                        notImplementedJustification
+                        maturityLevel
+                        regulatory
+                        contractual
+                        riskAssessment
+                        framework {
+                            id
+                            name
+                        }
+                        organization {
+                            id
+                        }
+                    }
+                }
+            }
+        }
+    }
+`;
+
+const deleteApplicabilityStatementMutation = graphql`
+    mutation AddApplicabilityStatementDialogDeleteMutation(
+        $input: DeleteApplicabilityStatementInput!
+        $connections: [ID!]!
+    ) {
+        deleteApplicabilityStatement(input: $input) {
+            deletedApplicabilityStatementId @deleteEdge(connections: $connections)
+        }
+    }
+`;
+
+const updateApplicabilityStatementMutation = graphql`
+    mutation AddApplicabilityStatementDialogUpdateMutation(
+        $input: UpdateApplicabilityStatementInput!
+    ) {
+        updateApplicabilityStatement(input: $input) {
+            applicabilityStatement {
+                id
+                applicability
+                justification
+            }
+        }
+    }
+`;
+
+export type AddApplicabilityStatementDialogRef = {
+  open: (statementOfApplicabilityId: string, organizationId: string, connectionId: string) => void;
+};
+
+type ControlWithStatement = {
+  controlId: string;
+  sectionTitle: string;
+  name: string;
+  frameworkId: string;
+  frameworkName: string;
+  applicabilityStatementId: string | null;
+  applicability: boolean | null;
+  justification: string | null;
+};
+
+function ControlRow({
+  control,
+  statementOfApplicabilityId,
+  connectionId,
+}: {
+  control: ControlWithStatement;
+  statementOfApplicabilityId: string;
+  connectionId: string;
+}) {
+  const { t } = useTranslation();
+  const isLinked = control.applicabilityStatementId !== null;
+  const [selectedState, setSelectedState] = useState<string>(() => {
+    if (!isLinked) return "not-linked";
+    return control.applicability ? "applicable" : "not-applicable";
+  });
+  const [justification, setJustification] = useState(control.justification || "");
+  const [showJustification, setShowJustification] = useState(false);
+
+  const [createApplicabilityStatement, isCreating] = useMutationWithToasts(
+    createApplicabilityStatementMutation,
+    {
+      successMessage: t("addApplicabilityStatementDialog.messages.created"),
+      errorMessage: t("addApplicabilityStatementDialog.errors.create"),
+    },
+  );
+
+  const [deleteApplicabilityStatement, isDeleting] = useMutationWithToasts(
+    deleteApplicabilityStatementMutation,
+    {
+      successMessage: t("addApplicabilityStatementDialog.messages.removed"),
+      errorMessage: t("addApplicabilityStatementDialog.errors.remove"),
+    },
+  );
+
+  const [updateApplicabilityStatement, isUpdating] = useMutationWithToasts(
+    updateApplicabilityStatementMutation,
+    {
+      successMessage: t("addApplicabilityStatementDialog.messages.updated"),
+      errorMessage: t("addApplicabilityStatementDialog.errors.update"),
+    },
+  );
+
+  const handleStateChange = async (newState: string) => {
+    setSelectedState(newState);
+
+    if (newState === "not-linked") {
+      if (!control.applicabilityStatementId) return;
+      await deleteApplicabilityStatement({
+        variables: {
+          input: {
+            applicabilityStatementId: control.applicabilityStatementId,
+          },
+          connections: [connectionId],
+        },
+        onSuccess: () => {
+          setShowJustification(false);
+        },
+      });
+    } else if (newState === "applicable") {
+      setShowJustification(false);
+      if (control.applicabilityStatementId) {
+        // Statement already exists, use update mutation
+        await updateApplicabilityStatement({
+          variables: {
+            input: {
+              applicabilityStatementId: control.applicabilityStatementId,
+              applicability: true,
+              justification: null,
+            },
+          },
+        });
+      } else {
+        // No statement exists, use create mutation
+        await createApplicabilityStatement({
+          variables: {
+            input: {
+              statementOfApplicabilityId,
+              controlId: control.controlId,
+              applicability: true,
+              justification: null,
+            },
+            connections: [connectionId],
+          },
+        });
+      }
+    } else if (newState === "not-applicable") {
+      setShowJustification(true);
+      setJustification(control.justification || "");
+    }
+  };
+
+  const handleSaveJustification = async () => {
+    if (control.applicabilityStatementId) {
+      // Statement already exists, use update mutation
+      await updateApplicabilityStatement({
+        variables: {
+          input: {
+            applicabilityStatementId: control.applicabilityStatementId,
+            applicability: false,
+            justification: justification || null,
+          },
+        },
+        onSuccess: () => {
+          setShowJustification(false);
+        },
+      });
+    } else {
+      // No statement exists, use create mutation
+      await createApplicabilityStatement({
+        variables: {
+          input: {
+            statementOfApplicabilityId,
+            controlId: control.controlId,
+            applicability: false,
+            justification: justification || null,
+          },
+          connections: [connectionId],
+        },
+        onSuccess: () => {
+          setShowJustification(false);
+        },
+      });
+    }
+  };
+
+  return (
+    <div className="p-4 border-b border-border-low">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <Badge size="md">{control.sectionTitle}</Badge>
+            <span className="text-sm font-medium text-txt-primary">
+              {control.name}
+            </span>
+          </div>
+          {isLinked
+            && control.applicability !== null
+            && !showJustification
+            && control.justification && (
+            <div className="mt-2 text-sm text-txt-secondary">
+              {control.justification}
+            </div>
+          )}
+        </div>
+        <div className="flex items-start gap-2">
+          <Select
+            variant="editor"
+            value={selectedState}
+            onValueChange={value => void handleStateChange(value)}
+            disabled={isCreating || isDeleting || isUpdating}
+            className="w-48"
+          >
+            <Option value="not-linked">{t("addApplicabilityStatementDialog.applicability.notLinked")}</Option>
+            <Option value="applicable">{t("addApplicabilityStatementDialog.applicability.applicable")}</Option>
+            <Option value="not-applicable">{t("addApplicabilityStatementDialog.applicability.notApplicable")}</Option>
+          </Select>
+        </div>
+      </div>
+      {showJustification && (
+        <div className="mt-3 flex items-start gap-2">
+          <Textarea
+            value={justification}
+            onChange={e => setJustification(e.target.value)}
+            placeholder={t("addApplicabilityStatementDialog.placeholders.justification")}
+            className="flex-1"
+            autogrow
+          />
+          <Button
+            variant="primary"
+            icon={IconCheckmark1}
+            onClick={() => void handleSaveJustification()}
+            disabled={isCreating || isUpdating}
+            aria-label={t("addApplicabilityStatementDialog.actions.save")}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddApplicabilityStatementDialogContent({
+  statementOfApplicabilityId,
+  organizationId,
+  connectionId,
+}: {
+  statementOfApplicabilityId: string;
+  organizationId: string;
+  connectionId: string;
+}) {
+  const { t } = useTranslation();
+  const [search, setSearch] = useState("");
+  const [collapsedFrameworks, setCollapsedFrameworks] = useState<Set<string>>(new Set());
+  const data = useLazyLoadQuery<AddApplicabilityStatementDialogQuery>(
+    query,
+    { statementOfApplicabilityId, organizationId },
+    { fetchPolicy: "store-or-network" },
+  );
+
+  const applicabilityMap = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; applicability: boolean; justification: string | null }
+    >();
+    data.statementOfApplicability?.applicabilityStatements?.edges.forEach((edge) => {
+      map.set(edge.node.control.id, {
+        id: edge.node.id,
+        applicability: edge.node.applicability,
+        justification: edge.node.justification,
+      });
+    });
+    return map;
+  }, [data.statementOfApplicability?.applicabilityStatements]);
+
+  const allControls = useMemo(() => {
+    return (data.organization?.controls?.edges || []).map((edge) => {
+      const applicability = applicabilityMap.get(edge.node.id);
+      return {
+        controlId: edge.node.id,
+        sectionTitle: edge.node.sectionTitle,
+        name: edge.node.name,
+        frameworkId: edge.node.framework.id,
+        frameworkName: edge.node.framework.name,
+        applicabilityStatementId: applicability?.id ?? null,
+        applicability: applicability?.applicability ?? null,
+        justification: applicability?.justification ?? null,
+      };
+    });
+  }, [data.organization?.controls, applicabilityMap]);
+
+  const filteredControls = useMemo(() => {
+    if (!search) return allControls;
+    const lowerSearch = search.toLowerCase();
+    return allControls.filter(
+      c =>
+        c.name.toLowerCase().includes(lowerSearch)
+        || c.sectionTitle.toLowerCase().includes(lowerSearch)
+        || c.frameworkName.toLowerCase().includes(lowerSearch),
+    );
+  }, [allControls, search]);
+
+  const groupedControls = useMemo(() => {
+    const groups: Record<string, Record<string, ControlWithStatement[]>> = {};
+    filteredControls.forEach((control) => {
+      if (!groups[control.frameworkName]) {
+        groups[control.frameworkName] = {};
+      }
+      if (!groups[control.frameworkName][control.sectionTitle]) {
+        groups[control.frameworkName][control.sectionTitle] = [];
+      }
+      groups[control.frameworkName][control.sectionTitle].push(control);
+    });
+    return groups;
+  }, [filteredControls]);
+
+  const toggleFramework = (frameworkName: string) => {
+    setCollapsedFrameworks((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(frameworkName)) {
+        newSet.delete(frameworkName);
+      } else {
+        newSet.add(frameworkName);
+      }
+      return newSet;
+    });
+  };
+
+  return (
+    <>
+      <DialogContent className="p-0">
+        <div className="sticky top-0 bg-level-2 p-4 border-b border-border-low z-10">
+          <Input
+            icon={IconMagnifyingGlass}
+            placeholder={t("addApplicabilityStatementDialog.placeholders.search")}
+            onValueChange={setSearch}
+          />
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto">
+          {filteredControls.length === 0
+            ? (
+                <div className="p-8 text-center text-txt-secondary">
+                  {t("addApplicabilityStatementDialog.empty")}
+                </div>
+              )
+            : (
+                Object.entries(groupedControls).map(([frameworkName, sections]) => {
+                  const isCollapsed = collapsedFrameworks.has(frameworkName);
+                  return (
+                    <div key={frameworkName}>
+                      <div className="sticky top-0 bg-level-1 px-4 py-2 border-b border-border-low z-10 flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-txt-primary">
+                          {frameworkName}
+                        </h3>
+                        <Button
+                          variant="tertiary"
+                          icon={isCollapsed ? IconChevronDown : IconChevronUp}
+                          onClick={() => toggleFramework(frameworkName)}
+                          aria-label={isCollapsed ? t("addApplicabilityStatementDialog.actions.expand") : t("addApplicabilityStatementDialog.actions.collapse")}
+                        />
+                      </div>
+                      {!isCollapsed
+                        && Object.entries(sections).map(
+                          ([sectionTitle, sectionControls]) => (
+                            <div key={`${frameworkName}-${sectionTitle}`}>
+                              {sectionControls.map(control => (
+                                <ControlRow
+                                  key={control.controlId}
+                                  control={control}
+                                  statementOfApplicabilityId={statementOfApplicabilityId}
+                                  connectionId={connectionId}
+                                />
+                              ))}
+                            </div>
+                          ),
+                        )}
+                    </div>
+                  );
+                })
+              )}
+        </div>
+      </DialogContent>
+      <DialogFooter exitLabel={t("addApplicabilityStatementDialog.actions.close")}></DialogFooter>
+    </>
+  );
+}
+
+type AddApplicabilityStatementDialogProps = {
+  onClose?: () => void;
+};
+
+export const AddApplicabilityStatementDialog = forwardRef<
+  AddApplicabilityStatementDialogRef,
+  AddApplicabilityStatementDialogProps
+>(
+  ({ onClose }, ref) => {
+    const { t } = useTranslation();
+    const dialogRef = useDialogRef();
+    const [statementOfApplicabilityId, setStatementOfApplicabilityId] = useState<string | null>(null);
+    const [organizationId, setOrganizationId] = useState<string | null>(null);
+    const [connectionId, setConnectionId] = useState<string | null>(null);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        open: (soaId: string, orgId: string, connId: string) => {
+          setStatementOfApplicabilityId(soaId);
+          setOrganizationId(orgId);
+          setConnectionId(connId);
+          dialogRef.current?.open();
+        },
+      }),
+      [dialogRef],
+    );
+
+    const handleClose = () => {
+      setStatementOfApplicabilityId(null);
+      setOrganizationId(null);
+      setConnectionId(null);
+      onClose?.();
+    };
+
+    return (
+      <Dialog
+        ref={dialogRef}
+        className="max-w-3xl"
+        title={(
+          <Breadcrumb
+            items={[t("addApplicabilityStatementDialog.breadcrumb.statementsOfApplicability"), t("addApplicabilityStatementDialog.breadcrumb.addStatement")]}
+          />
+        )}
+        onClose={handleClose}
+      >
+        {statementOfApplicabilityId && organizationId && connectionId
+          ? (
+              <Suspense
+                fallback={(
+                  <DialogContent
+                    padded
+                    className="flex items-center justify-center py-8"
+                  >
+                    <Spinner />
+                  </DialogContent>
+                )}
+              >
+                <AddApplicabilityStatementDialogContent
+                  statementOfApplicabilityId={statementOfApplicabilityId}
+                  organizationId={organizationId}
+                  connectionId={connectionId}
+                />
+              </Suspense>
+            )
+          : null}
+      </Dialog>
+    );
+  },
+);
+
+AddApplicabilityStatementDialog.displayName = "AddApplicabilityStatementDialog";

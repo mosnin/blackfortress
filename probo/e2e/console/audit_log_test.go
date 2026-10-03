@@ -1,0 +1,258 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package console_test
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/e2e/internal/factory"
+	"go.probo.inc/probo/e2e/internal/testutil"
+)
+
+func TestAuditLog_List(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	// Create a thirdParty to generate an audit log entry.
+	factory.NewThirdParty(owner).WithName(factory.SafeName("AuditThirdParty")).Create()
+
+	const query = `
+		query($orgId: ID!) {
+			node(id: $orgId) {
+				... on Organization {
+					auditLogEntries(first: 10) {
+						edges {
+							node {
+								id
+								actorId
+								actorType
+								action
+								resourceType
+								resourceId
+								createdAt
+							}
+						}
+						totalCount
+					}
+				}
+			}
+		}
+	`
+
+	var result struct {
+		Node struct {
+			AuditLogEntries struct {
+				Edges []struct {
+					Node struct {
+						ID           string `json:"id"`
+						ActorID      string `json:"actorId"`
+						ActorType    string `json:"actorType"`
+						Action       string `json:"action"`
+						ResourceType string `json:"resourceType"`
+						ResourceID   string `json:"resourceId"`
+						CreatedAt    string `json:"createdAt"`
+					} `json:"node"`
+				} `json:"edges"`
+				TotalCount int `json:"totalCount"`
+			} `json:"auditLogEntries"`
+		} `json:"node"`
+	}
+
+	err := owner.Execute(query, map[string]any{
+		"orgId": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, result.Node.AuditLogEntries.TotalCount, 1)
+
+	// Find the thirdParty create entry.
+	found := false
+
+	for _, edge := range result.Node.AuditLogEntries.Edges {
+		if edge.Node.Action == "core:thirdParty:create" {
+			found = true
+
+			assert.Equal(t, "USER", edge.Node.ActorType)
+			assert.Equal(t, "ThirdParty", edge.Node.ResourceType)
+			assert.NotEmpty(t, edge.Node.ActorID)
+			assert.NotEmpty(t, edge.Node.ResourceID)
+			assert.NotEmpty(t, edge.Node.CreatedAt)
+
+			break
+		}
+	}
+
+	assert.True(t, found, "expected to find core:thirdParty:create audit log entry")
+}
+
+func TestAuditLog_Filter(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	// Create different resources to generate different audit log entries.
+	factory.NewThirdParty(owner).WithName(factory.SafeName("FilterThirdParty")).Create()
+
+	const query = `
+		query($orgId: ID!, $filter: AuditLogEntryFilter) {
+			node(id: $orgId) {
+				... on Organization {
+					auditLogEntries(first: 50, filter: $filter) {
+						edges {
+							node {
+								id
+								action
+								resourceType
+							}
+						}
+						totalCount
+					}
+				}
+			}
+		}
+	`
+
+	t.Run("filter by action", func(t *testing.T) {
+		t.Parallel()
+
+		var result struct {
+			Node struct {
+				AuditLogEntries struct {
+					Edges []struct {
+						Node struct {
+							ID     string `json:"id"`
+							Action string `json:"action"`
+						} `json:"node"`
+					} `json:"edges"`
+					TotalCount int `json:"totalCount"`
+				} `json:"auditLogEntries"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"orgId":  owner.GetOrganizationID().String(),
+			"filter": map[string]any{"action": "core:thirdParty:create"},
+		}, &result)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, result.Node.AuditLogEntries.TotalCount, 1)
+
+		for _, edge := range result.Node.AuditLogEntries.Edges {
+			assert.Equal(t, "core:thirdParty:create", edge.Node.Action)
+		}
+	})
+
+	t.Run("filter by resource type", func(t *testing.T) {
+		t.Parallel()
+
+		var result struct {
+			Node struct {
+				AuditLogEntries struct {
+					Edges []struct {
+						Node struct {
+							ID           string `json:"id"`
+							ResourceType string `json:"resourceType"`
+						} `json:"node"`
+					} `json:"edges"`
+					TotalCount int `json:"totalCount"`
+				} `json:"auditLogEntries"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"orgId":  owner.GetOrganizationID().String(),
+			"filter": map[string]any{"resourceType": "ThirdParty"},
+		}, &result)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, result.Node.AuditLogEntries.TotalCount, 1)
+
+		for _, edge := range result.Node.AuditLogEntries.Edges {
+			assert.Equal(t, "ThirdParty", edge.Node.ResourceType)
+		}
+	})
+}
+
+func TestAuditLog_Export(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	const mutation = `
+		mutation($input: RequestAuditLogExportInput!) {
+			requestAuditLogExport(input: $input) {
+				exportJobId
+			}
+		}
+	`
+
+	t.Run("owner can request export", func(t *testing.T) {
+		t.Parallel()
+
+		var result struct {
+			RequestAuditLogExport struct {
+				ExportJobID string `json:"exportJobId"`
+			} `json:"requestAuditLogExport"`
+		}
+
+		err := owner.Execute(mutation, map[string]any{
+			"input": map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+				"fromTime":       "2026-01-01T00:00:00Z",
+				"toTime":         "2026-03-24T00:00:00Z",
+			},
+		}, &result)
+		require.NoError(t, err)
+		assert.NotEmpty(t, result.RequestAuditLogExport.ExportJobID)
+	})
+
+	t.Run("admin can request export", func(t *testing.T) {
+		t.Parallel()
+		admin := testutil.NewClientInOrg(t, testutil.RoleAdmin, owner)
+
+		var result struct {
+			RequestAuditLogExport struct {
+				ExportJobID string `json:"exportJobId"`
+			} `json:"requestAuditLogExport"`
+		}
+
+		err := admin.Execute(mutation, map[string]any{
+			"input": map[string]any{
+				"organizationId": admin.GetOrganizationID().String(),
+				"fromTime":       "2026-01-01T00:00:00Z",
+				"toTime":         "2026-03-24T00:00:00Z",
+			},
+		}, &result)
+		require.NoError(t, err)
+		assert.NotEmpty(t, result.RequestAuditLogExport.ExportJobID)
+	})
+
+	t.Run("viewer cannot request export", func(t *testing.T) {
+		t.Parallel()
+		viewer := testutil.NewClientInOrg(t, testutil.RoleViewer, owner)
+
+		_, err := viewer.Do(mutation, map[string]any{
+			"input": map[string]any{
+				"organizationId": viewer.GetOrganizationID().String(),
+				"fromTime":       "2026-01-01T00:00:00Z",
+				"toTime":         "2026-03-24T00:00:00Z",
+			},
+		})
+		testutil.RequireForbiddenError(t, err, "viewer cannot request audit log export")
+	})
+}

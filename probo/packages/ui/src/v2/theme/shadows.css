@@ -1,0 +1,80 @@
+/* Copyright (c) 2026 Probo Inc <hello@probo.com>.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Shadows — drop-shadow elevation scale (steps 1–6)
+ *
+ * Steps 2–6 are Radix Themes' shadows (tokens/shadow.css) with Radix's
+ * neutral `gray` mapped to the v2 neutral `sand`. Step 1 deliberately
+ * diverges from Radix: Radix's shadow-1 is a fully *inset* shadow, which
+ * belongs in Tailwind's separate inset-shadow-* slot, not the drop-shadow
+ * shadow-* slot. To keep shadow-1 … shadow-6 a single, composable drop
+ * elevation ramp, shadow-1 is our own subtle drop shadow one notch below
+ * shadow-2. If a recessed/inset treatment is ever needed, add it under the
+ * --inset-shadow-* namespace instead.
+ *
+ * Inset shadows live in Tailwind's separate inset-shadow-* slot. We expose a
+ * numeric inset-shadow-1 … inset-shadow-3 ramp that mirrors the depth of
+ * Tailwind's default 2xs/xs/sm but is sand-tinted, so (unlike the flat-black
+ * defaults) it adapts to dark mode. inset-shadow-none stays a static utility.
+ *
+ * Registered with `inline` so each utility keeps its var() references; every
+ * layer is built from alpha tokens (--sand-a*, --black-a*) that already flip
+ * light↔dark, so the scales adapt to dark mode from a single definition.
+ * The alpha tokens these reference are imported in colors.css.
+ *
+ * `--shadow-*: initial` and `--inset-shadow-*: initial`, which drop Tailwind's
+ * shadow-sm/md/lg and the 2xs/xs/sm inset defaults, live in ./reset.css.
+ * ------------------------------------------------------------------------- */
+@theme inline {
+    --shadow-1:
+        0 0 0 1px var(--sand-a3),
+        0 1px 2px 0 var(--black-a1);
+    --shadow-2:
+        0 0 0 1px var(--sand-a3),
+        0 0 0 0.5px var(--black-a1),
+        0 1px 1px 0 var(--sand-a2),
+        0 2px 1px -1px var(--black-a1),
+        0 1px 3px 0 var(--black-a1);
+    --shadow-3:
+        0 0 0 1px var(--sand-a3),
+        0 2px 3px -2px var(--sand-a3),
+        0 3px 12px -4px var(--black-a2),
+        0 4px 16px -8px var(--black-a2);
+    --shadow-4:
+        0 0 0 1px var(--sand-a3),
+        0 8px 40px var(--black-a1),
+        0 12px 32px -16px var(--sand-a3);
+    --shadow-5:
+        0 0 0 1px var(--sand-a3),
+        0 12px 60px var(--black-a3),
+        0 12px 32px -16px var(--sand-a5);
+    --shadow-6:
+        0 0 0 1px var(--sand-a3),
+        0 12px 60px var(--black-a3),
+        0 16px 64px var(--sand-a2),
+        0 16px 36px -20px var(--sand-a7);
+
+    /* Inset elevation — mirrors the depth of Tailwind's 2xs/xs/sm defaults. */
+    --inset-shadow-1: inset 0 1px var(--sand-a3);
+    --inset-shadow-2: inset 0 1px 1px var(--sand-a3);
+    --inset-shadow-3: inset 0 2px 4px var(--sand-a3);
+}

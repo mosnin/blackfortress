@@ -1,0 +1,236 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package pdfutils
+
+import (
+	"bytes"
+	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	"io"
+	"math"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/gofont/goregular"
+	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/fixed"
+)
+
+const (
+	MaxWatermarkTextLength  = 64
+	watermarkFontSize       = 90
+	watermarkRotationDegree = -55.0
+	watermarkOpacity        = 0.1
+	watermarkScaleFactor    = 1.0
+	fontDPI                 = 80
+	charWidthRatio          = 0.6
+	lineSpacingRatio        = 1.5
+)
+
+var (
+	fontSizeRatio = 72.0 / float64(fontDPI)
+	fontColor     = color.RGBA{0, 0, 0, 255}
+)
+
+func MergePDFs(pdfs ...[]byte) ([]byte, error) {
+	readers := make([]io.ReadSeeker, len(pdfs))
+	for i, pdf := range pdfs {
+		readers[i] = bytes.NewReader(pdf)
+	}
+
+	var buf bytes.Buffer
+	if err := api.MergeRaw(readers, &buf, false, nil); err != nil {
+		return nil, fmt.Errorf("cannot merge PDFs: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+func AddWatermarkWithTimestamp(pdfData []byte, classification string, watermarkText string) ([]byte, error) {
+	if err := ValidateWatermarkText(watermarkText); err != nil {
+		return nil, fmt.Errorf("cannot validate watermark text: %w", err)
+	}
+
+	reader := bytes.NewReader(pdfData)
+
+	textImage, err := generateTextImage(buildWatermarkLines(classification, watermarkText, time.Now()))
+	if err != nil {
+		return nil, fmt.Errorf("cannot generate watermark image: %w", err)
+	}
+
+	// Apply rotation before pdfcpu scaling instead of using pdfcpu's rotation API
+	// to ensure the scaled watermark covers the full page properly
+	imageData, err := rotateImage(textImage, watermarkRotationDegree)
+	if err != nil {
+		return nil, fmt.Errorf("cannot rotate image: %w", err)
+	}
+
+	imageReader := bytes.NewReader(imageData)
+	desc := fmt.Sprintf(
+		"rotation:0,position:c,opacity:%.1f,scalefactor:%.1f rel",
+		watermarkOpacity,
+		watermarkScaleFactor,
+	)
+
+	watermarkConf, err := api.ImageWatermarkForReader(imageReader, desc, true, false, types.POINTS)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create watermark from reader: %w", err)
+	}
+
+	var buf bytes.Buffer
+
+	err = api.AddWatermarks(reader, &buf, nil, watermarkConf, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot add watermark: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+func buildWatermarkLines(classification string, watermarkText string, timestamp time.Time) []string {
+	return []string{
+		classification,
+		watermarkText,
+		timestamp.Format("2006-01-02"),
+	}
+}
+
+func ValidateWatermarkText(watermarkText string) error {
+	if strings.TrimSpace(watermarkText) == "" {
+		return fmt.Errorf("watermark text is required")
+	}
+
+	if len(watermarkText) > MaxWatermarkTextLength {
+		return fmt.Errorf("watermark text must not exceed %d bytes", MaxWatermarkTextLength)
+	}
+
+	return nil
+}
+
+func TruncateWatermarkText(watermarkText string) string {
+	for len(watermarkText) > MaxWatermarkTextLength {
+		_, size := utf8.DecodeLastRuneInString(watermarkText)
+		watermarkText = watermarkText[:len(watermarkText)-size]
+	}
+
+	return watermarkText
+}
+
+func generateTextImage(lines []string) (*image.RGBA, error) {
+	maxLineLength := 0
+	for _, line := range lines {
+		maxLineLength = max(maxLineLength, len(line))
+	}
+
+	charWidth := int(float64(watermarkFontSize) * charWidthRatio)
+	charHeight := watermarkFontSize
+	lineSpacing := int(float64(charHeight) * lineSpacingRatio)
+
+	textWidth := maxLineLength * charWidth
+	textHeight := len(lines)*charHeight + (len(lines)-1)*lineSpacing
+
+	textImg := image.NewRGBA(image.Rect(0, 0, textWidth, textHeight))
+
+	ttf, err := opentype.Parse(goregular.TTF)
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse font: %w", err)
+	}
+
+	face, err := opentype.NewFace(ttf, &opentype.FaceOptions{
+		Size:    float64(watermarkFontSize) * fontSizeRatio,
+		DPI:     fontDPI,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot create font face: %w", err)
+	}
+
+	d := &font.Drawer{
+		Dst:  textImg,
+		Src:  image.NewUniform(fontColor),
+		Face: face,
+	}
+
+	for i, line := range lines {
+		y := charHeight + i*(charHeight+lineSpacing)
+
+		lineWidth := d.MeasureString(line)
+		centerX := textWidth/2 - int(lineWidth>>6)/2
+
+		d.Dot = fixed.Point26_6{
+			X: fixed.I(centerX),
+			Y: fixed.I(y),
+		}
+		d.DrawString(line)
+	}
+
+	return textImg, nil
+}
+
+func rotateImage(src image.Image, angleDegrees float64) ([]byte, error) {
+	srcBounds := src.Bounds()
+	srcWidth := srcBounds.Dx()
+	srcHeight := srcBounds.Dy()
+
+	angle := angleDegrees * math.Pi / 180.0
+	cosAngle := math.Cos(angle)
+	sinAngle := math.Sin(angle)
+	cos := math.Abs(cosAngle)
+	sin := math.Abs(sinAngle)
+
+	rotatedWidth := int(float64(srcWidth)*cos + float64(srcHeight)*sin)
+	rotatedHeight := int(float64(srcWidth)*sin + float64(srcHeight)*cos)
+
+	dst := image.NewRGBA(image.Rect(0, 0, rotatedWidth, rotatedHeight))
+
+	srcCenterX := float64(srcWidth) / 2
+	srcCenterY := float64(srcHeight) / 2
+	dstCenterX := float64(rotatedWidth) / 2
+	dstCenterY := float64(rotatedHeight) / 2
+
+	for y := range rotatedHeight {
+		for x := range rotatedWidth {
+			fx := float64(x) - dstCenterX
+			fy := float64(y) - dstCenterY
+
+			srcX := fx*cosAngle + fy*sinAngle + srcCenterX
+			srcY := -fx*sinAngle + fy*cosAngle + srcCenterY
+
+			if srcX >= 0 && srcY >= 0 && int(srcX) < srcWidth && int(srcY) < srcHeight {
+				srcColor := src.At(int(srcX), int(srcY))
+				dst.Set(x, y, srcColor)
+			}
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, dst); err != nil {
+		return nil, fmt.Errorf("cannot encode rotated image: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}

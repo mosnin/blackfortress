@@ -1,0 +1,23 @@
+{
+  "name": "@probo/routes",
+  "version": "1.0.0",
+  "description": "",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "6.0.2",
+    "vitest": "^4.1.11"
+  },
+  "peerDependencies": {
+    "react": "^19.2.7",
+    "react-relay": "^21.0.1",
+    "react-router": "^8.3.1",
+    "relay-runtime": "^21.0.1"
+  }
+}

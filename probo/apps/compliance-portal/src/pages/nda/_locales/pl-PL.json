@@ -1,0 +1,9 @@
+{
+  "back": "Dokumenty",
+  "title": "Umowa o zachowaniu poufności",
+  "subtitle": "{{name}} wymaga podpisania umowy o zachowaniu poufności przed uzyskaniem dostępu do dokumentów zgodności.",
+  "sign": "Podpisz",
+  "tryAgain": "Spróbuj ponownie",
+  "sealing": "Pieczętowanie podpisu…",
+  "failedDescription": "Podczas przetwarzania podpisu wystąpił problem. Spróbuj ponownie."
+}

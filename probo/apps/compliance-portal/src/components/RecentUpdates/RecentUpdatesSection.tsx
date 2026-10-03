@@ -1,0 +1,106 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { ButtonLink } from "@probo/ui/src/v2/Button/ButtonLink";
+import { ErrorBoundary } from "@probo/ui/src/v2/ErrorBoundary/ErrorBoundary";
+import { useTranslation } from "react-i18next";
+import { graphql, useFragment } from "react-relay";
+
+import { InlineErrorCard } from "#/components/errors/InlineErrorCard";
+import { HomeSection } from "#/components/HomeSection/HomeSection";
+import { MailingListUpdateListItem } from "#/components/MailingListUpdateListItem/MailingListUpdateListItem";
+import { dotPatternStyle } from "#/components/MediaTile/variants";
+import { useLocalizedPath } from "#/lib/i18n/useLocale";
+
+import type { RecentUpdatesSection_compliancePortal$key } from "./__generated__/RecentUpdatesSection_compliancePortal.graphql";
+
+// @throwOnFieldError surfaces a field error at the read below so the section
+// ErrorBoundary contains it. See contrib/claude/error-handling.md.
+const recentUpdatesSectionFragment = graphql`
+  fragment RecentUpdatesSection_compliancePortal on CompliancePortal @throwOnFieldError {
+    updates(first: 5) {
+      edges {
+        node {
+          id
+          ...MailingListUpdateListItem_update
+        }
+      }
+    }
+  }
+`;
+
+interface RecentUpdatesSectionProps {
+  compliancePortalKey: RecentUpdatesSection_compliancePortal$key;
+}
+
+// "Recent updates" section: the latest mailing-list updates as a list, with a
+// link to the full updates page. A load failure degrades to an inline error.
+export function RecentUpdatesSection({ compliancePortalKey }: RecentUpdatesSectionProps) {
+  const { t } = useTranslation();
+
+  return (
+    <ErrorBoundary
+      fallback={(
+        // The data comes from the preloaded HomePageQuery, so there is no local
+        // refetch to clear a field error — reload the page to recover.
+        <HomeSection title={t("home.sections.recentUpdates")}>
+          <InlineErrorCard onRetry={() => window.location.reload()} />
+        </HomeSection>
+      )}
+    >
+      <RecentUpdatesSectionContent compliancePortalKey={compliancePortalKey} />
+    </ErrorBoundary>
+  );
+}
+
+function RecentUpdatesSectionContent({ compliancePortalKey }: RecentUpdatesSectionProps) {
+  const { t } = useTranslation();
+  const localizedPath = useLocalizedPath();
+  const data = useFragment(recentUpdatesSectionFragment, compliancePortalKey);
+  const updates = data.updates.edges.map(edge => edge.node);
+
+  if (updates.length === 0) {
+    return null;
+  }
+
+  return (
+    <HomeSection
+      title={t("home.sections.recentUpdates")}
+      action={(
+        <ButtonLink to={localizedPath("/updates")} variant="ghost" color="neutral" size={2}>
+          {t("home.recentUpdates.viewAll")}
+        </ButtonLink>
+      )}
+    >
+      <div className="relative overflow-hidden rounded-5 border border-sand-3 bg-sand-1">
+        <div aria-hidden className="pointer-events-none absolute inset-0" style={dotPatternStyle} />
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-linear-to-r from-sand-1/0 to-sand-1 to-[96px] max-sm:to-[48px]" />
+        <div className="relative divide-y divide-sand-a2">
+          {updates.map(update => (
+            // Rows share fate (one connection query), so a row's field error
+            // bubbles to the section boundary above rather than degrading a
+            // single, unrecoverable row.
+            <MailingListUpdateListItem key={update.id} updateKey={update} />
+          ))}
+        </div>
+      </div>
+    </HomeSection>
+  );
+}

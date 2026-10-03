@@ -1,0 +1,340 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"github.com/jackc/pgx/v5"
+	"go.probo.inc/probo/pkg/gid"
+)
+
+type (
+	DocumentFilter struct {
+		query                        *string
+		compliancePortalVisibilities []CompliancePortalVisibility
+		compliancePortalID           *gid.GID
+		published                    *bool
+		employeeIdentityID           *gid.GID
+		employeeFilterModes          []EmployeeFilterMode
+		employeeSigned               *bool
+		employeeApprovalStates       []DocumentVersionApprovalDecisionState
+		documentTypes                []DocumentType
+		classifications              []DocumentClassification
+		writeModes                   []DocumentWriteMode
+		status                       []DocumentStatus
+	}
+)
+
+func NewDocumentFilter(query *string) *DocumentFilter {
+	return &DocumentFilter{
+		query: query,
+	}
+}
+
+func NewDocumentCompliancePortalFilter() *DocumentFilter {
+	published := true
+
+	return &DocumentFilter{
+		compliancePortalVisibilities: []CompliancePortalVisibility{
+			CompliancePortalVisibilityRestricted,
+			CompliancePortalVisibilityPublic,
+		},
+		published: &published,
+		status:    []DocumentStatus{DocumentStatusActive},
+	}
+}
+
+func (f *DocumentFilter) WithPublished(published *bool) *DocumentFilter {
+	f.published = published
+	return f
+}
+
+func (f *DocumentFilter) WithCompliancePortalID(compliancePortalID gid.GID) *DocumentFilter {
+	clone := *f
+	clone.compliancePortalID = &compliancePortalID
+
+	return &clone
+}
+
+func (f *DocumentFilter) WithCompliancePortalVisibilities(visibilities ...CompliancePortalVisibility) *DocumentFilter {
+	f.compliancePortalVisibilities = visibilities
+	return f
+}
+
+func (f *DocumentFilter) WithEmployeeIdentityID(identityID *gid.GID, modes ...EmployeeFilterMode) *DocumentFilter {
+	f.employeeIdentityID = identityID
+	f.employeeFilterModes = modes
+
+	return f
+}
+
+func (f *DocumentFilter) WithSigned(signed *bool) *DocumentFilter {
+	f.employeeSigned = signed
+	return f
+}
+
+func (f *DocumentFilter) WithApprovalStates(
+	states []DocumentVersionApprovalDecisionState,
+) *DocumentFilter {
+	f.employeeApprovalStates = states
+	return f
+}
+
+func (f *DocumentFilter) WithDocumentTypes(documentTypes []DocumentType) *DocumentFilter {
+	f.documentTypes = documentTypes
+	return f
+}
+
+func (f *DocumentFilter) WithClassifications(classifications []DocumentClassification) *DocumentFilter {
+	f.classifications = classifications
+	return f
+}
+
+func (f *DocumentFilter) WithWriteModes(writeModes []DocumentWriteMode) *DocumentFilter {
+	f.writeModes = writeModes
+	return f
+}
+
+func (f *DocumentFilter) WithStatus(status []DocumentStatus) *DocumentFilter {
+	f.status = status
+	return f
+}
+
+func (f *DocumentFilter) SQLArguments() pgx.NamedArgs {
+	var visibilities []string
+	if f.compliancePortalVisibilities != nil {
+		visibilities = make([]string, len(f.compliancePortalVisibilities))
+		for i, v := range f.compliancePortalVisibilities {
+			visibilities[i] = v.String()
+		}
+	}
+
+	var documentTypes []string
+	if f.documentTypes != nil {
+		documentTypes = make([]string, len(f.documentTypes))
+		for i, dt := range f.documentTypes {
+			documentTypes[i] = dt.String()
+		}
+	}
+
+	var classifications []string
+	if f.classifications != nil {
+		classifications = make([]string, len(f.classifications))
+		for i, c := range f.classifications {
+			classifications[i] = c.String()
+		}
+	}
+
+	var writeModes []string
+	if f.writeModes != nil {
+		writeModes = make([]string, len(f.writeModes))
+		for i, cs := range f.writeModes {
+			writeModes[i] = cs.String()
+		}
+	}
+
+	var status []string
+	if f.status != nil {
+		status = make([]string, len(f.status))
+		for i, s := range f.status {
+			status[i] = s.String()
+		}
+	}
+
+	var employeeFilterModes []string
+	for _, m := range f.employeeFilterModes {
+		employeeFilterModes = append(employeeFilterModes, string(m))
+	}
+
+	var employeeApprovalStates []string
+	if f.employeeApprovalStates != nil {
+		employeeApprovalStates = make([]string, len(f.employeeApprovalStates))
+		for i, state := range f.employeeApprovalStates {
+			employeeApprovalStates[i] = state.String()
+		}
+	}
+
+	var compliancePortalID any
+	if f.compliancePortalID != nil {
+		compliancePortalID = f.compliancePortalID.String()
+	}
+
+	return pgx.NamedArgs{
+		"query":                                   f.query,
+		"compliance_portal_id":                    compliancePortalID,
+		"compliance_portal_visibilities":          visibilities,
+		"published":                               f.published,
+		"employee_identity_id":                    f.employeeIdentityID,
+		"employee_filter_modes":                   employeeFilterModes,
+		"employee_signed":                         f.employeeSigned,
+		"employee_approval_states":                employeeApprovalStates,
+		"document_version_signature_state_signed": DocumentVersionSignatureStateSigned,
+		"document_types":                          documentTypes,
+		"classifications":                         classifications,
+		"write_modes":                             writeModes,
+		"document_status":                         status,
+	}
+}
+
+func (f *DocumentFilter) SQLFragment() string {
+	return `
+(
+	CASE
+		WHEN @query::text IS NOT NULL AND @query::text != '' THEN
+			(
+				SELECT dv.search_vector
+				FROM document_versions dv
+				WHERE dv.document_id = documents.id
+				ORDER BY dv.major DESC, dv.minor DESC
+				LIMIT 1
+			) @@ (
+				SELECT to_tsquery('simple', string_agg(lexeme || ':*', ' & '))
+				FROM unnest(regexp_split_to_array(trim(@query::text), '\s+')) AS lexeme
+			)
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @compliance_portal_id::text IS NOT NULL
+			AND @compliance_portal_visibilities::compliance_portal_visibility[] IS NOT NULL THEN
+			EXISTS (
+				SELECT 1
+				FROM cp_documents
+				WHERE cp_documents.document_id = documents.id
+					AND cp_documents.compliance_portal_id = @compliance_portal_id
+					AND cp_documents.visibility = ANY(
+						@compliance_portal_visibilities::compliance_portal_visibility[]
+					)
+			)
+		WHEN @compliance_portal_visibilities::compliance_portal_visibility[] IS NOT NULL THEN
+			FALSE
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @published::boolean IS NULL THEN TRUE
+		WHEN @published::boolean IS TRUE THEN current_published_major IS NOT NULL
+		WHEN @published::boolean IS FALSE THEN current_published_major IS NULL
+	END
+	AND
+	CASE
+		WHEN @employee_identity_id::text IS NULL THEN TRUE
+		ELSE (
+			(
+				'signature' = ANY(@employee_filter_modes::text[]) AND EXISTS (
+					SELECT 1
+					FROM document_versions dv
+					INNER JOIN document_version_signatures dvs ON dv.id = dvs.document_version_id
+					INNER JOIN iam_membership_profiles p ON dvs.signed_by_profile_id = p.id
+					WHERE dv.document_id = documents.id
+						AND p.identity_id = @employee_identity_id::text
+						AND dvs.state IN ('REQUESTED', 'SIGNED')
+				)
+			)
+			OR (
+				'approval' = ANY(@employee_filter_modes::text[]) AND EXISTS (
+					SELECT 1
+					FROM document_versions dv
+					INNER JOIN document_version_approval_quorums dvaq ON dvaq.version_id = dv.id
+					INNER JOIN document_version_approval_decisions dvad ON dvad.quorum_id = dvaq.id
+					INNER JOIN iam_membership_profiles p ON dvad.approver_id = p.id
+					WHERE dv.document_id = documents.id
+						AND p.identity_id = @employee_identity_id::text
+						AND NOT (dvad.state = 'APPROVED' AND dvad.electronic_signature_id IS NULL)
+				)
+			)
+		)
+	END
+	AND
+	CASE
+		WHEN @employee_signed::boolean IS NULL THEN TRUE
+		ELSE (
+			EXISTS (
+				WITH max_signable_major AS (
+					SELECT MAX(dv.major) AS major
+					FROM document_versions dv
+					INNER JOIN document_version_signatures dvs ON dvs.document_version_id = dv.id
+					INNER JOIN iam_membership_profiles p ON dvs.signed_by_profile_id = p.id
+					WHERE dv.document_id = documents.id
+						AND p.identity_id = @employee_identity_id::text
+				)
+				SELECT 1
+				FROM document_versions dv
+				INNER JOIN max_signable_major msm ON dv.major = msm.major
+				INNER JOIN document_version_signatures dvs ON dvs.document_version_id = dv.id
+				INNER JOIN iam_membership_profiles p ON dvs.signed_by_profile_id = p.id
+				WHERE dv.document_id = documents.id
+					AND p.identity_id = @employee_identity_id::text
+					AND dvs.state::text = @document_version_signature_state_signed::text
+			)
+		) = @employee_signed::boolean
+	END
+	AND
+	CASE
+		WHEN @employee_approval_states::text[] IS NULL THEN TRUE
+		ELSE (
+			SELECT dvad.state::text
+			FROM document_versions dv
+			INNER JOIN document_version_approval_quorums dvaq ON dvaq.version_id = dv.id
+			INNER JOIN document_version_approval_decisions dvad ON dvad.quorum_id = dvaq.id
+			INNER JOIN iam_membership_profiles p ON dvad.approver_id = p.id
+			WHERE dv.document_id = documents.id
+				AND p.identity_id = @employee_identity_id::text
+			ORDER BY dv.major DESC, dvaq.created_at DESC
+			LIMIT 1
+		) = ANY(@employee_approval_states::text[])
+	END
+	AND
+	CASE
+		WHEN @document_types::document_type[] IS NOT NULL THEN
+			(
+				SELECT dv.document_type
+				FROM document_versions dv
+				WHERE dv.document_id = documents.id
+				ORDER BY dv.major DESC, dv.minor DESC
+				LIMIT 1
+			) = ANY(@document_types::document_type[])
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @classifications::document_classification[] IS NOT NULL THEN
+			(
+				SELECT dv.classification
+				FROM document_versions dv
+				WHERE dv.document_id = documents.id
+				ORDER BY dv.major DESC, dv.minor DESC
+				LIMIT 1
+			) = ANY(@classifications::document_classification[])
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @write_modes::text[] IS NOT NULL THEN
+			documents.write_mode::text = ANY(@write_modes::text[])
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @document_status::text[] IS NULL THEN TRUE
+		ELSE status::text = ANY(@document_status::text[])
+	END
+)`
+}

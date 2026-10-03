@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "コンプライアンスポータル",
+    "getAccess": "アクセスをリクエスト",
+    "openMenu": "メニューを開く",
+    "closeMenu": "メニューを閉じる",
+    "menuTitle": "メニュー",
+    "nav": {
+      "documents": "ドキュメント",
+      "subprocessors": "サブプロセッサ",
+      "updates": "アップデート",
+      "requests": "リクエスト"
+    }
+  },
+  "userMenu": {
+    "subscribe": "アップデートを購読",
+    "subscribed": "アップデート購読中",
+    "signOut": "サインアウト",
+    "signOutFailed": "サインアウトできません",
+    "switchToDarkMode": "ダークモードに切り替え",
+    "switchToLightMode": "ライトモードに切り替え"
+  },
+  "common": {
+    "error": "問題が発生しました",
+    "previousPage": "前のページ",
+    "nextPage": "次のページ",
+    "pageOf": "{{current}} / {{total}} ページ",
+    "zoomOut": "ズームアウト",
+    "zoomIn": "ズームイン"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "アクセスをリクエストしました"
+    },
+    "fullName": {
+      "title": "お名前を入力してください",
+      "label": "氏名",
+      "placeholder": "山田 太郎",
+      "required": "氏名は必須です",
+      "tooShort": "氏名が短すぎます",
+      "submit": "続ける"
+    },
+    "errors": {
+      "fullNameFailed": "お名前を保存できませんでした。もう一度お試しください。",
+      "requestFailed": "アクセスリクエストを完了できませんでした。もう一度お試しください。"
+    }
+  },
+  "home": {
+    "heroTitle": "{{name}}におけるコンプライアンス。",
+    "heroDescription": "コンプライアンスポータルへようこそ。セキュリティに関する文書や認証はこちらからご確認いただけます。",
+    "sections": {
+      "compliance": "コンプライアンス",
+      "securityCommitments": "セキュリティへの取り組み",
+      "trustedBy": "導入企業",
+      "recentUpdates": "最新のアップデート"
+    },
+    "recentUpdates": {
+      "viewAll": "すべて表示"
+    }
+  },
+  "notFound": {
+    "title": "ページが見つかりません",
+    "description": "お探しのページは存在しないか、移動された可能性があります。",
+    "backHome": "ホームに戻る"
+  },
+  "errors": {
+    "notFound": {
+      "title": "ページが見つかりません",
+      "description": "お探しのページは存在しないか、移動された可能性があります。"
+    },
+    "forbidden": {
+      "title": "アクセスが拒否されました",
+      "description": "このページを表示する権限がありません。"
+    },
+    "serverError": {
+      "title": "問題が発生しました",
+      "description": "予期しないエラーが発生しました。しばらくしてからもう一度お試しください。"
+    },
+    "generic": {
+      "title": "問題が発生しました",
+      "description": "予期しないエラーが発生しました。しばらくしてからもう一度お試しください。"
+    },
+    "actions": {
+      "backToCompliancePortal": "コンプライアンスポータルに戻る",
+      "tryAgain": "もう一度試す",
+      "contactSupport": "サポートに連絡",
+      "requestAccess": "アクセスをリクエスト"
+    },
+    "inline": {
+      "message": "コンテンツを読み込めません",
+      "retry": "再試行"
+    }
+  },
+  "footer": {
+    "poweredBy": "提供"
+  },
+  "pagination": {
+    "previous": "前のページ",
+    "next": "次のページ"
+  },
+  "locale": {
+    "label": "言語",
+    "updateFailed": "言語を更新できませんでした",
+    "mismatch": {
+      "message": "このページは{{language}}で表示されています。",
+      "switchToMine": "{{language}}に切り替え",
+      "useThis": "{{language}}を自分の言語として使用",
+      "dismiss": "閉じる"
+    }
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "非公開ドキュメントにアクセスするには秘密保持契約に署名してください。",
+      "sign": "確認して署名",
+      "dismiss": "閉じる"
+    }
+  }
+}

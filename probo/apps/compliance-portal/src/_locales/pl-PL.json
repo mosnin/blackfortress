@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "Portal Zgodności",
+    "getAccess": "Poproś o dostęp",
+    "openMenu": "Otwórz menu",
+    "closeMenu": "Zamknij menu",
+    "menuTitle": "Menu",
+    "nav": {
+      "documents": "Dokumenty",
+      "subprocessors": "Podprocesorzy",
+      "updates": "Aktualizacje",
+      "requests": "Wnioski"
+    }
+  },
+  "userMenu": {
+    "subscribe": "Subskrybuj aktualizacje",
+    "subscribed": "Subskrybowano aktualizacje",
+    "signOut": "Wyloguj się",
+    "signOutFailed": "Nie można się wylogować",
+    "switchToDarkMode": "Przełącz na tryb ciemny",
+    "switchToLightMode": "Przełącz na tryb jasny"
+  },
+  "common": {
+    "error": "Coś poszło nie tak",
+    "previousPage": "Poprzednia strona",
+    "nextPage": "Następna strona",
+    "pageOf": "Strona {{current}} z {{total}}",
+    "zoomOut": "Zmniejsz",
+    "zoomIn": "Powiększ"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "Poproszono o dostęp"
+    },
+    "fullName": {
+      "title": "Dodaj swoje imię i nazwisko",
+      "label": "Imię i nazwisko",
+      "placeholder": "Jan Kowalski",
+      "required": "Imię i nazwisko jest wymagane",
+      "tooShort": "Imię i nazwisko jest za krótkie",
+      "submit": "Kontynuuj"
+    },
+    "errors": {
+      "fullNameFailed": "Nie udało się zapisać Twojego imienia i nazwiska. Spróbuj ponownie.",
+      "requestFailed": "Nie udało się zrealizować Twojego wniosku o dostęp. Spróbuj ponownie."
+    }
+  },
+  "home": {
+    "heroTitle": "Zgodność w {{name}}.",
+    "heroDescription": "Witamy w naszym Portalu Zgodności. Znajdziesz tu naszą dokumentację bezpieczeństwa i certyfikaty.",
+    "sections": {
+      "compliance": "Zgodność",
+      "securityCommitments": "Zobowiązania w zakresie bezpieczeństwa",
+      "trustedBy": "Zaufali nam",
+      "recentUpdates": "Najnowsze aktualizacje"
+    },
+    "recentUpdates": {
+      "viewAll": "Zobacz wszystkie"
+    }
+  },
+  "notFound": {
+    "title": "Strona nie została znaleziona",
+    "description": "Strona, której szukasz, nie istnieje lub została przeniesiona.",
+    "backHome": "Powrót do strony głównej"
+  },
+  "errors": {
+    "notFound": {
+      "title": "Strona nie została znaleziona",
+      "description": "Strona, której szukasz, nie istnieje lub mogła zostać przeniesiona."
+    },
+    "forbidden": {
+      "title": "Odmowa dostępu",
+      "description": "Nie masz uprawnień do wyświetlenia tej strony."
+    },
+    "serverError": {
+      "title": "Coś poszło nie tak",
+      "description": "Wystąpił nieoczekiwany błąd. Spróbuj ponownie za chwilę."
+    },
+    "generic": {
+      "title": "Coś poszło nie tak",
+      "description": "Wystąpił nieoczekiwany błąd. Spróbuj ponownie za chwilę."
+    },
+    "actions": {
+      "backToCompliancePortal": "Powrót do Portalu Zgodności",
+      "tryAgain": "Spróbuj ponownie",
+      "contactSupport": "Skontaktuj się z pomocą",
+      "requestAccess": "Poproś o dostęp"
+    },
+    "inline": {
+      "message": "Nie można wczytać treści",
+      "retry": "Spróbuj ponownie"
+    }
+  },
+  "footer": {
+    "poweredBy": "Obsługiwane przez"
+  },
+  "pagination": {
+    "previous": "Poprzednia strona",
+    "next": "Następna strona"
+  },
+  "locale": {
+    "label": "Język",
+    "updateFailed": "Nie udało się zaktualizować języka",
+    "mismatch": {
+      "message": "Przeglądasz tę stronę w języku: {{language}}.",
+      "switchToMine": "Przełącz na {{language}}",
+      "useThis": "Użyj {{language}} jako mojego języka",
+      "dismiss": "Zamknij"
+    }
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "Podpisz umowę o zachowaniu poufności, aby uzyskać dostęp do prywatnych dokumentów.",
+      "sign": "Przejrzyj i podpisz",
+      "dismiss": "Zamknij"
+    }
+  }
+}

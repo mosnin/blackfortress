@@ -1,0 +1,210 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"github.com/jackc/pgx/v5"
+	"go.probo.inc/probo/pkg/gid"
+)
+
+type TrackerPatternFilter struct {
+	matchType          *TrackerPatternMatchType
+	cookieCategoryID   *gid.GID
+	excluded           *bool
+	query              *string
+	patternKeyword     *string
+	source             *CookieSource
+	trackerType        *TrackerType
+	commonThirdPartyID *gid.GID
+}
+
+func NewTrackerPatternFilter(
+	matchType *TrackerPatternMatchType,
+	cookieCategoryID *gid.GID,
+	excluded *bool,
+) *TrackerPatternFilter {
+	return &TrackerPatternFilter{
+		matchType:        matchType,
+		cookieCategoryID: cookieCategoryID,
+		excluded:         excluded,
+	}
+}
+
+func (f *TrackerPatternFilter) WithQuery(query *string) *TrackerPatternFilter {
+	f.query = query
+	return f
+}
+
+// WithPatternKeyword restricts the result to patterns whose pattern or
+// display name contains keyword (case-insensitive). It differs from
+// WithQuery, which matches display name or description: this targets the
+// raw pattern so operators can select by the matched domain or cookie
+// name. A nil or empty keyword disables the filter.
+func (f *TrackerPatternFilter) WithPatternKeyword(keyword *string) *TrackerPatternFilter {
+	f.patternKeyword = keyword
+	return f
+}
+
+func (f *TrackerPatternFilter) WithSource(source *CookieSource) *TrackerPatternFilter {
+	f.source = source
+	return f
+}
+
+func (f *TrackerPatternFilter) WithTrackerType(trackerType *TrackerType) *TrackerPatternFilter {
+	f.trackerType = trackerType
+	return f
+}
+
+func (f *TrackerPatternFilter) WithCommonThirdPartyID(id *gid.GID) *TrackerPatternFilter {
+	f.commonThirdPartyID = id
+	return f
+}
+
+func (f *TrackerPatternFilter) SQLFragment() string {
+	if f == nil {
+		return "TRUE"
+	}
+
+	return `
+(
+	CASE
+		WHEN @has_match_type_filter::boolean = false THEN TRUE
+		WHEN @has_match_type_filter::boolean = true THEN
+			match_type = @filter_match_type::cookie_pattern_match_type
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @has_cookie_category_id_filter::boolean = false THEN TRUE
+		WHEN @has_cookie_category_id_filter::boolean = true THEN
+			cookie_category_id = @filter_cookie_category_id::text
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @has_excluded_filter::boolean = false THEN TRUE
+		WHEN @has_excluded_filter::boolean = true THEN
+			excluded = @filter_excluded
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @filter_query::text IS NOT NULL AND @filter_query::text != '' THEN
+			(display_name ILIKE '%' || @filter_query || '%'
+			 OR description ILIKE '%' || @filter_query || '%')
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @filter_pattern_keyword::text IS NOT NULL AND @filter_pattern_keyword::text != '' THEN
+			(pattern ILIKE '%' || @filter_pattern_keyword || '%'
+			 OR display_name ILIKE '%' || @filter_pattern_keyword || '%')
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @has_source_filter::boolean = false THEN TRUE
+		WHEN @has_source_filter::boolean = true THEN
+			source = @filter_source::cookie_source
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @has_tracker_type_filter::boolean = false THEN TRUE
+		WHEN @has_tracker_type_filter::boolean = true THEN
+			tracker_type = @filter_tracker_type::tracker_type
+		ELSE TRUE
+	END
+	AND
+	CASE
+		WHEN @has_common_third_party_id_filter::boolean = false THEN TRUE
+		WHEN @has_common_third_party_id_filter::boolean = true THEN
+			common_tracker_pattern_id IN (
+				SELECT id FROM common_tracker_patterns
+				WHERE common_third_party_id = @filter_common_third_party_id::text
+			)
+		ELSE TRUE
+	END
+)`
+}
+
+func (f *TrackerPatternFilter) SQLArguments() pgx.StrictNamedArgs {
+	if f == nil {
+		return pgx.StrictNamedArgs{}
+	}
+
+	args := pgx.StrictNamedArgs{
+		"has_match_type_filter":            false,
+		"filter_match_type":                nil,
+		"has_cookie_category_id_filter":    false,
+		"filter_cookie_category_id":        nil,
+		"has_excluded_filter":              false,
+		"filter_excluded":                  nil,
+		"filter_query":                     nil,
+		"filter_pattern_keyword":           nil,
+		"has_source_filter":                false,
+		"filter_source":                    nil,
+		"has_tracker_type_filter":          false,
+		"filter_tracker_type":              nil,
+		"has_common_third_party_id_filter": false,
+		"filter_common_third_party_id":     nil,
+	}
+
+	if f.matchType != nil {
+		args["has_match_type_filter"] = true
+		args["filter_match_type"] = string(*f.matchType)
+	}
+
+	if f.cookieCategoryID != nil {
+		args["has_cookie_category_id_filter"] = true
+		args["filter_cookie_category_id"] = *f.cookieCategoryID
+	}
+
+	if f.excluded != nil {
+		args["has_excluded_filter"] = true
+		args["filter_excluded"] = *f.excluded
+	}
+
+	if f.query != nil {
+		args["filter_query"] = *f.query
+	}
+
+	if f.patternKeyword != nil {
+		args["filter_pattern_keyword"] = *f.patternKeyword
+	}
+
+	if f.source != nil {
+		args["has_source_filter"] = true
+		args["filter_source"] = string(*f.source)
+	}
+
+	if f.trackerType != nil {
+		args["has_tracker_type_filter"] = true
+		args["filter_tracker_type"] = string(*f.trackerType)
+	}
+
+	if f.commonThirdPartyID != nil {
+		args["has_common_third_party_id_filter"] = true
+		args["filter_common_third_party_id"] = *f.commonThirdPartyID
+	}
+
+	return args
+}

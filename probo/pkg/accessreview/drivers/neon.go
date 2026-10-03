@@ -1,0 +1,276 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package drivers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+const (
+	neonOrganizationsPath = "organizations"
+	neonMembersPath       = "members"
+
+	// neonMembersPageLimit is the largest page size the Neon
+	// list-members endpoint documents (limit: 1..500).
+	neonMembersPageLimit = "500"
+)
+
+type NeonDriver struct {
+	httpClient     *http.Client
+	organizationID string
+	baseURL        string
+}
+
+var _ Driver = (*NeonDriver)(nil)
+
+type neonMembersResponse struct {
+	Members    []neonOrgMember `json:"members"`
+	Pagination struct {
+		Next string `json:"next"`
+	} `json:"pagination"`
+}
+
+type neonOrgMember struct {
+	Member struct {
+		ID       string `json:"id"`
+		UserID   string `json:"user_id"`
+		Role     string `json:"role"`
+		JoinedAt string `json:"joined_at"`
+	} `json:"member"`
+	User struct {
+		Email         string `json:"email"`
+		HasMFA        *bool  `json:"has_mfa"`
+		DeactivatedAt string `json:"deactivated_at"`
+	} `json:"user"`
+}
+
+// NewNeonDriver builds a driver against baseURL, the versioned Neon API
+// origin (e.g. https://console.neon.tech/api/v2).
+func NewNeonDriver(httpClient *http.Client, organizationID, baseURL string) *NeonDriver {
+	return &NeonDriver{
+		httpClient:     httpClient,
+		organizationID: organizationID,
+		baseURL:        baseURL,
+	}
+}
+
+func (d *NeonDriver) ListAccounts(ctx context.Context) ([]AccountRecord, error) {
+	var (
+		records []AccountRecord
+		cursor  string
+	)
+
+	for range maxPaginationPages {
+		resp, err := d.queryMembers(ctx, cursor)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, m := range resp.Members {
+			if m.User.Email == "" {
+				continue
+			}
+
+			records = append(records, AccountRecord{
+				Email: m.User.Email,
+				// The members endpoint exposes no display name;
+				// fall back to the email.
+				FullName: m.User.Email,
+				Roles:    neonRoles(m.Member.Role),
+				// deactivated_at is absent for active accounts.
+				Active:      new(m.User.DeactivatedAt == ""),
+				IsAdmin:     new(neonIsAdmin(m.Member.Role)),
+				MFAStatus:   neonMFAStatus(m.User.HasMFA),
+				AuthMethod:  coredata.AccessReviewEntryAuthMethodUnknown,
+				AccountType: coredata.AccessReviewEntryAccountTypeUser,
+				ExternalID:  neonExternalID(m),
+				CreatedAt:   parseRFC3339Ptr(m.Member.JoinedAt),
+			})
+		}
+
+		if resp.Pagination.Next == "" {
+			return records, nil
+		}
+
+		cursor = resp.Pagination.Next
+	}
+
+	return nil, fmt.Errorf("cannot list all neon accounts: %w", ErrPaginationLimitReached)
+}
+
+func (d *NeonDriver) queryMembers(ctx context.Context, cursor string) (*neonMembersResponse, error) {
+	endpoint, err := url.JoinPath(
+		d.baseURL,
+		neonOrganizationsPath,
+		url.PathEscape(d.organizationID),
+		neonMembersPath,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build neon members URL: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create neon members request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	q := req.URL.Query()
+	q.Set("limit", neonMembersPageLimit)
+
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
+
+	req.URL.RawQuery = q.Encode()
+
+	httpResp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot execute neon members request: %w", err)
+	}
+
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("cannot fetch neon members: unexpected status %d", httpResp.StatusCode)
+	}
+
+	var resp neonMembersResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("cannot decode neon members response: %w", err)
+	}
+
+	return &resp, nil
+}
+
+// neonRoles maps Neon's lowercase member roles to their display form,
+// passing unknown values through unchanged.
+func neonRoles(role string) []string {
+	if role == "" {
+		return []string{}
+	}
+
+	switch strings.ToLower(role) {
+	case "admin":
+		return []string{"Admin"}
+	case "member":
+		return []string{"Member"}
+	case "editor":
+		return []string{"Editor"}
+	case "viewer":
+		return []string{"Viewer"}
+	case "collaborator":
+		return []string{"Collaborator"}
+	default:
+		return []string{role}
+	}
+}
+
+func neonIsAdmin(role string) bool {
+	return strings.EqualFold(role, "admin")
+}
+
+func neonMFAStatus(hasMFA *bool) coredata.MFAStatus {
+	switch {
+	case hasMFA == nil:
+		return coredata.MFAStatusUnknown
+	case *hasMFA:
+		return coredata.MFAStatusEnabled
+	default:
+		return coredata.MFAStatusDisabled
+	}
+}
+
+// neonExternalID prefers the stable Neon account UUID over the
+// membership ID.
+func neonExternalID(m neonOrgMember) string {
+	if m.Member.UserID != "" {
+		return m.Member.UserID
+	}
+
+	return m.Member.ID
+}
+
+// neonNameResolver resolves the Neon organization name.
+type neonNameResolver struct {
+	httpClient     *http.Client
+	organizationID string
+	baseURL        string
+}
+
+func NewNeonNameResolver(httpClient *http.Client, organizationID, baseURL string) NameResolver {
+	return &neonNameResolver{
+		httpClient:     httpClient,
+		organizationID: organizationID,
+		baseURL:        baseURL,
+	}
+}
+
+func (r *neonNameResolver) ResolveInstanceName(ctx context.Context) (string, error) {
+	if r.organizationID == "" {
+		return "", nil
+	}
+
+	endpoint, err := url.JoinPath(r.baseURL, neonOrganizationsPath, url.PathEscape(r.organizationID))
+	if err != nil {
+		return "", fmt.Errorf("cannot build neon organization URL: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("cannot create neon organization request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	httpResp, err := r.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("cannot execute neon organization request: %w", err)
+	}
+
+	defer func() { _ = httpResp.Body.Close() }()
+
+	// Best-effort: a non-2xx (revoked key, deleted org, stale ID) must not
+	// make the source-name worker retry forever. Give up gracefully and keep
+	// the generic source name; a dead key surfaces on the next ListAccounts.
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return "", nil
+	}
+
+	var resp struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return "", fmt.Errorf("cannot decode neon organization response: %w", err)
+	}
+
+	return resp.Name, nil
+}

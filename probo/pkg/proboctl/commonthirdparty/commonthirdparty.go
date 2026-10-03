@@ -1,0 +1,251 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package commonthirdparty
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/spf13/cobra"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/page"
+	"go.probo.inc/probo/pkg/proboctl/cmdutil"
+)
+
+// NewCmdCommonThirdParty is the entry point for inspecting, re-enriching,
+// and cleaning up the global common third party catalog.
+//
+// The catalog is global and referenced from every tenant, so the cleanup
+// commands are ordered by how recoverable they are: find-duplicates only
+// reports, merge preserves references by moving them, and prune deletes only
+// what nothing references. rename and set-slug exist for the case merge must
+// not be used for — two entries that are genuinely different vendors, one of
+// them misnamed.
+func NewCmdCommonThirdParty(f *cmdutil.Factory) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "common-third-party <command>",
+		Aliases: []string{"ctp3"},
+		Short:   "Inspect, re-enrich, and clean up the global common third party catalog",
+	}
+
+	cmd.AddCommand(newCmdList(f))
+	cmd.AddCommand(newCmdShow(f))
+	cmd.AddCommand(newCmdDomains(f))
+	cmd.AddCommand(newCmdUpsert(f))
+	cmd.AddCommand(newCmdReenrich(f))
+	cmd.AddCommand(newCmdStats(f))
+	cmd.AddCommand(newCmdFindDuplicates(f))
+	cmd.AddCommand(newCmdMerge(f))
+	cmd.AddCommand(newCmdPrune(f))
+	cmd.AddCommand(newCmdRename(f))
+	cmd.AddCommand(newCmdSetSlug(f))
+	cmd.AddCommand(newCmdReview(f))
+
+	return cmd
+}
+
+// enrichmentState classifies a common third party's position in the
+// enrichment lifecycle for display. A row that has been through the
+// workflow (it carries an enrichment payload) reads "enriched" only when
+// every field the last run recorded an outcome for resolved a value;
+// otherwise it reads "partial (X/Y)".
+func enrichmentState(p *coredata.CommonThirdParty) string {
+	switch {
+	case p.EnrichmentRequestedAt != nil:
+		return "queued"
+	case len(p.Enrichment) > 0:
+		resolved, total := enrichmentCompleteness(p)
+		if total == 0 || resolved == total {
+			return "enriched"
+		}
+
+		return fmt.Sprintf("partial (%d/%d)", resolved, total)
+	default:
+		return "unenriched"
+	}
+}
+
+// resolvedFieldStatuses are the per-field enrichment statuses that carry a
+// value, as opposed to not_found / low_confidence.
+var resolvedFieldStatuses = map[string]struct{}{
+	"found":                 {},
+	"exists_external":       {},
+	"fallback_display_name": {},
+}
+
+// enrichmentCompleteness counts how many of the fields the last enrichment
+// run recorded an outcome for resolved a value (X) versus the total it
+// recorded (Y), parsed from the enrichment payload's per-field provenance.
+func enrichmentCompleteness(p *coredata.CommonThirdParty) (resolved, total int) {
+	if len(p.Enrichment) == 0 {
+		return 0, 0
+	}
+
+	var meta struct {
+		Fields map[string]struct {
+			Status string `json:"status"`
+		} `json:"fields"`
+	}
+
+	if err := json.Unmarshal(p.Enrichment, &meta); err != nil {
+		return 0, 0
+	}
+
+	for _, f := range meta.Fields {
+		total++
+
+		if _, ok := resolvedFieldStatuses[f.Status]; ok {
+			resolved++
+		}
+	}
+
+	return resolved, total
+}
+
+// enrichmentStatus returns the run-level status recorded in the
+// enrichment payload (done, partial, failed), or an empty string when
+// the row has never been enriched or the payload is malformed.
+func enrichmentStatus(p *coredata.CommonThirdParty) string {
+	if len(p.Enrichment) == 0 {
+		return ""
+	}
+
+	var meta struct {
+		Status string `json:"status"`
+	}
+
+	if err := json.Unmarshal(p.Enrichment, &meta); err != nil {
+		return ""
+	}
+
+	return meta.Status
+}
+
+// parseEnrichmentState maps the --state flag to a coredata enrichment
+// state.
+func parseEnrichmentState(value string) (coredata.CommonThirdPartyEnrichmentState, error) {
+	switch value {
+	case "queued":
+		return coredata.CommonThirdPartyEnrichmentStateQueued, nil
+	case "enriched":
+		return coredata.CommonThirdPartyEnrichmentStateEnriched, nil
+	case "unenriched":
+		return coredata.CommonThirdPartyEnrichmentStateUnenriched, nil
+	default:
+		return "", fmt.Errorf("invalid --state value %q: valid values are queued, enriched, unenriched", value)
+	}
+}
+
+// validEnrichmentStatuses are the run-level statuses the enrichment
+// worker records in the payload.
+var validEnrichmentStatuses = map[string]struct{}{
+	"done":    {},
+	"partial": {},
+	"failed":  {},
+}
+
+// resolveCommonThirdPartyID accepts either a common third party GID or a
+// slug and returns the corresponding id.
+func resolveCommonThirdPartyID(ctx context.Context, conn pg.Querier, value string) (gid.GID, error) {
+	if id, err := gid.ParseGID(value); err == nil {
+		return id, nil
+	}
+
+	var party coredata.CommonThirdParty
+	if err := party.LoadBySlug(ctx, conn, value); err != nil {
+		if errors.Is(err, coredata.ErrResourceNotFound) {
+			return gid.GID{}, fmt.Errorf("no common third party found for %q (pass a slug or GID)", value)
+		}
+
+		return gid.GID{}, fmt.Errorf("cannot resolve common third party %q: %w", value, err)
+	}
+
+	return party.ID, nil
+}
+
+// resolveCommonThirdParty loads a common third party by GID or slug.
+func resolveCommonThirdParty(ctx context.Context, conn pg.Querier, value string) (coredata.CommonThirdParty, error) {
+	var party coredata.CommonThirdParty
+
+	if id, err := gid.ParseGID(value); err == nil {
+		if err := party.LoadByID(ctx, conn, id); err != nil {
+			if errors.Is(err, coredata.ErrResourceNotFound) {
+				return party, fmt.Errorf("no common third party found for %q", value)
+			}
+
+			return party, fmt.Errorf("cannot load common third party: %w", err)
+		}
+
+		return party, nil
+	}
+
+	if err := party.LoadBySlug(ctx, conn, value); err != nil {
+		if errors.Is(err, coredata.ErrResourceNotFound) {
+			return party, fmt.Errorf("no common third party found for %q (pass a slug or GID)", value)
+		}
+
+		return party, fmt.Errorf("cannot load common third party: %w", err)
+	}
+
+	return party, nil
+}
+
+// parseOrderBy maps the --sort/--order flags to a page.OrderBy. Name
+// defaults to ascending; the time fields default to descending.
+func parseOrderBy(sort, order string) (page.OrderBy[coredata.CommonThirdPartyOrderField], error) {
+	var (
+		field       coredata.CommonThirdPartyOrderField
+		defaultDesc bool
+		zero        page.OrderBy[coredata.CommonThirdPartyOrderField]
+	)
+
+	switch sort {
+	case "name":
+		field = coredata.CommonThirdPartyOrderFieldName
+	case "created":
+		field, defaultDesc = coredata.CommonThirdPartyOrderFieldCreatedAt, true
+	case "updated":
+		field, defaultDesc = coredata.CommonThirdPartyOrderFieldUpdatedAt, true
+	default:
+		return zero, fmt.Errorf("invalid --sort value %q: valid values are name, created, updated", sort)
+	}
+
+	direction := page.OrderDirectionAsc
+	if defaultDesc {
+		direction = page.OrderDirectionDesc
+	}
+
+	switch order {
+	case "":
+	case "asc":
+		direction = page.OrderDirectionAsc
+	case "desc":
+		direction = page.OrderDirectionDesc
+	default:
+		return zero, fmt.Errorf("invalid --order value %q: valid values are asc, desc", order)
+	}
+
+	return page.OrderBy[coredata.CommonThirdPartyOrderField]{Field: field, Direction: direction}, nil
+}

@@ -1,0 +1,139 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package drivers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"time"
+
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+type ResendDriver struct {
+	httpClient *http.Client
+	baseURL    string
+}
+
+var _ Driver = (*ResendDriver)(nil)
+
+type resendAPIKeysResponse struct {
+	Data []struct {
+		ID         string  `json:"id"`
+		Name       string  `json:"name"`
+		CreatedAt  string  `json:"created_at"`
+		LastUsedAt *string `json:"last_used_at"`
+	} `json:"data"`
+}
+
+const resendAPIKeysPath = "/api-keys"
+
+func NewResendDriver(httpClient *http.Client, baseURL string) *ResendDriver {
+	return &ResendDriver{
+		httpClient: httpClient,
+		baseURL:    baseURL,
+	}
+}
+
+func (d *ResendDriver) ListAccounts(ctx context.Context) ([]AccountRecord, error) {
+	resp, err := d.fetchAPIKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var records []AccountRecord
+
+	for _, k := range resp.Data {
+		record := AccountRecord{
+			FullName:    k.Name,
+			ExternalID:  k.ID,
+			MFAStatus:   coredata.MFAStatusUnknown,
+			AuthMethod:  coredata.AccessReviewEntryAuthMethodUnknown,
+			AccountType: coredata.AccessReviewEntryAccountTypeServiceAccount,
+		}
+
+		if k.CreatedAt != "" {
+			if t, err := time.Parse(time.RFC3339, k.CreatedAt); err == nil {
+				record.CreatedAt = &t
+			}
+		}
+
+		if k.LastUsedAt != nil {
+			if t, err := time.Parse(time.RFC3339, *k.LastUsedAt); err == nil {
+				record.LastLogin = &t
+			}
+		}
+
+		if record.FullName != "" || record.Email != "" {
+			records = append(records, record)
+		}
+	}
+
+	return records, nil
+}
+
+func (d *ResendDriver) fetchAPIKeys(ctx context.Context) (*resendAPIKeysResponse, error) {
+	endpoint, err := url.JoinPath(d.baseURL, resendAPIKeysPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build resend api-keys URL: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create resend api-keys request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	httpResp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot execute resend api-keys request: %w", err)
+	}
+
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("cannot fetch resend api-keys: unexpected status %d", httpResp.StatusCode)
+	}
+
+	var resp resendAPIKeysResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("cannot decode resend api-keys response: %w", err)
+	}
+
+	return &resp, nil
+}
+
+// resendNameResolver returns a static name for Resend.
+type resendNameResolver struct{}
+
+func NewResendNameResolver() NameResolver {
+	return &resendNameResolver{}
+}
+
+func (r *resendNameResolver) ResolveInstanceName(_ context.Context) (string, error) {
+	return "Resend", nil
+}

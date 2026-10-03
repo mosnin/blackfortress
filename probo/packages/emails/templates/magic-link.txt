@@ -1,0 +1,12 @@
+Probo
+
+Hi {{.RecipientFullName}},
+
+Please use this link to connect to {{.OrganizationName}}'s Compliance Page:
+
+{{.MagicLinkURL}}
+
+IMPORTANT: This link expires in {{.DurationInMinutes}} minutes. Use it promptly after receiving this email.
+
+{{.SenderCompanyHeadquarterAddress}}
+Powered By Prob

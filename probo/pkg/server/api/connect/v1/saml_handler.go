@@ -1,0 +1,210 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package connect_v1
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+
+	"github.com/go-chi/chi/v5"
+	"go.gearno.de/kit/httpserver"
+	"go.gearno.de/kit/log"
+	"go.probo.inc/probo/pkg/baseurl"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam"
+	"go.probo.inc/probo/pkg/saferedirect"
+	"go.probo.inc/probo/pkg/securecookie"
+	"go.probo.inc/probo/pkg/server/api/authn"
+)
+
+type SAMLHandler struct {
+	iam           *iam.Service
+	sessionCookie *authn.Cookie
+	baseURL       *baseurl.BaseURL
+	logger        *log.Logger
+	safeRedirect  *saferedirect.SafeRedirect
+}
+
+func NewSAMLHandler(iam *iam.Service, cookieConfig securecookie.Config, baseURL *baseurl.BaseURL, logger *log.Logger) *SAMLHandler {
+	return &SAMLHandler{
+		iam:           iam,
+		sessionCookie: authn.NewCookie(&cookieConfig),
+		baseURL:       baseURL,
+		logger:        logger,
+		safeRedirect:  saferedirect.New(saferedirect.StaticHosts(baseURL.Host())),
+	}
+}
+
+func (h *SAMLHandler) renderInternalServerError(w http.ResponseWriter) {
+	httpserver.RenderError(w, http.StatusInternalServerError, errors.New("internal server error"))
+}
+
+func (h *SAMLHandler) continueURLFromRelayState(ctx context.Context, relayState string) string {
+	if len(relayState) <= gid.EncodedGIDSize {
+		return ""
+	}
+
+	unescapedContinueURL, err := url.QueryUnescape(relayState[gid.EncodedGIDSize:])
+	if err != nil {
+		return ""
+	}
+
+	safeContinue, ok := h.safeRedirect.Validate(ctx, unescapedContinueURL)
+	if !ok {
+		return ""
+	}
+
+	return safeContinue
+}
+
+func (h *SAMLHandler) renderAssertionError(w http.ResponseWriter, r *http.Request, relayState string, err error) {
+	h.logger.ErrorCtx(r.Context(), "cannot handle SAML assertion", log.Error(err))
+	continueURL := h.continueURLFromRelayState(r.Context(), relayState)
+	redirectAuthError(w, r, authErrorAuthenticationFailed, continueURL)
+}
+
+func (h *SAMLHandler) MetadataHandler(w http.ResponseWriter, r *http.Request) {
+	metadataXML, err := h.iam.SAMLService.GenerateSpMetadata()
+	if err != nil {
+		panic(fmt.Errorf("cannot generate metadata: %w", err))
+	}
+
+	w.Header().Set("Content-Type", "application/samlmetadata+xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(metadataXML)
+}
+
+func (h *SAMLHandler) ConsumeHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	err := r.ParseForm()
+	if err != nil {
+		httpserver.RenderError(w, http.StatusBadRequest, errors.New("cannot parse form"))
+		return
+	}
+
+	samlResponse := r.FormValue("SAMLResponse")
+	relayState := r.FormValue("RelayState")
+
+	if len(relayState) < gid.EncodedGIDSize {
+		httpserver.RenderError(w, http.StatusBadRequest, errors.New("invalid relay state"))
+		return
+	}
+
+	configIDStr := relayState[:gid.EncodedGIDSize]
+	if configIDStr == "" {
+		httpserver.RenderError(w, http.StatusBadRequest, errors.New("missing config ID"))
+		return
+	}
+
+	configID, err := gid.ParseGID(configIDStr)
+	if err != nil {
+		httpserver.RenderError(w, http.StatusBadRequest, errors.New("invalid config ID"))
+		return
+	}
+
+	user, membership, err := h.iam.SAMLService.HandleAssertion(ctx, samlResponse, configID)
+	if err != nil {
+		h.renderAssertionError(w, r, relayState, err)
+
+		return
+	}
+
+	continueURL := "/organizations/" + membership.OrganizationID.String()
+
+	if len(relayState) > gid.EncodedGIDSize {
+		unescapedContinueURL, err := url.QueryUnescape(relayState[gid.EncodedGIDSize:])
+		if err != nil {
+			h.logger.WarnCtx(ctx, "cannot unescape continue URL from RelayState", log.Error(err))
+		} else {
+			continueURL = unescapedContinueURL
+		}
+	}
+
+	rootSession := authn.SessionFromContext(ctx)
+
+	switch {
+	case rootSession == nil:
+		rootSession, err = h.iam.AuthService.OpenSessionWithSAML(ctx, user.ID)
+		if err != nil {
+			h.logger.ErrorCtx(ctx, "cannot open root session", log.Error(err))
+			h.renderInternalServerError(w)
+
+			return
+		}
+	case rootSession.IdentityID != user.ID:
+		err = h.iam.SessionService.CloseSession(ctx, rootSession.ID)
+		if err != nil {
+			h.logger.ErrorCtx(ctx, "cannot close session", log.Error(err))
+			h.renderInternalServerError(w)
+
+			return
+		}
+
+		rootSession, err = h.iam.AuthService.OpenSessionWithSAML(ctx, user.ID)
+		if err != nil {
+			h.logger.ErrorCtx(ctx, "cannot open root session", log.Error(err))
+			h.renderInternalServerError(w)
+
+			return
+		}
+	}
+
+	_, _, err = h.iam.SessionService.OpenSAMLChildSessionForOrganization(ctx, rootSession.ID, membership.OrganizationID)
+	if err != nil {
+		h.logger.ErrorCtx(ctx, "cannot open SAML child session", log.Error(err))
+		h.renderInternalServerError(w)
+
+		return
+	}
+
+	h.sessionCookie.Set(w, rootSession)
+
+	h.safeRedirect.Redirect(w, r, continueURL, "/organizations/"+membership.OrganizationID.String(), http.StatusFound)
+}
+
+func (h *SAMLHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	samlConfigIDParam := chi.URLParam(r, "samlConfigID")
+	if samlConfigIDParam == "" {
+		httpserver.RenderError(w, http.StatusBadRequest, errors.New("missing SAML config ID"))
+		return
+	}
+
+	continueURLQueryParam := r.URL.Query().Get("continue")
+
+	samlConfigID, err := gid.ParseGID(samlConfigIDParam)
+	if err != nil {
+		httpserver.RenderError(w, http.StatusBadRequest, errors.New("invalid SAML config ID"))
+		return
+	}
+
+	url, err := h.iam.SAMLService.InitiateLogin(ctx, samlConfigID, continueURLQueryParam)
+	if err != nil {
+		panic(fmt.Errorf("cannot initiate SAML login: %w", err))
+	}
+
+	http.Redirect(w, r, url.String(), http.StatusFound)
+}

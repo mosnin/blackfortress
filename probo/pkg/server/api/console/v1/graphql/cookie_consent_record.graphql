@@ -1,0 +1,267 @@
+# Copyright (c) 2026 Probo Inc <hello@probo.com>.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+enum CookieConsentAction
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.CookieConsentAction") {
+    ACCEPT_ALL
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CookieConsentActionAcceptAll"
+        )
+    REJECT_ALL
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CookieConsentActionRejectAll"
+        )
+    CUSTOMIZE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CookieConsentActionCustomize"
+        )
+    GPC
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CookieConsentActionGPC"
+        )
+    ACKNOWLEDGE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CookieConsentActionAcknowledge"
+        )
+}
+
+enum Regulation
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.Regulation") {
+    NONE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationNone"
+        )
+    GDPR
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationGDPR"
+        )
+    UK_GDPR
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationUKGDPR"
+        )
+    FADP
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationFADP"
+        )
+    CCPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationCCPA"
+        )
+    VCDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationVCDPA"
+        )
+    CPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationCPA"
+        )
+    CTDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationCTDPA"
+        )
+    UCPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationUCPA"
+        )
+    TDPSA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationTDPSA"
+        )
+    OCPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationOCPA"
+        )
+    MTCDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationMTCDPA"
+        )
+    FDBR
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationFDBR"
+        )
+    IA_ICDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationIAICDPA"
+        )
+    DE_DPDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationDEPDPA"
+        )
+    NHPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationNHPA"
+        )
+    NE_NDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationNENDPA"
+        )
+    NJDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationNJDPA"
+        )
+    TIPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationTIPA"
+        )
+    MNDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationMNDPA"
+        )
+    MODPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationMODPA"
+        )
+    IN_ICDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationINCDPA"
+        )
+    KCDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationKCDPA"
+        )
+    RIDTPPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationRIDTPPA"
+        )
+    PIPEDA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationPIPEDA"
+        )
+    PIPA_AB
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationPIPAAB"
+        )
+    PIPA_BC
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationPIPABC"
+        )
+    PIPA_CA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationPIPACA"
+        )
+    LAW_25
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationLaw25"
+        )
+    LGPD
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationLGPD"
+        )
+    LFPDPPP
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationLFPDPPP"
+        )
+    POPIA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationPOPIA"
+        )
+    PDPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationPDPA"
+        )
+    PIPL
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationPIPL"
+        )
+    PIPA
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationPIPA"
+        )
+    APPI
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationAPPI"
+        )
+    DPDP
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationDPDP"
+        )
+    PDPL
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationPDPL"
+        )
+}
+
+enum RegulationSource
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.RegulationSource") {
+    DETECTED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationSourceDetected"
+        )
+    DEFAULT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.RegulationSourceDefault"
+        )
+}
+
+enum CookieConsentRecordOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CookieConsentRecordOrderField"
+    ) {
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CookieConsentRecordOrderFieldCreatedAt"
+        )
+}
+
+input CookieConsentRecordOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CookieConsentRecordOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: CookieConsentRecordOrderField!
+}
+
+input CookieConsentRecordFilter {
+    action: CookieConsentAction
+    visitorId: String
+    version: Int
+}
+
+type CookieConsentRecord implements Node {
+    id: ID!
+    cookieBanner: CookieBanner @goField(forceResolver: true)
+    cookieBannerVersion: CookieBannerVersion @goField(forceResolver: true)
+    visitorId: String!
+    ipAddress: String
+    userAgent: String
+    consentData: String!
+    action: CookieConsentAction!
+    sdkVersion: String!
+    regulation: Regulation
+    regulationSource: RegulationSource
+    countryCode: CountryCode
+    subdivisionCode: String
+    tc: String
+    createdAt: Datetime!
+}
+
+type CookieConsentRecordConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CookieConsentRecordConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [CookieConsentRecordEdge!]!
+    pageInfo: PageInfo!
+}
+
+type CookieConsentRecordEdge {
+    cursor: CursorKey!
+    node: CookieConsentRecord!
+}

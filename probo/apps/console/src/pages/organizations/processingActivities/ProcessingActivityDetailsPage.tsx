@@ -1,0 +1,1070 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { formatError, type GraphQLError } from "@probo/helpers";
+import {
+  formatDatetime,
+  toDateInput,
+} from "@probo/helpers";
+import {
+  ActionDropdown,
+  Button,
+  Card,
+  Checkbox,
+  DropdownItem,
+  Field,
+  Input,
+  Label,
+  Option,
+  Select,
+  TabItem,
+  Tabs,
+  Textarea,
+  useToast,
+} from "@probo/ui";
+import { useEffect, useState } from "react";
+import { Controller, useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
+import {
+  ConnectionHandler,
+  type PreloadedQuery,
+  usePreloadedQuery,
+} from "react-relay";
+
+import type { ProcessingActivityGraphNodeQuery } from "#/__generated__/core/ProcessingActivityGraphNodeQuery.graphql";
+import { PeopleSelectField } from "#/components/form/PeopleSelectField";
+import { ThirdPartiesMultiSelectField } from "#/components/form/ThirdPartiesMultiSelectField";
+import { useFormWithSchema } from "#/hooks/useFormWithSchema";
+import { useOrganizationId } from "#/hooks/useOrganizationId";
+import { z } from "#/lib/zod";
+
+import {
+  DataProtectionImpactAssessmentOptions,
+  LawfulBasisOptions,
+  RoleOptions,
+  SpecialOrCriminalDataOptions,
+  TransferImpactAssessmentOptions,
+  TransferSafeguardsOptions,
+} from "../../../components/form/ProcessingActivityEnumOptions";
+import {
+  ProcessingActivitiesConnectionKey,
+  type ProcessingActivityDPIAResidualRisk,
+  processingActivityNodeQuery,
+  useCreateDataProtectionImpactAssessment,
+  useCreateTransferImpactAssessment,
+  useDeleteDataProtectionImpactAssessment,
+  useDeleteProcessingActivity,
+  useDeleteTransferImpactAssessment,
+  useUpdateDataProtectionImpactAssessment,
+  useUpdateProcessingActivity,
+  useUpdateTransferImpactAssessment,
+} from "../../../hooks/graph/ProcessingActivityGraph";
+
+type Props = {
+  queryRef: PreloadedQuery<ProcessingActivityGraphNodeQuery>;
+};
+
+export default function ProcessingActivityDetailsPage(props: Props) {
+  const { node: activity }
+    = usePreloadedQuery<ProcessingActivityGraphNodeQuery>(
+      processingActivityNodeQuery,
+      props.queryRef,
+    );
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const organizationId = useOrganizationId();
+  const updateProcessingActivitySchema = z.object({
+    name: z.string().min(1, t("processingActivityDetailsPage.validation.nameRequired")),
+    purpose: z.string().optional(),
+    dataSubjectCategory: z.string().optional(),
+    personalDataCategory: z.string().optional(),
+    specialOrCriminalData: z.enum(["YES", "NO", "POSSIBLE"] as const),
+    consentEvidenceLink: z.string().optional(),
+    lawfulBasis: z.enum(["CONSENT", "CONTRACTUAL_NECESSITY", "LEGAL_OBLIGATION", "LEGITIMATE_INTEREST", "PUBLIC_TASK", "VITAL_INTERESTS"] as const),
+    recipients: z.string().optional(),
+    location: z.string().optional(),
+    internationalTransfers: z.boolean(),
+    transferSafeguards: z.string(),
+    retentionPeriod: z.string().optional(),
+    securityMeasures: z.string().optional(),
+    dataProtectionImpactAssessmentNeeded: z.enum(["NEEDED", "NOT_NEEDED"] as const),
+    transferImpactAssessmentNeeded: z.enum(["NEEDED", "NOT_NEEDED"] as const),
+    lastReviewDate: z.string().optional(),
+    nextReviewDate: z.string().optional(),
+    role: z.enum(["CONTROLLER", "PROCESSOR"] as const),
+    dataProtectionOfficerId: z.string().optional(),
+    thirdPartyIds: z.array(z.string()).optional(),
+  });
+
+  // Get initial tab from URL hash
+  const getInitialTab = (): "overview" | "dpia" | "tia" => {
+    const hash = window.location.hash.slice(1);
+    if (hash === "dpia" || hash === "tia") return hash;
+    return "overview";
+  };
+
+  const [activeTab, setActiveTab] = useState<"overview" | "dpia" | "tia">(
+    getInitialTab,
+  );
+  const [dpiaSubmitting, setDpiaSubmitting] = useState(false);
+  const [tiaSubmitting, setTiaSubmitting] = useState(false);
+  const [showDpiaForm, setShowDpiaForm] = useState(
+    Boolean(activity?.dataProtectionImpactAssessment?.id),
+  );
+  const [showTiaForm, setShowTiaForm] = useState(
+    Boolean(activity?.transferImpactAssessment?.id),
+  );
+  const [dpiaDeleted, setDpiaDeleted] = useState(false);
+  const [tiaDeleted, setTiaDeleted] = useState(false);
+
+  const canCreateOrUpdateDPIA = activity.dataProtectionImpactAssessment
+    ? activity.dataProtectionImpactAssessment.canUpdate
+    : activity.canCreateDPIA;
+  const canCreateOrUpdateTIA = activity.transferImpactAssessment
+    ? activity.transferImpactAssessment.canUpdate
+    : activity.canCreateTIA;
+
+  useEffect(() => {
+    window.location.hash = activeTab === "overview" ? "" : activeTab;
+  }, [activeTab]);
+
+  const updateActivity = useUpdateProcessingActivity();
+  const createDPIA = useCreateDataProtectionImpactAssessment();
+  const updateDPIA = useUpdateDataProtectionImpactAssessment();
+  const deleteDPIA = useDeleteDataProtectionImpactAssessment(
+    { id: activity?.dataProtectionImpactAssessment?.id || "" },
+    {
+      onSuccess: () => {
+        setDpiaDeleted(true);
+        setShowDpiaForm(false);
+        dpiaForm.reset({
+          description: "",
+          necessityAndProportionality: "",
+          potentialRisk: "",
+          mitigations: "",
+          residualRisk: "",
+        });
+      },
+    },
+  );
+  const createTIA = useCreateTransferImpactAssessment();
+  const updateTIA = useUpdateTransferImpactAssessment();
+  const deleteTIA = useDeleteTransferImpactAssessment(
+    { id: activity?.transferImpactAssessment?.id || "" },
+    {
+      onSuccess: () => {
+        setTiaDeleted(true);
+        setShowTiaForm(false);
+        tiaForm.reset({
+          dataSubjects: "",
+          legalMechanism: "",
+          transfer: "",
+          localLawRisk: "",
+          supplementaryMeasures: "",
+        });
+      },
+    },
+  );
+
+  const connectionId = ConnectionHandler.getConnectionID(
+    organizationId,
+    ProcessingActivitiesConnectionKey,
+  );
+
+  const deleteActivity = useDeleteProcessingActivity(
+    { id: activity.id!, name: activity.name! },
+    connectionId,
+  );
+
+  const thirdParties = activity?.thirdParties?.edges.map(edge => edge.node) ?? [];
+  const thirdPartyIds = thirdParties.map(thirdParty => thirdParty.id);
+
+  const { register, handleSubmit, formState, control } = useFormWithSchema(
+    updateProcessingActivitySchema,
+    {
+      defaultValues: {
+        name: activity.name || "",
+        purpose: activity.purpose || "",
+        dataSubjectCategory: activity.dataSubjectCategory || "",
+        personalDataCategory: activity.personalDataCategory || "",
+        specialOrCriminalData:
+          activity.specialOrCriminalData || ("NO" as const),
+        consentEvidenceLink: activity.consentEvidenceLink || "",
+        lawfulBasis: activity.lawfulBasis || ("LEGITIMATE_INTEREST" as const),
+        recipients: activity.recipients || "",
+        location: activity.location || "",
+        internationalTransfers: activity.internationalTransfers || false,
+        transferSafeguards: activity.transferSafeguards || "__NONE__",
+        retentionPeriod: activity.retentionPeriod || "",
+        securityMeasures: activity.securityMeasures || "",
+        dataProtectionImpactAssessmentNeeded:
+          activity.dataProtectionImpactAssessmentNeeded
+          || ("NOT_NEEDED" as const),
+        transferImpactAssessmentNeeded:
+          activity.transferImpactAssessmentNeeded || ("NOT_NEEDED" as const),
+        lastReviewDate: toDateInput(activity.lastReviewDate),
+        nextReviewDate: toDateInput(activity.nextReviewDate),
+        role: activity.role || ("CONTROLLER" as const),
+        dataProtectionOfficerId: activity.dataProtectionOfficer?.id || "",
+        thirdPartyIds: thirdPartyIds,
+      },
+    },
+  );
+
+  const dpiaForm = useForm({
+    defaultValues: {
+      description: activity?.dataProtectionImpactAssessment?.description || "",
+      necessityAndProportionality:
+        activity?.dataProtectionImpactAssessment?.necessityAndProportionality
+        || "",
+      potentialRisk:
+        activity?.dataProtectionImpactAssessment?.potentialRisk || "",
+      mitigations: activity?.dataProtectionImpactAssessment?.mitigations || "",
+      residualRisk: (activity?.dataProtectionImpactAssessment?.residualRisk
+        || ""),
+    },
+  });
+
+  const tiaForm = useForm({
+    defaultValues: {
+      dataSubjects: activity?.transferImpactAssessment?.dataSubjects || "",
+      legalMechanism: activity?.transferImpactAssessment?.legalMechanism || "",
+      transfer: activity?.transferImpactAssessment?.transfer || "",
+      localLawRisk: activity?.transferImpactAssessment?.localLawRisk || "",
+      supplementaryMeasures:
+        activity?.transferImpactAssessment?.supplementaryMeasures || "",
+    },
+  });
+
+  const onSubmit = handleSubmit(async (formData) => {
+    try {
+      await updateActivity({
+        id: activity.id!,
+        name: formData.name,
+        purpose: formData.purpose || undefined,
+        dataSubjectCategory: formData.dataSubjectCategory || undefined,
+        personalDataCategory: formData.personalDataCategory || undefined,
+        specialOrCriminalData: formData.specialOrCriminalData || undefined,
+        consentEvidenceLink: formData.consentEvidenceLink || undefined,
+        lawfulBasis: formData.lawfulBasis || undefined,
+        recipients: formData.recipients || undefined,
+        location: formData.location || undefined,
+        internationalTransfers: formData.internationalTransfers,
+        transferSafeguards:
+          formData.transferSafeguards === "__NONE__"
+            ? undefined
+            : formData.transferSafeguards || undefined,
+        retentionPeriod: formData.retentionPeriod || undefined,
+        securityMeasures: formData.securityMeasures || undefined,
+        dataProtectionImpactAssessmentNeeded:
+          formData.dataProtectionImpactAssessmentNeeded || undefined,
+        transferImpactAssessmentNeeded:
+          formData.transferImpactAssessmentNeeded || undefined,
+        lastReviewDate: formatDatetime(formData.lastReviewDate) ?? null,
+        nextReviewDate: formatDatetime(formData.nextReviewDate) ?? null,
+        role: formData.role,
+        dataProtectionOfficerId: formData.dataProtectionOfficerId || null,
+        thirdPartyIds: formData.thirdPartyIds,
+      });
+
+      toast({
+        title: t("processingActivityDetailsPage.messages.success"),
+        description: t("processingActivityDetailsPage.messages.activityUpdated"),
+        variant: "success",
+      });
+    } catch (error) {
+      toast({
+        title: t("processingActivityDetailsPage.messages.error"),
+        description: formatError(
+          t("processingActivityDetailsPage.errors.updateActivity"),
+          error as GraphQLError,
+        ),
+        variant: "error",
+      });
+    }
+  });
+
+  const onDPIASubmit = dpiaForm.handleSubmit(async (formData) => {
+    setDpiaSubmitting(true);
+    try {
+      const isCreating
+        = !activity?.dataProtectionImpactAssessment?.id || dpiaDeleted;
+      if (!isCreating) {
+        // Update existing DPIA
+        await updateDPIA({
+          id: activity.dataProtectionImpactAssessment.id,
+          description: formData.description || undefined,
+          necessityAndProportionality:
+            formData.necessityAndProportionality || undefined,
+          potentialRisk: formData.potentialRisk || undefined,
+          mitigations: formData.mitigations || undefined,
+          residualRisk:
+            (formData.residualRisk as ProcessingActivityDPIAResidualRisk)
+            || undefined,
+        });
+        toast({
+          title: t("processingActivityDetailsPage.messages.success"),
+          description: t("processingActivityDetailsPage.messages.dpiaUpdated"),
+          variant: "success",
+        });
+      } else {
+        // Create new DPIA
+        await createDPIA({
+          processingActivityId: activity.id!,
+          description: formData.description || undefined,
+          necessityAndProportionality:
+            formData.necessityAndProportionality || undefined,
+          potentialRisk: formData.potentialRisk || undefined,
+          mitigations: formData.mitigations || undefined,
+          residualRisk:
+            (formData.residualRisk as ProcessingActivityDPIAResidualRisk)
+            || undefined,
+        });
+        setDpiaDeleted(false);
+        setShowDpiaForm(true);
+        toast({
+          title: t("processingActivityDetailsPage.messages.success"),
+          description: t("processingActivityDetailsPage.messages.dpiaCreated"),
+          variant: "success",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: t("processingActivityDetailsPage.messages.error"),
+        description: formatError(
+          t("processingActivityDetailsPage.errors.saveDpia"),
+          error as GraphQLError,
+        ),
+        variant: "error",
+      });
+    } finally {
+      setDpiaSubmitting(false);
+    }
+  });
+
+  const onTIASubmit = tiaForm.handleSubmit(async (formData) => {
+    setTiaSubmitting(true);
+    try {
+      const isCreating = !activity?.transferImpactAssessment?.id || tiaDeleted;
+      if (!isCreating) {
+        // Update existing TIA
+        await updateTIA({
+          id: activity.transferImpactAssessment.id,
+          dataSubjects: formData.dataSubjects || undefined,
+          legalMechanism: formData.legalMechanism || undefined,
+          transfer: formData.transfer || undefined,
+          localLawRisk: formData.localLawRisk || undefined,
+          supplementaryMeasures: formData.supplementaryMeasures || undefined,
+        });
+        toast({
+          title: t("processingActivityDetailsPage.messages.success"),
+          description: t("processingActivityDetailsPage.messages.tiaUpdated"),
+          variant: "success",
+        });
+      } else {
+        // Create new TIA
+        await createTIA({
+          processingActivityId: activity.id!,
+          dataSubjects: formData.dataSubjects || undefined,
+          legalMechanism: formData.legalMechanism || undefined,
+          transfer: formData.transfer || undefined,
+          localLawRisk: formData.localLawRisk || undefined,
+          supplementaryMeasures: formData.supplementaryMeasures || undefined,
+        });
+        setTiaDeleted(false);
+        setShowTiaForm(true);
+        toast({
+          title: t("processingActivityDetailsPage.messages.success"),
+          description: t("processingActivityDetailsPage.messages.tiaCreated"),
+          variant: "success",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: t("processingActivityDetailsPage.messages.error"),
+        description: formatError(
+          t("processingActivityDetailsPage.errors.saveTia"),
+          error as GraphQLError,
+        ),
+        variant: "error",
+      });
+    } finally {
+      setTiaSubmitting(false);
+    }
+  });
+
+  return (
+    <div className="space-y-6">
+      {activity.canDelete && (
+        <div className="flex items-center justify-end">
+          <ActionDropdown>
+            <DropdownItem onClick={deleteActivity} variant="danger">
+              {t("processingActivityDetailsPage.actions.delete")}
+            </DropdownItem>
+          </ActionDropdown>
+        </div>
+      )}
+
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold">{activity.name}</h1>
+      </div>
+
+      <Tabs>
+        <TabItem
+          active={activeTab === "overview"}
+          onClick={() => setActiveTab("overview")}
+        >
+          {t("processingActivityDetailsPage.tabs.overview")}
+        </TabItem>
+        <TabItem
+          active={activeTab === "dpia"}
+          onClick={() => setActiveTab("dpia")}
+        >
+          {t("processingActivityDetailsPage.tabs.dpia")}
+        </TabItem>
+        <TabItem
+          active={activeTab === "tia"}
+          onClick={() => setActiveTab("tia")}
+        >
+          {t("processingActivityDetailsPage.tabs.tia")}
+        </TabItem>
+      </Tabs>
+
+      {activeTab === "overview" && (
+        <Card>
+          <div className="p-6">
+            <form onSubmit={e => void onSubmit(e)} className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <Field
+                    label={t("processingActivityDetailsPage.fields.name")}
+                    {...register("name")}
+                    error={formState.errors.name?.message}
+                    required
+                    disabled={!activity.canUpdate}
+                  />
+
+                  <div>
+                    <Label htmlFor="role">
+                      {t("processingActivityDetailsPage.fields.role")}
+                      {" "}
+                      *
+                    </Label>
+                    <Controller
+                      control={control}
+                      name="role"
+                      render={({ field }) => (
+                        <Select
+                          id="role"
+                          placeholder={t("processingActivityDetailsPage.placeholders.role")}
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          className="w-full"
+                          disabled={!activity.canUpdate}
+                        >
+                          <RoleOptions />
+                        </Select>
+                      )}
+                    />
+                    {formState.errors.role && (
+                      <p className="text-sm text-txt-danger mt-1">
+                        {formState.errors.role.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label>{t("processingActivityDetailsPage.fields.purpose")}</Label>
+                    <Textarea
+                      {...register("purpose")}
+                      placeholder={t("processingActivityDetailsPage.placeholders.purpose")}
+                      rows={3}
+                      disabled={!activity.canUpdate}
+                    />
+                  </div>
+
+                  <Field
+                    label={t("processingActivityDetailsPage.fields.dataSubjectCategory")}
+                    {...register("dataSubjectCategory")}
+                    placeholder={t("processingActivityDetailsPage.placeholders.dataSubjectCategory")}
+                    disabled={!activity.canUpdate}
+                  />
+
+                  <Field
+                    label={t("processingActivityDetailsPage.fields.personalDataCategory")}
+                    {...register("personalDataCategory")}
+                    placeholder={t("processingActivityDetailsPage.placeholders.personalDataCategory")}
+                    disabled={!activity.canUpdate}
+                  />
+
+                  <div>
+                    <Label htmlFor="specialOrCriminalData">
+                      {t("processingActivityDetailsPage.fields.specialOrCriminalData")}
+                      {" "}
+                      *
+                    </Label>
+                    <Controller
+                      control={control}
+                      name="specialOrCriminalData"
+                      render={({ field }) => (
+                        <Select
+                          id="specialOrCriminalData"
+                          placeholder={t("processingActivityDetailsPage.placeholders.specialOrCriminalData")}
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          className="w-full"
+                          disabled={!activity.canUpdate}
+                        >
+                          <SpecialOrCriminalDataOptions />
+                        </Select>
+                      )}
+                    />
+                    {formState.errors.specialOrCriminalData && (
+                      <p className="text-sm text-txt-danger mt-1">
+                        {formState.errors.specialOrCriminalData.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <Field
+                    label={t("processingActivityDetailsPage.fields.consentEvidenceLink")}
+                    {...register("consentEvidenceLink")}
+                    placeholder={t("processingActivityDetailsPage.placeholders.consentEvidenceLink")}
+                    disabled={!activity.canUpdate}
+                  />
+
+                  <div>
+                    <Label htmlFor="lawfulBasis">
+                      {t("processingActivityDetailsPage.fields.lawfulBasis")}
+                      {" "}
+                      *
+                    </Label>
+                    <Controller
+                      control={control}
+                      name="lawfulBasis"
+                      render={({ field }) => (
+                        <Select
+                          id="lawfulBasis"
+                          placeholder={t("processingActivityDetailsPage.placeholders.lawfulBasis")}
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          className="w-full"
+                          disabled={!activity.canUpdate}
+                        >
+                          <LawfulBasisOptions />
+                        </Select>
+                      )}
+                    />
+                    {formState.errors.lawfulBasis && (
+                      <p className="text-sm text-txt-danger mt-1">
+                        {formState.errors.lawfulBasis.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="lastReviewDate">
+                      {t("processingActivityDetailsPage.fields.lastReviewDate")}
+                    </Label>
+                    <Input
+                      id="lastReviewDate"
+                      type="date"
+                      {...register("lastReviewDate")}
+                      disabled={!activity.canUpdate}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="nextReviewDate">
+                      {t("processingActivityDetailsPage.fields.nextReviewDate")}
+                    </Label>
+                    <Input
+                      id="nextReviewDate"
+                      type="date"
+                      {...register("nextReviewDate")}
+                      disabled={!activity.canUpdate}
+                    />
+                  </div>
+
+                  <PeopleSelectField
+                    organizationId={organizationId}
+                    control={control}
+                    name="dataProtectionOfficerId"
+                    label={t("processingActivityDetailsPage.fields.dataProtectionOfficer")}
+                    disabled={!activity.canUpdate}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <Field
+                    label={t("processingActivityDetailsPage.fields.recipients")}
+                    {...register("recipients")}
+                    placeholder={t("processingActivityDetailsPage.placeholders.recipients")}
+                    disabled={!activity.canUpdate}
+                  />
+
+                  <Field
+                    label={t("processingActivityDetailsPage.fields.location")}
+                    {...register("location")}
+                    placeholder={t("processingActivityDetailsPage.placeholders.location")}
+                    disabled={!activity.canUpdate}
+                  />
+
+                  <Controller
+                    control={control}
+                    name="internationalTransfers"
+                    render={({ field }) => (
+                      <div>
+                        <Label>{t("processingActivityDetailsPage.fields.internationalTransfers")}</Label>
+                        <div className="mt-2 flex items-center gap-2">
+                          <Checkbox
+                            checked={field.value ?? false}
+                            onChange={field.onChange}
+                            disabled={!activity.canUpdate}
+                          />
+                          <span>
+                            {t("processingActivityDetailsPage.fields.internationalTransfersDescription")}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  />
+
+                  <div>
+                    <Label htmlFor="transferSafeguards">
+                      {t("processingActivityDetailsPage.fields.transferSafeguards")}
+                    </Label>
+                    <Controller
+                      control={control}
+                      name="transferSafeguards"
+                      render={({ field }) => (
+                        <Select
+                          id="transferSafeguards"
+                          placeholder={t("processingActivityDetailsPage.placeholders.transferSafeguards")}
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          className="w-full"
+                          disabled={!activity.canUpdate}
+                        >
+                          <TransferSafeguardsOptions />
+                        </Select>
+                      )}
+                    />
+                    {formState.errors.transferSafeguards && (
+                      <p className="text-sm text-txt-danger mt-1">
+                        {formState.errors.transferSafeguards.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <Field
+                    label={t("processingActivityDetailsPage.fields.retentionPeriod")}
+                    {...register("retentionPeriod")}
+                    placeholder={t("processingActivityDetailsPage.placeholders.retentionPeriod")}
+                    disabled={!activity.canUpdate}
+                  />
+
+                  <div>
+                    <Label>{t("processingActivityDetailsPage.fields.securityMeasures")}</Label>
+                    <Textarea
+                      {...register("securityMeasures")}
+                      placeholder={t("processingActivityDetailsPage.placeholders.securityMeasures")}
+                      rows={3}
+                      disabled={!activity.canUpdate}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="dataProtectionImpactAssessmentNeeded">
+                      {t("processingActivityDetailsPage.fields.dpiaNeeded")}
+                      {" "}
+                      *
+                    </Label>
+                    <Controller
+                      control={control}
+                      name="dataProtectionImpactAssessmentNeeded"
+                      render={({ field }) => (
+                        <Select
+                          id="dataProtectionImpactAssessmentNeeded"
+                          placeholder={t("processingActivityDetailsPage.placeholders.dpiaNeeded")}
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          className="w-full"
+                          disabled={!activity.canUpdate}
+                        >
+                          <DataProtectionImpactAssessmentOptions />
+                        </Select>
+                      )}
+                    />
+                    {formState.errors.dataProtectionImpactAssessmentNeeded && (
+                      <p className="text-sm text-txt-danger mt-1">
+                        {
+                          formState.errors.dataProtectionImpactAssessmentNeeded
+                            .message
+                        }
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="transferImpactAssessmentNeeded">
+                      {t("processingActivityDetailsPage.fields.tiaNeeded")}
+                      {" "}
+                      *
+                    </Label>
+                    <Controller
+                      control={control}
+                      name="transferImpactAssessmentNeeded"
+                      render={({ field }) => (
+                        <Select
+                          id="transferImpactAssessmentNeeded"
+                          placeholder={t("processingActivityDetailsPage.placeholders.tiaNeeded")}
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          className="w-full"
+                          disabled={!activity.canUpdate}
+                        >
+                          <TransferImpactAssessmentOptions />
+                        </Select>
+                      )}
+                    />
+                    {formState.errors.transferImpactAssessmentNeeded && (
+                      <p className="text-sm text-txt-danger mt-1">
+                        {
+                          formState.errors.transferImpactAssessmentNeeded
+                            .message
+                        }
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <ThirdPartiesMultiSelectField
+                organizationId={organizationId}
+                control={control}
+                name="thirdPartyIds"
+                selectedThirdParties={thirdParties}
+                label={t("processingActivityDetailsPage.fields.thirdParties")}
+                disabled={!activity.canUpdate}
+              />
+
+              <div className="flex justify-end pt-4">
+                {activity.canUpdate && (
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={formState.isSubmitting}
+                  >
+                    {formState.isSubmitting
+                      ? t("processingActivityDetailsPage.actions.saving")
+                      : t("processingActivityDetailsPage.actions.save")}
+                  </Button>
+                )}
+              </div>
+            </form>
+          </div>
+        </Card>
+      )}
+
+      {activeTab === "dpia" && (
+        <Card>
+          <div className="p-6">
+            {!showDpiaForm
+              && (!activity?.dataProtectionImpactAssessment?.id || dpiaDeleted)
+              ? (
+                  <div className="flex flex-col items-center justify-center py-16 w-full">
+                    <h2 className="text-xl font-semibold mb-6 text-center">
+                      {t("processingActivityDetailsPage.tabs.dpia")}
+                    </h2>
+                    {activity.canCreateDPIA && (
+                      <Button
+                        variant="primary"
+                        onClick={() => setShowDpiaForm(true)}
+                      >
+                        {t("processingActivityDetailsPage.actions.createDpia")}
+                      </Button>
+                    )}
+                  </div>
+                )
+              : (
+                  <>
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-semibold">
+                        {t("processingActivityDetailsPage.tabs.dpia")}
+                      </h2>
+                      {activity?.dataProtectionImpactAssessment?.id
+                        && !dpiaDeleted
+                        && activity.dataProtectionImpactAssessment.canDelete && (
+                        <Button variant="danger" onClick={deleteDPIA}>
+                          {t("processingActivityDetailsPage.actions.deleteDpia")}
+                        </Button>
+                      )}
+                    </div>
+
+                    <form onSubmit={e => void onDPIASubmit(e)} className="space-y-6">
+                      <div>
+                        <Label htmlFor="dpia-description">
+                          {t("processingActivityDetailsPage.fields.dpiaDescription")}
+                        </Label>
+                        <Textarea
+                          id="dpia-description"
+                          {...dpiaForm.register("description")}
+                          placeholder={t("processingActivityDetailsPage.placeholders.dpiaDescription")}
+                          rows={4}
+                          disabled={!canCreateOrUpdateDPIA}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="dpia-necessity">
+                          {t("processingActivityDetailsPage.fields.necessityAndProportionality")}
+                        </Label>
+                        <Textarea
+                          id="dpia-necessity"
+                          {...dpiaForm.register("necessityAndProportionality")}
+                          placeholder={t("processingActivityDetailsPage.placeholders.necessityAndProportionality")}
+                          rows={4}
+                          disabled={!canCreateOrUpdateDPIA}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="dpia-potential-risk">
+                          {t("processingActivityDetailsPage.fields.potentialRisk")}
+                        </Label>
+                        <Textarea
+                          id="dpia-potential-risk"
+                          {...dpiaForm.register("potentialRisk")}
+                          placeholder={t("processingActivityDetailsPage.placeholders.potentialRisk")}
+                          rows={4}
+                          disabled={!canCreateOrUpdateDPIA}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="dpia-mitigations">
+                          {t("processingActivityDetailsPage.fields.mitigations")}
+                        </Label>
+                        <Textarea
+                          id="dpia-mitigations"
+                          {...dpiaForm.register("mitigations")}
+                          placeholder={t("processingActivityDetailsPage.placeholders.mitigations")}
+                          rows={4}
+                          disabled={!canCreateOrUpdateDPIA}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="dpia-residual-risk">
+                          {t("processingActivityDetailsPage.fields.residualRisk")}
+                        </Label>
+                        <Controller
+                          control={dpiaForm.control}
+                          name="residualRisk"
+                          render={({ field }) => (
+                            <Select
+                              id="dpia-residual-risk"
+                              placeholder={t("processingActivityDetailsPage.placeholders.residualRisk")}
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              className="w-full"
+                              disabled={!canCreateOrUpdateDPIA}
+                            >
+                              <Option value="LOW">{t("processingActivityDetailsPage.residualRisk.low")}</Option>
+                              <Option value="MEDIUM">{t("processingActivityDetailsPage.residualRisk.medium")}</Option>
+                              <Option value="HIGH">{t("processingActivityDetailsPage.residualRisk.high")}</Option>
+                            </Select>
+                          )}
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-3 pt-4">
+                        {(!activity?.dataProtectionImpactAssessment?.id
+                          || dpiaDeleted) && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => setShowDpiaForm(false)}
+                          >
+                            {t("processingActivityDetailsPage.actions.cancel")}
+                          </Button>
+                        )}
+                        {(activity?.dataProtectionImpactAssessment?.id
+                          && !dpiaDeleted
+                          ? activity.dataProtectionImpactAssessment.canUpdate
+                          : activity.canCreateDPIA) && (
+                          <Button
+                            type="submit"
+                            variant="primary"
+                            disabled={dpiaSubmitting}
+                          >
+                            {dpiaSubmitting
+                              ? t("processingActivityDetailsPage.actions.saving")
+                              : activity?.dataProtectionImpactAssessment?.id
+                                && !dpiaDeleted
+                                ? t("processingActivityDetailsPage.actions.updateDpia")
+                                : t("processingActivityDetailsPage.actions.createDpia")}
+                          </Button>
+                        )}
+                      </div>
+                    </form>
+                  </>
+                )}
+          </div>
+        </Card>
+      )}
+
+      {activeTab === "tia" && (
+        <Card>
+          <div className="p-6">
+            {!showTiaForm
+              && (!activity?.transferImpactAssessment?.id || tiaDeleted)
+              ? (
+                  <div className="flex flex-col items-center justify-center py-16 w-full">
+                    <h2 className="text-xl font-semibold mb-6 text-center">
+                      {t("processingActivityDetailsPage.tabs.tia")}
+                    </h2>
+                    {activity.canCreateTIA && (
+                      <Button
+                        variant="primary"
+                        onClick={() => setShowTiaForm(true)}
+                      >
+                        {t("processingActivityDetailsPage.actions.createTia")}
+                      </Button>
+                    )}
+                  </div>
+                )
+              : (
+                  <>
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-semibold">
+                        {t("processingActivityDetailsPage.tabs.tia")}
+                      </h2>
+                      {activity?.transferImpactAssessment?.id
+                        && !tiaDeleted
+                        && activity.transferImpactAssessment.canDelete && (
+                        <Button variant="danger" onClick={deleteTIA}>
+                          {t("processingActivityDetailsPage.actions.deleteTia")}
+                        </Button>
+                      )}
+                    </div>
+
+                    <form onSubmit={e => void onTIASubmit(e)} className="space-y-6">
+                      <div>
+                        <Label htmlFor="tia-data-subjects">
+                          {t("processingActivityDetailsPage.fields.dataSubjects")}
+                        </Label>
+                        <Textarea
+                          id="tia-data-subjects"
+                          {...tiaForm.register("dataSubjects")}
+                          placeholder={t("processingActivityDetailsPage.placeholders.dataSubjects")}
+                          rows={4}
+                          disabled={!canCreateOrUpdateTIA}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="tia-legal-mechanism">
+                          {t("processingActivityDetailsPage.fields.legalMechanism")}
+                        </Label>
+                        <Textarea
+                          id="tia-legal-mechanism"
+                          {...tiaForm.register("legalMechanism")}
+                          placeholder={t("processingActivityDetailsPage.placeholders.legalMechanism")}
+                          rows={4}
+                          disabled={!canCreateOrUpdateTIA}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="tia-transfer">{t("processingActivityDetailsPage.fields.transfer")}</Label>
+                        <Textarea
+                          id="tia-transfer"
+                          {...tiaForm.register("transfer")}
+                          placeholder={t("processingActivityDetailsPage.placeholders.transfer")}
+                          rows={4}
+                          disabled={!canCreateOrUpdateTIA}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="tia-local-law-risk">
+                          {t("processingActivityDetailsPage.fields.localLawRisk")}
+                        </Label>
+                        <Textarea
+                          id="tia-local-law-risk"
+                          {...tiaForm.register("localLawRisk")}
+                          placeholder={t("processingActivityDetailsPage.placeholders.localLawRisk")}
+                          rows={4}
+                          disabled={!canCreateOrUpdateTIA}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="tia-supplementary-measures">
+                          {t("processingActivityDetailsPage.fields.supplementaryMeasures")}
+                        </Label>
+                        <Textarea
+                          id="tia-supplementary-measures"
+                          {...tiaForm.register("supplementaryMeasures")}
+                          placeholder={t("processingActivityDetailsPage.placeholders.supplementaryMeasures")}
+                          rows={4}
+                          disabled={!canCreateOrUpdateTIA}
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-3 pt-4">
+                        {(!activity?.transferImpactAssessment?.id
+                          || tiaDeleted) && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => setShowTiaForm(false)}
+                          >
+                            {t("processingActivityDetailsPage.actions.cancel")}
+                          </Button>
+                        )}
+                        {(activity?.transferImpactAssessment?.id && !tiaDeleted
+                          ? activity.transferImpactAssessment.canUpdate
+                          : activity.canCreateTIA) && (
+                          <Button
+                            type="submit"
+                            variant="primary"
+                            disabled={tiaSubmitting}
+                          >
+                            {tiaSubmitting
+                              ? t("processingActivityDetailsPage.actions.saving")
+                              : activity?.transferImpactAssessment?.id
+                                && !tiaDeleted
+                                ? t("processingActivityDetailsPage.actions.updateTia")
+                                : t("processingActivityDetailsPage.actions.createTia")}
+                          </Button>
+                        )}
+                      </div>
+                    </form>
+                  </>
+                )}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}

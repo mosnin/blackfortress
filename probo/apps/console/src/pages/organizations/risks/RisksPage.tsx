@@ -1,0 +1,277 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { usePageTitle } from "@probo/hooks";
+import {
+  Button,
+  IconPageTextLine,
+  IconPlusLarge,
+  IconUpload,
+  PageHeader,
+  RisksChart,
+  Tbody,
+  Th,
+  Thead,
+  Tr,
+} from "@probo/ui";
+import { useTranslation } from "react-i18next";
+import {
+  graphql,
+  type PreloadedQuery,
+  usePaginationFragment,
+  usePreloadedQuery,
+} from "react-relay";
+import { useNavigate } from "react-router";
+
+import type { RisksPageFragment$key } from "#/__generated__/core/RisksPageFragment.graphql";
+import type { RisksPageQuery } from "#/__generated__/core/RisksPageQuery.graphql";
+import type { RisksPageRefetchQuery } from "#/__generated__/core/RisksPageRefetchQuery.graphql";
+import { SortableTable, SortableTh } from "#/components/SortableTable";
+import { useOrganizationId } from "#/hooks/useOrganizationId";
+
+import { FormRiskDialog } from "./_components/FormRiskDialog";
+import { PublishRiskListDialog } from "./_components/PublishRiskListDialog";
+import { RiskRow } from "./_components/RiskRow";
+
+export const risksPageQuery = graphql`
+  query RisksPageQuery($organizationId: ID!) {
+    organization: node(id: $organizationId) {
+      id
+      ...RisksPageFragment
+    }
+  }
+`;
+
+const risksFragment = graphql`
+  fragment RisksPageFragment on Organization
+  @refetchable(queryName: "RisksPageRefetchQuery")
+  @argumentDefinitions(
+    first: { type: "Int", defaultValue: 50 }
+    order: {
+      type: "RiskOrder"
+      defaultValue: { direction: DESC, field: CREATED_AT }
+    }
+    after: { type: "CursorKey", defaultValue: null }
+    before: { type: "CursorKey", defaultValue: null }
+    last: { type: "Int", defaultValue: null }
+  ) {
+    canCreateRisk: permission(action: "risk-management:risk:create")
+    canPublishRisk: permission(action: "risk-management:risk:publish")
+    risksDocument {
+      id
+      defaultApprovers {
+        id
+      }
+    }
+    risks(
+      first: $first
+      after: $after
+      last: $last
+      before: $before
+      orderBy: $order
+    ) @connection(key: "RisksPage_risks", filters: []) {
+      __id
+      edges {
+        node {
+          id
+          referenceId
+          name
+          inherentLikelihood
+          inherentImpact
+          residualLikelihood
+          residualImpact
+          canUpdate: permission(action: "risk-management:risk:update")
+          canDelete: permission(action: "risk-management:risk:delete")
+          ...RiskRow_risk
+        }
+      }
+    }
+  }
+`;
+
+export const RisksConnectionKey = "RisksPage_risks";
+
+interface RisksPageProps {
+  queryRef: PreloadedQuery<RisksPageQuery>;
+}
+
+export default function RisksPage(props: RisksPageProps) {
+  const { t } = useTranslation();
+  const organizationId = useOrganizationId();
+  const navigate = useNavigate();
+
+  const queryData = usePreloadedQuery<RisksPageQuery>(risksPageQuery, props.queryRef);
+  const { data: fragmentData, ...pagination } = usePaginationFragment<
+    RisksPageRefetchQuery,
+    RisksPageFragment$key
+  >(risksFragment, queryData.organization);
+
+  const canCreateRisk = fragmentData.canCreateRisk;
+  const canPublishRisk = fragmentData.canPublishRisk;
+  const risksDocument = fragmentData.risksDocument;
+  const risks = fragmentData.risks?.edges.map(edge => edge.node) ?? [];
+  const connectionId = fragmentData.risks.__id;
+
+  const chartRisks = risks.flatMap(({
+    id,
+    name,
+    inherentLikelihood,
+    inherentImpact,
+    residualLikelihood,
+    residualImpact,
+  }) => {
+    if (
+      inherentLikelihood == null
+      || inherentImpact == null
+      || residualLikelihood == null
+      || residualImpact == null
+    ) {
+      return [];
+    }
+
+    return [{
+      id,
+      name,
+      inherentLikelihood,
+      inherentImpact,
+      residualLikelihood,
+      residualImpact,
+    }];
+  });
+
+  const refetch = ({
+    order,
+  }: {
+    order: { direction: string; field: string };
+  }) => {
+    pagination.refetch(
+      {
+        order: {
+          direction: order.direction as "ASC" | "DESC",
+          field: order.field as
+          | "REFERENCE_ID"
+          | "NAME"
+          | "CATEGORY"
+          | "TREATMENT"
+          | "INHERENT_RISK_SCORE"
+          | "RESIDUAL_RISK_SCORE"
+          | "OWNER_FULL_NAME"
+          | "CREATED_AT",
+        },
+      },
+      { fetchPolicy: "network-only" },
+    );
+  };
+
+  usePageTitle(t("nav.risks"));
+
+  const hasAnyAction = risks.some(
+    ({ canDelete, canUpdate }) => canUpdate || canDelete,
+  );
+
+  const defaultApproverIds
+    = risksDocument?.defaultApprovers?.map(a => a.id) ?? [];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={t("nav.risks")}
+        description={t("risksPage.description")}
+      >
+        <div className="flex gap-2">
+          {risksDocument && (
+            <Button
+              variant="secondary"
+              icon={IconPageTextLine}
+              onClick={() => void navigate(
+                `/organizations/${organizationId}/governance/documents/${risksDocument.id}`,
+              )}
+            >
+              {t("risksPage.actions.document")}
+            </Button>
+          )}
+          {canPublishRisk && (
+            <PublishRiskListDialog
+              organizationId={organizationId}
+              defaultApproverIds={defaultApproverIds}
+              onPublished={documentId => void navigate(
+                `/organizations/${organizationId}/governance/documents/${documentId}`,
+              )}
+            >
+              <Button variant="secondary" icon={IconUpload}>
+                {t("risksPage.actions.publish")}
+              </Button>
+            </PublishRiskListDialog>
+          )}
+          {canCreateRisk && (
+            <FormRiskDialog
+              connection={connectionId}
+              onSuccess={() => {
+                pagination.refetch({});
+              }}
+              trigger={<Button icon={IconPlusLarge}>{t("risksPage.actions.newRisk")}</Button>}
+            />
+          )}
+        </div>
+      </PageHeader>
+
+      <div className="grid grid-cols-2 gap-4">
+        <RisksChart
+          organizationId={organizationId}
+          type="inherent"
+          risks={chartRisks}
+        />
+        <RisksChart
+          organizationId={organizationId}
+          type="residual"
+          risks={chartRisks}
+        />
+      </div>
+      <SortableTable {...pagination} refetch={refetch}>
+        <Thead>
+          <Tr>
+            <SortableTh field="REFERENCE_ID">{t("risksPage.columns.referenceId")}</SortableTh>
+            <SortableTh field="NAME">{t("risksPage.columns.name")}</SortableTh>
+            <SortableTh field="CATEGORY">{t("risksPage.columns.category")}</SortableTh>
+            <SortableTh field="TREATMENT">{t("risksPage.columns.treatment")}</SortableTh>
+            <SortableTh field="INHERENT_RISK_SCORE">
+              {t("risksPage.columns.initialRisk")}
+            </SortableTh>
+            <SortableTh field="RESIDUAL_RISK_SCORE">
+              {t("risksPage.columns.residualRisk")}
+            </SortableTh>
+            <SortableTh field="OWNER_FULL_NAME">{t("risksPage.columns.owner")}</SortableTh>
+            {hasAnyAction && <Th></Th>}
+          </Tr>
+        </Thead>
+        <Tbody>
+          {risks.map(risk => (
+            <RiskRow
+              key={risk.id}
+              riskKey={risk}
+              connectionId={connectionId}
+              hasAnyAction={hasAnyAction}
+            />
+          ))}
+        </Tbody>
+      </SortableTable>
+    </div>
+  );
+}

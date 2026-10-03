@@ -1,0 +1,22 @@
+{
+  "name": "@probo/i18n",
+  "version": "1.0.0",
+  "author": "",
+  "main": "./index.ts",
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "vitest": "^4.1.11"
+  },
+  "peerDependencies": {
+    "react": "^19.0"
+  },
+  "description": "",
+  "keywords": [],
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@probo/helpers": "1.0.0"
+  }
+}

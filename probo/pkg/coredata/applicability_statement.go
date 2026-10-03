@@ -1,0 +1,586 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/policy"
+	"go.probo.inc/probo/pkg/page"
+)
+
+type (
+	ApplicabilityStatement struct {
+		ID                         gid.GID   `db:"id"`
+		StatementOfApplicabilityID gid.GID   `db:"statement_of_applicability_id"`
+		ControlID                  gid.GID   `db:"control_id"`
+		OrganizationID             gid.GID   `db:"organization_id"`
+		Applicability              bool      `db:"applicability"`
+		Justification              *string   `db:"justification"`
+		CreatedAt                  time.Time `db:"created_at"`
+		UpdatedAt                  time.Time `db:"updated_at"`
+
+		// Ordering only.
+		SectionTitle string `db:"section_title"`
+	}
+
+	ApplicabilityStatements []*ApplicabilityStatement
+)
+
+func (s ApplicabilityStatement) CursorKey(orderBy ApplicabilityStatementOrderField) page.CursorKey {
+	switch orderBy {
+	case ApplicabilityStatementOrderFieldCreatedAt:
+		return page.NewCursorKey(s.ID, s.CreatedAt)
+	case ApplicabilityStatementOrderFieldControlSectionTitle:
+		return page.NewCursorKey(s.ID, s.SectionTitle)
+	}
+
+	panic(fmt.Sprintf("unsupported order by: %s", orderBy))
+}
+
+func (s *ApplicabilityStatement) AuthorizationAttributes(
+	ctx context.Context,
+	conn pg.Querier,
+	resourceIDs []gid.GID,
+) (policy.AttributesByID, error) {
+	q := `SELECT id, organization_id FROM applicability_statements WHERE id = ANY(@resource_ids::text[])`
+
+	args := pgx.StrictNamedArgs{
+		"resource_ids": resourceIDs,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query authorization attributes: %w", err)
+	}
+
+	defer rows.Close()
+
+	attrsByID := make(policy.AttributesByID)
+
+	for rows.Next() {
+		var id, organizationID gid.GID
+
+		if err := rows.Scan(&id, &organizationID); err != nil {
+			return nil, fmt.Errorf("cannot scan authorization attributes: %w", err)
+		}
+
+		attrsByID[id] = policy.Attributes{
+			"organization_id": organizationID.String(),
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cannot iterate authorization attributes: %w", err)
+	}
+
+	return attrsByID, nil
+}
+
+func (sac *ApplicabilityStatement) LoadByID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	id gid.GID,
+) error {
+	q := `
+WITH stmt AS (
+    SELECT
+        a.id,
+        a.statement_of_applicability_id,
+        a.control_id,
+        a.organization_id,
+        a.applicability,
+        a.justification,
+        a.created_at,
+        a.updated_at,
+        a.tenant_id,
+        f.name || ' - ' || c.section_title AS section_title
+    FROM
+        applicability_statements a
+    INNER JOIN
+        controls c ON c.id = a.control_id
+    INNER JOIN
+        frameworks f ON f.id = c.framework_id
+    WHERE
+        a.%s
+        AND a.id = @id
+)
+SELECT
+    id,
+    statement_of_applicability_id,
+    control_id,
+    organization_id,
+    applicability,
+    justification,
+    created_at,
+    updated_at,
+    section_title
+FROM
+    stmt
+WHERE
+    %s
+LIMIT 1;
+`
+	q = fmt.Sprintf(q, scope.SQLFragment(), scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"id": id}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query applicability_statements: %w", err)
+	}
+
+	applicabilityStatement, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[ApplicabilityStatement])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect applicability statement: %w", err)
+	}
+
+	*sac = applicabilityStatement
+
+	return nil
+}
+
+func (sac *ApplicabilityStatement) LoadByStatementOfApplicabilityIDAndControlID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	statementOfApplicabilityID gid.GID,
+	controlID gid.GID,
+) error {
+	q := `
+WITH current_soa AS (
+    SELECT id
+    FROM statements_of_applicability
+    WHERE
+        %s
+        AND id = @statement_of_applicability_id
+)
+SELECT
+    soac.id,
+    soac.statement_of_applicability_id,
+    soac.control_id,
+    soac.organization_id,
+    soac.applicability,
+    soac.justification,
+    soac.created_at,
+    soac.updated_at,
+    f.name || ' - ' || c.section_title AS section_title
+FROM
+    applicability_statements soac
+INNER JOIN
+    current_soa ON soac.statement_of_applicability_id = current_soa.id
+INNER JOIN
+    controls c ON c.id = soac.control_id
+INNER JOIN
+    frameworks f ON f.id = c.framework_id
+WHERE
+    soac.control_id = @control_id
+LIMIT 1;
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"statement_of_applicability_id": statementOfApplicabilityID,
+		"control_id":                    controlID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query applicability_statements: %w", err)
+	}
+
+	control, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[ApplicabilityStatement])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect applicability statement: %w", err)
+	}
+
+	*sac = control
+
+	return nil
+}
+
+func (sac *ApplicabilityStatement) Insert(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+INSERT INTO
+    applicability_statements (
+        id,
+        statement_of_applicability_id,
+        control_id,
+        organization_id,
+        tenant_id,
+        applicability,
+        justification,
+        created_at,
+        updated_at
+    )
+VALUES (
+    @id,
+    @statement_of_applicability_id,
+    @control_id,
+    @organization_id,
+    @tenant_id,
+    @applicability,
+    @justification,
+    @created_at,
+    @updated_at
+);
+`
+
+	args := pgx.StrictNamedArgs{
+		"id":                            sac.ID,
+		"statement_of_applicability_id": sac.StatementOfApplicabilityID,
+		"control_id":                    sac.ControlID,
+		"organization_id":               sac.OrganizationID,
+		"tenant_id":                     scope.GetTenantID(),
+		"applicability":                 sac.Applicability,
+		"justification":                 sac.Justification,
+		"created_at":                    sac.CreatedAt,
+		"updated_at":                    sac.UpdatedAt,
+	}
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+			if pgErr.Code == "23505" && pgErr.ConstraintName == "states_of_applicability_contr_state_of_applicability_id_con_key" {
+				return ErrResourceAlreadyExists
+			}
+		}
+
+		return fmt.Errorf("cannot insert applicability_statement: %w", err)
+	}
+
+	return nil
+}
+
+func (sac *ApplicabilityStatement) Update(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+UPDATE applicability_statements
+SET
+    applicability = @applicability,
+    justification = @justification,
+    updated_at = @updated_at
+WHERE
+    %s
+    AND statement_of_applicability_id = @statement_of_applicability_id
+    AND control_id = @control_id
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"statement_of_applicability_id": sac.StatementOfApplicabilityID,
+		"control_id":                    sac.ControlID,
+		"applicability":                 sac.Applicability,
+		"justification":                 sac.Justification,
+		"updated_at":                    sac.UpdatedAt,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot update applicability_statement: %w", err)
+	}
+
+	return nil
+}
+
+func (sac *ApplicabilityStatement) UpdateByID(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+UPDATE applicability_statements
+SET
+    applicability = @applicability,
+    justification = @justification,
+    updated_at = @updated_at
+WHERE
+    %s
+    AND id = @id
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"id":            sac.ID,
+		"applicability": sac.Applicability,
+		"justification": sac.Justification,
+		"updated_at":    sac.UpdatedAt,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	result, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot update applicability_statement: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return ErrResourceNotFound
+	}
+
+	return nil
+}
+
+func (sac *ApplicabilityStatement) Delete(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+WITH current_soa AS (
+    SELECT id
+    FROM statements_of_applicability
+    WHERE
+        %s
+        AND id = @statement_of_applicability_id
+)
+DELETE FROM applicability_statements
+WHERE statement_of_applicability_id IN (SELECT id FROM current_soa)
+    AND control_id = @control_id;
+`
+
+	args := pgx.StrictNamedArgs{
+		"statement_of_applicability_id": sac.StatementOfApplicabilityID,
+		"control_id":                    sac.ControlID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	_, err := conn.Exec(ctx, q, args)
+
+	return err
+}
+
+func (sac *ApplicabilityStatement) DeleteByID(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+	applicabilityStatementID gid.GID,
+) error {
+	q := `
+DELETE FROM applicability_statements
+WHERE
+    %s
+    AND id = @id;
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"id": applicabilityStatementID}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot delete applicability statement: %w", err)
+	}
+
+	return nil
+}
+
+func (sacs *ApplicabilityStatements) LoadByStatementOfApplicabilityID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	statementOfApplicabilityID gid.GID,
+	cursor *page.Cursor[ApplicabilityStatementOrderField],
+) error {
+	q := `
+WITH stmt AS (
+    SELECT
+        a.id,
+        a.statement_of_applicability_id,
+        a.control_id,
+        a.organization_id,
+        a.applicability,
+        a.justification,
+        a.created_at,
+        a.updated_at,
+        a.tenant_id,
+        f.name || ' - ' || c.section_title AS section_title
+    FROM
+        applicability_statements a
+    INNER JOIN
+        controls c ON c.id = a.control_id
+    INNER JOIN
+        frameworks f ON f.id = c.framework_id
+    WHERE
+        a.%[1]s
+        AND a.statement_of_applicability_id = @statement_of_applicability_id
+)
+SELECT
+    id,
+    statement_of_applicability_id,
+    control_id,
+    organization_id,
+    applicability,
+    justification,
+    created_at,
+    updated_at,
+    section_title
+FROM
+    stmt
+WHERE
+    %[2]s
+`
+	q = fmt.Sprintf(q, scope.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.NamedArgs{
+		"statement_of_applicability_id": statementOfApplicabilityID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query applicability_statements: %w", err)
+	}
+
+	controls, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[ApplicabilityStatement])
+	if err != nil {
+		return fmt.Errorf("cannot collect applicability_statements: %w", err)
+	}
+
+	*sacs = controls
+
+	return nil
+}
+
+func (sacs *ApplicabilityStatements) CountByStatementOfApplicabilityID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	statementOfApplicabilityID gid.GID,
+) (int, error) {
+	q := `
+SELECT
+    COUNT(id)
+FROM
+    applicability_statements
+WHERE
+    %s
+    AND statement_of_applicability_id = @statement_of_applicability_id;
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"statement_of_applicability_id": statementOfApplicabilityID}
+	maps.Copy(args, scope.SQLArguments())
+
+	var count int
+	if err := conn.QueryRow(ctx, q, args).Scan(&count); err != nil {
+		return 0, fmt.Errorf("cannot count applicability_statements: %w", err)
+	}
+
+	return count, nil
+}
+
+func (sacs *ApplicabilityStatements) LoadByControlID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	controlID gid.GID,
+	cursor *page.Cursor[ApplicabilityStatementOrderField],
+) error {
+	q := `
+WITH soac_ctrl AS (
+    SELECT
+        soac.id,
+        soac.statement_of_applicability_id,
+        soac.control_id,
+        soac.organization_id,
+        soac.applicability,
+        soac.justification,
+        soac.created_at,
+        soac.updated_at,
+        soac.tenant_id,
+        f.name || ' - ' || c.section_title AS section_title
+    FROM
+        applicability_statements soac
+    INNER JOIN
+        statements_of_applicability soa ON soac.statement_of_applicability_id = soa.id
+    INNER JOIN
+        controls c ON c.id = soac.control_id
+    INNER JOIN
+        frameworks f ON f.id = c.framework_id
+    WHERE
+        soac.%[1]s
+        AND soac.control_id = @control_id
+)
+SELECT
+    id,
+    statement_of_applicability_id,
+    control_id,
+    organization_id,
+    applicability,
+    justification,
+    created_at,
+    updated_at,
+    section_title
+FROM
+    soac_ctrl
+WHERE
+    %[1]s
+    AND %[2]s
+`
+	q = fmt.Sprintf(q, scope.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.NamedArgs{"control_id": controlID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query applicability_statements: %w", err)
+	}
+
+	controls, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[ApplicabilityStatement])
+	if err != nil {
+		return fmt.Errorf("cannot collect applicability_statements: %w", err)
+	}
+
+	*sacs = controls
+
+	return nil
+}

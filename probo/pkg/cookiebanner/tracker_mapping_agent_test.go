@@ -1,0 +1,623 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package cookiebanner
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+)
+
+func TestNameMatchesSiteDomain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		vendorName string
+		siteOrigin string
+		expected   bool
+	}{
+		{
+			name:       "site brand matches own domain",
+			vendorName: "Letaido",
+			siteOrigin: "https://letaido.com",
+			expected:   true,
+		},
+		{
+			name:       "case and spacing insensitive",
+			vendorName: "  LET AIDO ",
+			siteOrigin: "https://letaido.com",
+			expected:   true,
+		},
+		{
+			name:       "matches against subdomain origin",
+			vendorName: "Letaido",
+			siteOrigin: "https://app.letaido.com",
+			expected:   true,
+		},
+		{
+			name:       "matches full domain form",
+			vendorName: "letaido.com",
+			siteOrigin: "https://letaido.com",
+			expected:   true,
+		},
+		{
+			name:       "unrelated vendor is not the site",
+			vendorName: "Google Analytics",
+			siteOrigin: "https://letaido.com",
+			expected:   false,
+		},
+		{
+			name:       "empty vendor name",
+			vendorName: "",
+			siteOrigin: "https://letaido.com",
+			expected:   false,
+		},
+		{
+			name:       "empty origin",
+			vendorName: "Letaido",
+			siteOrigin: "",
+			expected:   false,
+		},
+		{
+			name:       "unparseable origin",
+			vendorName: "Letaido",
+			siteOrigin: "not a url",
+			expected:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+				assert.Equal(t, tt.expected, nameMatchesSiteDomain(tt.vendorName, tt.siteOrigin))
+			},
+		)
+	}
+}
+
+func TestNameIsCookieDatabaseAggregator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		vendor   string
+		expected bool
+	}{
+		{name: "cookifi is denied", vendor: "Cookifi", expected: true},
+		{name: "cookiepedia is denied", vendor: "cookiepedia", expected: true},
+		{name: "cookie database is denied", vendor: "Cookie Database", expected: true},
+		{name: "cookieserve is denied", vendor: "CookieServe", expected: true},
+		{name: "spacing and casing insensitive", vendor: "  COOK IFI ", expected: true},
+		{name: "punctuation insensitive", vendor: "Cookie_Database", expected: true},
+		{name: "cookiedatabase domain form is denied", vendor: "cookiedatabase.org", expected: true},
+		{name: "cookifi domain form is denied", vendor: "cookifi.com", expected: true},
+		{name: "cookiepedia url form is denied", vendor: "https://www.cookiepedia.co.uk/list", expected: true},
+		{name: "cookieserve subdomain form is denied", vendor: "scan.cookieserve.com", expected: true},
+		{name: "onetrust is allowed", vendor: "OneTrust", expected: false},
+		{name: "cookiebot is allowed", vendor: "Cookiebot", expected: false},
+		{name: "cookiebot domain form is allowed", vendor: "cookiebot.com", expected: false},
+		{name: "cookieyes is allowed", vendor: "CookieYes", expected: false},
+		{name: "cookie-script is allowed", vendor: "Cookie-Script", expected: false},
+		{name: "unrelated vendor is allowed", vendor: "Google Analytics", expected: false},
+		{name: "empty name", vendor: "", expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+				assert.Equal(t, tt.expected, nameIsCookieDatabaseAggregator(tt.vendor))
+			},
+		)
+	}
+}
+
+func TestEvidenceSupportsAttribution(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		evidence string
+		expected bool
+	}{
+		{name: "database match supports", evidence: evidenceSourceDatabaseMatch, expected: true},
+		{name: "naming convention supports", evidence: evidenceSourceNamingConvention, expected: true},
+		{name: "web search supports", evidence: evidenceSourceWebSearch, expected: true},
+		{name: "browser page supports", evidence: evidenceSourceBrowserPage, expected: true},
+		{name: "none does not support", evidence: evidenceSourceNone, expected: false},
+		{name: "empty does not support", evidence: "", expected: false},
+		{name: "unknown value does not support", evidence: "vibes", expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+				assert.Equal(t, tt.expected, evidenceSupportsAttribution(tt.evidence))
+			},
+		)
+	}
+}
+
+func TestInterpretCatalogRow(t *testing.T) {
+	t.Parallel()
+
+	vendorID := gid.New(gid.NilTenant, coredata.CommonThirdPartyEntityType)
+
+	t.Run(
+		"first party verdict is terminal",
+		func(t *testing.T) {
+			t.Parallel()
+
+			adopt, untrusted, firstParty := interpretCatalogRow(coredata.CommonTrackerPattern{
+				CommonThirdPartyID: &vendorID,
+				Confidence:         1,
+				Attribution:        coredata.CommonTrackerPatternAttributionFirstParty,
+			})
+
+			assert.Nil(t, adopt)
+			assert.Nil(t, untrusted)
+			assert.True(t, firstParty)
+		},
+	)
+
+	t.Run(
+		"trusted vendor is adopted",
+		func(t *testing.T) {
+			t.Parallel()
+
+			adopt, untrusted, firstParty := interpretCatalogRow(coredata.CommonTrackerPattern{
+				CommonThirdPartyID: &vendorID,
+				Confidence:         trustedAttributionConfidence,
+				Attribution:        coredata.CommonTrackerPatternAttributionThirdParty,
+			})
+
+			require.NotNil(t, adopt)
+			assert.Equal(t, vendorID, *adopt)
+			assert.Nil(t, untrusted)
+			assert.False(t, firstParty)
+		},
+	)
+
+	t.Run(
+		"low-confidence vendor is untrusted, not adopted",
+		func(t *testing.T) {
+			t.Parallel()
+
+			adopt, untrusted, firstParty := interpretCatalogRow(coredata.CommonTrackerPattern{
+				CommonThirdPartyID: &vendorID,
+				Confidence:         agentSourceConfidence,
+				Attribution:        coredata.CommonTrackerPatternAttributionThirdParty,
+			})
+
+			assert.Nil(t, adopt)
+			require.NotNil(t, untrusted)
+			assert.Equal(t, vendorID, *untrusted)
+			assert.False(t, firstParty)
+		},
+	)
+
+	t.Run(
+		"unlinked row yields nothing",
+		func(t *testing.T) {
+			t.Parallel()
+
+			adopt, untrusted, firstParty := interpretCatalogRow(coredata.CommonTrackerPattern{
+				Confidence:  0.5,
+				Attribution: coredata.CommonTrackerPatternAttributionUndetermined,
+			})
+
+			assert.Nil(t, adopt)
+			assert.Nil(t, untrusted)
+			assert.False(t, firstParty)
+		},
+	)
+}
+
+func TestIsPreExistingSource(t *testing.T) {
+	t.Parallel()
+
+	preExisting := coredata.CookieSourcePreExisting
+	script := coredata.CookieSourceScript
+
+	assert.True(t, isPreExistingSource(coredata.TrackerPattern{Source: &preExisting}))
+	assert.False(t, isPreExistingSource(coredata.TrackerPattern{Source: &script}))
+	assert.False(t, isPreExistingSource(coredata.TrackerPattern{Source: nil}))
+}
+
+func TestVendorAttributionRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newMappingHandler(nil)
+	ctx := context.Background()
+	tp := coredata.TrackerPattern{Pattern: "_x", TrackerType: coredata.TrackerTypeCookie}
+
+	confident := func(mut func(*TrackerMappingAgentResult)) TrackerMappingAgentResult {
+		r := TrackerMappingAgentResult{
+			ThirdPartyName:       "Acme Analytics",
+			Category:             coredata.ThirdPartyCategoryAnalytics,
+			ThirdPartyConfidence: 0.9,
+			EvidenceSource:       evidenceSourceNamingConvention,
+		}
+		if mut != nil {
+			mut(&r)
+		}
+
+		return r
+	}
+
+	t.Run(
+		"accepts a confident, evidence-backed attribution",
+		func(t *testing.T) {
+			t.Parallel()
+			assert.False(t, h.vendorAttributionRejected(ctx, tp, confident(nil), "https://example.com"))
+		},
+	)
+
+	t.Run(
+		"rejects below confidence threshold",
+		func(t *testing.T) {
+			t.Parallel()
+
+			r := confident(func(r *TrackerMappingAgentResult) { r.ThirdPartyConfidence = 0.3 })
+			assert.True(t, h.vendorAttributionRejected(ctx, tp, r, "https://example.com"))
+		},
+	)
+
+	t.Run(
+		"rejects empty name",
+		func(t *testing.T) {
+			t.Parallel()
+
+			r := confident(func(r *TrackerMappingAgentResult) { r.ThirdPartyName = "" })
+			assert.True(t, h.vendorAttributionRejected(ctx, tp, r, "https://example.com"))
+		},
+	)
+
+	t.Run(
+		"rejects when evidence source is none",
+		func(t *testing.T) {
+			t.Parallel()
+
+			r := confident(func(r *TrackerMappingAgentResult) { r.EvidenceSource = evidenceSourceNone })
+			assert.True(t, h.vendorAttributionRejected(ctx, tp, r, "https://example.com"))
+		},
+	)
+
+	t.Run(
+		"rejects when evidence source is empty",
+		func(t *testing.T) {
+			t.Parallel()
+
+			r := confident(func(r *TrackerMappingAgentResult) { r.EvidenceSource = "" })
+			assert.True(t, h.vendorAttributionRejected(ctx, tp, r, "https://example.com"))
+		},
+	)
+
+	t.Run(
+		"rejects when name matches scanned site",
+		func(t *testing.T) {
+			t.Parallel()
+
+			r := confident(func(r *TrackerMappingAgentResult) { r.ThirdPartyName = "Example" })
+			assert.True(t, h.vendorAttributionRejected(ctx, tp, r, "https://example.com"))
+		},
+	)
+
+	t.Run(
+		"rejects cookie-database aggregator",
+		func(t *testing.T) {
+			t.Parallel()
+
+			r := confident(func(r *TrackerMappingAgentResult) { r.ThirdPartyName = "Cookiepedia" })
+			assert.True(t, h.vendorAttributionRejected(ctx, tp, r, "https://example.com"))
+		},
+	)
+}
+
+// TestRejectVendorAttribution pins the shared acceptance bar that governs
+// every write into the global catalog.
+//
+// The nil-SiteOrigin cases carry the design: a catalog pattern belongs to
+// no scanned site, so the scanned-site backstop must be inapplicable
+// there while every other guard stays armed. That is precisely the
+// invariant the enricher used to break by applying no guards at all.
+func TestRejectVendorAttribution(t *testing.T) {
+	t.Parallel()
+
+	origin := "https://example.com"
+
+	confident := func(mut func(*TrackerMappingAgentResult)) TrackerMappingAgentResult {
+		r := TrackerMappingAgentResult{
+			ThirdPartyName:       "Acme Analytics",
+			Category:             coredata.ThirdPartyCategoryAnalytics,
+			ThirdPartyConfidence: 0.9,
+			EvidenceSource:       evidenceSourceNamingConvention,
+		}
+		if mut != nil {
+			mut(&r)
+		}
+
+		return r
+	}
+
+	tests := []struct {
+		name       string
+		mutate     func(*TrackerMappingAgentResult)
+		siteOrigin *string
+		expected   attributionRejection
+	}{
+		{
+			name:       "accepts a confident evidence-backed attribution",
+			siteOrigin: &origin,
+			expected:   attributionAccepted,
+		},
+		{
+			name:     "accepts with no scanned site",
+			expected: attributionAccepted,
+		},
+		{
+			name:       "accepts exactly at the confidence threshold",
+			mutate:     func(r *TrackerMappingAgentResult) { r.ThirdPartyConfidence = 0.6 },
+			siteOrigin: &origin,
+			expected:   attributionAccepted,
+		},
+		{
+			name:       "rejects below the confidence threshold",
+			mutate:     func(r *TrackerMappingAgentResult) { r.ThirdPartyConfidence = 0.3 },
+			siteOrigin: &origin,
+			expected:   attributionRejectedConfidence,
+		},
+		{
+			name:       "rejects an empty name",
+			mutate:     func(r *TrackerMappingAgentResult) { r.ThirdPartyName = "" },
+			siteOrigin: &origin,
+			expected:   attributionRejectedConfidence,
+		},
+		{
+			name:       "rejects a whitespace-only name",
+			mutate:     func(r *TrackerMappingAgentResult) { r.ThirdPartyName = "   " },
+			siteOrigin: &origin,
+			expected:   attributionRejectedConfidence,
+		},
+		{
+			name:       "rejects evidence source none",
+			mutate:     func(r *TrackerMappingAgentResult) { r.EvidenceSource = evidenceSourceNone },
+			siteOrigin: &origin,
+			expected:   attributionRejectedNoEvidence,
+		},
+		{
+			name:       "rejects an empty evidence source",
+			mutate:     func(r *TrackerMappingAgentResult) { r.EvidenceSource = "" },
+			siteOrigin: &origin,
+			expected:   attributionRejectedNoEvidence,
+		},
+		{
+			name:       "rejects an unknown evidence source",
+			mutate:     func(r *TrackerMappingAgentResult) { r.EvidenceSource = "vibes" },
+			siteOrigin: &origin,
+			expected:   attributionRejectedNoEvidence,
+		},
+		{
+			name:       "rejects the scanned site as its own third party",
+			mutate:     func(r *TrackerMappingAgentResult) { r.ThirdPartyName = "Example" },
+			siteOrigin: &origin,
+			expected:   attributionRejectedScannedSite,
+		},
+		{
+			name:     "scanned-site backstop is inapplicable without an origin",
+			mutate:   func(r *TrackerMappingAgentResult) { r.ThirdPartyName = "Example" },
+			expected: attributionAccepted,
+		},
+		{
+			name:       "rejects a cookie-database aggregator",
+			mutate:     func(r *TrackerMappingAgentResult) { r.ThirdPartyName = "Cookiepedia" },
+			siteOrigin: &origin,
+			expected:   attributionRejectedAggregator,
+		},
+		{
+			name:     "rejects a cookie-database aggregator without an origin",
+			mutate:   func(r *TrackerMappingAgentResult) { r.ThirdPartyName = "Cookiepedia" },
+			expected: attributionRejectedAggregator,
+		},
+		{
+			name: "missing evidence outranks a denylisted name",
+			mutate: func(r *TrackerMappingAgentResult) {
+				r.ThirdPartyName = "Cookiepedia"
+				r.EvidenceSource = evidenceSourceNone
+			},
+			siteOrigin: &origin,
+			expected:   attributionRejectedNoEvidence,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+
+				got := rejectVendorAttribution(
+					confident(tt.mutate),
+					attributionContext{SiteOrigin: tt.siteOrigin},
+				)
+
+				assert.Equal(t, tt.expected, got)
+			},
+		)
+	}
+}
+
+func TestBuildAgentPrompt(t *testing.T) {
+	t.Parallel()
+
+	tp := coredata.TrackerPattern{
+		Pattern:     "ethereum-https://letaido.com",
+		TrackerType: coredata.TrackerTypeLocalStorage,
+		MatchType:   coredata.TrackerPatternMatchTypeExact,
+	}
+
+	t.Run(
+		"emits scanned_site when domain supplied",
+		func(t *testing.T) {
+			t.Parallel()
+
+			prompt := buildAgentPrompt(tp, nil, "letaido.com")
+			assert.Contains(t, prompt, "<scanned_site> letaido.com </scanned_site>")
+		},
+	)
+
+	t.Run(
+		"omits scanned_site when domain empty",
+		func(t *testing.T) {
+			t.Parallel()
+
+			prompt := buildAgentPrompt(tp, nil, "")
+			assert.NotContains(t, prompt, "<scanned_site>")
+		},
+	)
+
+	t.Run(
+		"emits both scanned_site and observed_domains",
+		func(t *testing.T) {
+			t.Parallel()
+
+			prompt := buildAgentPrompt(tp, []string{"doubleclick.net"}, "letaido.com")
+			assert.Contains(t, prompt, "<scanned_site> letaido.com </scanned_site>")
+			assert.Contains(t, prompt, "<observed_domains> doubleclick.net </observed_domains>")
+			assert.Less(t, strings.Index(prompt, "<scanned_site>"), strings.Index(prompt, "<observed_domains>"))
+		},
+	)
+}
+
+// TestTerminalVerdictFor pins which attribution a terminal agent verdict
+// persists. NOT_ATTRIBUTABLE must win over FIRST_PARTY: an extension key
+// egresses nothing to a vendor and so satisfies the first-party test too, but
+// the operator did not write it and recording it as theirs would be false.
+// TestRejectVendorAttribution_TerminalVerdictOutranksVendor pins the ordering
+// that decides which of two contradictory agent answers wins.
+//
+// An agent can name a defensible vendor and flag the artifact terminal in the
+// same response. Accepting the vendor there wrote a THIRD_PARTY row for an
+// artifact the agent said had no third party, so the terminal verdict was
+// silently discarded and the row was both attributed and settled.
+func TestRejectVendorAttribution_TerminalVerdictOutranksVendor(t *testing.T) {
+	t.Parallel()
+
+	defensible := TrackerMappingAgentResult{
+		ThirdPartyName:       "PostHog",
+		Category:             coredata.ThirdPartyCategoryAnalytics,
+		ThirdPartyConfidence: 0.95,
+		EvidenceSource:       evidenceSourceNamingConvention,
+	}
+
+	t.Run("accepted when no terminal flag is set", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(
+			t,
+			attributionAccepted,
+			rejectVendorAttribution(defensible, attributionContext{}),
+		)
+	})
+
+	for name, mutate := range map[string]func(*TrackerMappingAgentResult){
+		"first party":      func(r *TrackerMappingAgentResult) { r.IsFirstParty = true },
+		"not attributable": func(r *TrackerMappingAgentResult) { r.IsNotAttributable = true },
+	} {
+		t.Run("rejected alongside "+name, func(t *testing.T) {
+			t.Parallel()
+
+			r := defensible
+			mutate(&r)
+
+			assert.Equal(
+				t,
+				attributionRejectedTerminalVerdict,
+				rejectVendorAttribution(r, attributionContext{}),
+				"a terminal verdict must stop the vendor being recorded",
+			)
+		})
+	}
+}
+
+func TestTerminalVerdictFor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		firstParty      bool
+		notAttributable bool
+		expected        coredata.CommonTrackerPatternAttribution
+	}{
+		{name: "neither flag settles nothing", expected: ""},
+		{name: "first party alone", firstParty: true, expected: coredata.CommonTrackerPatternAttributionFirstParty},
+		{name: "not attributable alone", notAttributable: true, expected: coredata.CommonTrackerPatternAttributionNotAttributable},
+		{
+			name:            "not attributable wins over first party",
+			firstParty:      true,
+			notAttributable: true,
+			expected:        coredata.CommonTrackerPatternAttributionNotAttributable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := terminalVerdictFor(TrackerMappingAgentResult{
+				IsFirstParty:      tt.firstParty,
+				IsNotAttributable: tt.notAttributable,
+			})
+
+			assert.Equal(t, tt.expected, got)
+
+			if tt.expected != "" {
+				assert.True(t, got.IsTerminal(), "a persisted verdict must be terminal")
+			}
+		})
+	}
+}
+
+// TestIsExtensionSource pins the guard that keeps a confirmed extension write
+// away from the mapping agent. The stack carried an extension frame, which is
+// stronger evidence than any verdict the agent could produce, so asking it to
+// attribute a vendor could only pollute the global catalog.
+func TestIsExtensionSource(t *testing.T) {
+	t.Parallel()
+
+	extension := coredata.CookieSourceExtension
+	script := coredata.CookieSourceScript
+
+	assert.True(t, isExtensionSource(coredata.TrackerPattern{Source: &extension}))
+	assert.False(t, isExtensionSource(coredata.TrackerPattern{Source: &script}))
+	assert.False(t, isExtensionSource(coredata.TrackerPattern{}), "an unknown source must not be treated as an extension")
+}

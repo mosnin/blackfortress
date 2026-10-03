@@ -1,0 +1,197 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/gid"
+)
+
+type (
+	ControlObligation struct {
+		ControlID    gid.GID   `db:"control_id"`
+		ObligationID gid.GID   `db:"obligation_id"`
+		CreatedAt    time.Time `db:"created_at"`
+	}
+
+	ControlObligations []*ControlObligation
+
+	ControlObligationType struct {
+		ControlID      gid.GID        `db:"control_id"`
+		ObligationType ObligationType `db:"obligation_type"`
+	}
+)
+
+func (co ControlObligation) Upsert(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+) error {
+	q := `
+INSERT INTO
+    controls_obligations (
+        control_id,
+        obligation_id,
+        tenant_id,
+        created_at
+    )
+VALUES (
+    @control_id,
+    @obligation_id,
+    @tenant_id,
+    @created_at
+)
+ON CONFLICT (control_id, obligation_id) DO NOTHING;
+`
+
+	args := pgx.StrictNamedArgs{
+		"control_id":    co.ControlID,
+		"obligation_id": co.ObligationID,
+		"tenant_id":     scope.GetTenantID(),
+		"created_at":    co.CreatedAt,
+	}
+	_, err := conn.Exec(ctx, q, args)
+
+	return err
+}
+
+func (co ControlObligation) Delete(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+	controlID gid.GID,
+	obligationID gid.GID,
+) error {
+	q := `
+DELETE
+FROM
+    controls_obligations
+WHERE
+    %s
+    AND control_id = @control_id
+    AND obligation_id = @obligation_id;
+`
+
+	args := pgx.StrictNamedArgs{
+		"control_id":    controlID,
+		"obligation_id": obligationID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	_, err := conn.Exec(ctx, q, args)
+
+	return err
+}
+
+func (cos *ControlObligations) CountByControlID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	controlID gid.GID,
+	filter *ControlObligationFilter,
+) (int, error) {
+	q := `
+WITH control_obls AS (
+	SELECT
+		co.control_id,
+		o.type,
+		o.tenant_id
+	FROM
+		controls_obligations co
+	INNER JOIN
+		obligations o ON co.obligation_id = o.id
+	WHERE
+		co.control_id = @control_id
+)
+SELECT
+	COUNT(*)
+FROM
+	control_obls
+WHERE %s
+	AND %s
+`
+	q = fmt.Sprintf(q, scope.SQLFragment(), filter.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"control_id": controlID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, filter.SQLArguments())
+
+	row := conn.QueryRow(ctx, q, args)
+
+	var count int
+	if err := row.Scan(&count); err != nil {
+		return 0, fmt.Errorf("cannot count control obligations: %w", err)
+	}
+
+	return count, nil
+}
+
+func LoadObligationTypesByControlIDs(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	controlIDs []gid.GID,
+) ([]ControlObligationType, error) {
+	q := `
+WITH control_obls AS (
+    SELECT DISTINCT
+        co.control_id,
+        o.type AS obligation_type,
+        o.tenant_id
+    FROM
+        controls_obligations co
+    INNER JOIN
+        obligations o ON co.obligation_id = o.id
+    WHERE
+        co.control_id = ANY(@control_ids)
+)
+SELECT
+    control_id,
+    obligation_type
+FROM
+    control_obls
+WHERE
+    %s;
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"control_ids": controlIDs}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot load obligation types by control IDs: %w", err)
+	}
+
+	result, err := pgx.CollectRows(rows, pgx.RowToStructByName[ControlObligationType])
+	if err != nil {
+		return nil, fmt.Errorf("cannot collect control obligation types: %w", err)
+	}
+
+	return result, nil
+}

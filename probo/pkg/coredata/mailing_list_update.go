@@ -1,0 +1,477 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/policy"
+	"go.probo.inc/probo/pkg/page"
+)
+
+type (
+	MailingListUpdate struct {
+		ID             gid.GID                 `db:"id"`
+		OrganizationID gid.GID                 `db:"organization_id"`
+		MailingListID  gid.GID                 `db:"mailing_list_id"`
+		Title          string                  `db:"title"`
+		Body           string                  `db:"body"`
+		Status         MailingListUpdateStatus `db:"status"`
+		CreatedAt      time.Time               `db:"created_at"`
+		UpdatedAt      time.Time               `db:"updated_at"`
+	}
+
+	MailingListUpdateItems []*MailingListUpdate
+)
+
+func (mlu *MailingListUpdate) CursorKey(orderBy MailingListUpdateOrderField) page.CursorKey {
+	switch orderBy {
+	case MailingListUpdateOrderFieldCreatedAt:
+		return page.NewCursorKey(mlu.ID, mlu.CreatedAt)
+	case MailingListUpdateOrderFieldUpdatedAt:
+		return page.NewCursorKey(mlu.ID, mlu.UpdatedAt)
+	}
+
+	panic(fmt.Sprintf("unsupported order by: %s", orderBy))
+}
+
+func (mlu *MailingListUpdate) AuthorizationAttributes(
+	ctx context.Context,
+	conn pg.Querier,
+	resourceIDs []gid.GID,
+) (policy.AttributesByID, error) {
+	q := `SELECT id, organization_id FROM mailing_list_updates WHERE id = ANY(@resource_ids::text[])`
+
+	args := pgx.StrictNamedArgs{
+		"resource_ids": resourceIDs,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query authorization attributes: %w", err)
+	}
+
+	defer rows.Close()
+
+	attrsByID := make(policy.AttributesByID)
+
+	for rows.Next() {
+		var id, organizationID gid.GID
+
+		if err := rows.Scan(&id, &organizationID); err != nil {
+			return nil, fmt.Errorf("cannot scan authorization attributes: %w", err)
+		}
+
+		attrsByID[id] = policy.Attributes{
+			"organization_id": organizationID.String(),
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cannot iterate authorization attributes: %w", err)
+	}
+
+	return attrsByID, nil
+}
+
+func (mlu *MailingListUpdate) Insert(ctx context.Context, conn pg.Tx, scope Scoper) error {
+	q := `
+INSERT INTO mailing_list_updates (
+	id,
+	tenant_id,
+	organization_id,
+	mailing_list_id,
+	title,
+	body,
+	status,
+	created_at,
+	updated_at
+) VALUES (
+	@id,
+	@tenant_id,
+	@organization_id,
+	@mailing_list_id,
+	@title,
+	@body,
+	@status,
+	@created_at,
+	@updated_at
+)
+`
+	args := pgx.StrictNamedArgs{
+		"id":              mlu.ID,
+		"organization_id": mlu.OrganizationID,
+		"mailing_list_id": mlu.MailingListID,
+		"title":           mlu.Title,
+		"body":            mlu.Body,
+		"status":          mlu.Status,
+		"created_at":      mlu.CreatedAt,
+		"updated_at":      mlu.UpdatedAt,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+
+	return err
+}
+
+func (mlu *MailingListUpdate) Update(ctx context.Context, conn pg.Tx, scope Scoper) error {
+	q := `
+UPDATE mailing_list_updates
+SET
+	title      = @title,
+	body       = @body,
+	status     = @status,
+	updated_at = @updated_at
+WHERE
+	%s
+	AND id = @id
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"id":         mlu.ID,
+		"title":      mlu.Title,
+		"body":       mlu.Body,
+		"status":     mlu.Status,
+		"updated_at": mlu.UpdatedAt,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	tag, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot update mailing list update: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return ErrResourceNotFound
+	}
+
+	return nil
+}
+
+func (mlu *MailingListUpdate) Delete(ctx context.Context, conn pg.Tx, scope Scoper) error {
+	q := `
+DELETE FROM mailing_list_updates
+WHERE
+	%s
+	AND id = @id
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"id": mlu.ID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot delete mailing list update: %w", err)
+	}
+
+	return nil
+}
+
+func (mlu *MailingListUpdate) LoadByID(ctx context.Context, conn pg.Querier, scope Scoper, id gid.GID) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	mailing_list_id,
+	title,
+	body,
+	status,
+	created_at,
+	updated_at
+FROM mailing_list_updates
+WHERE
+	%s
+	AND id = @id
+LIMIT 1;
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"id": id,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query mailing list update: %w", err)
+	}
+
+	result, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[MailingListUpdate])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect mailing list update: %w", err)
+	}
+
+	*mlu = result
+
+	return nil
+}
+
+func (mlu *MailingListUpdate) LoadSentByMailingListIDAndID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	mailingListID gid.GID,
+	id gid.GID,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	mailing_list_id,
+	title,
+	body,
+	status,
+	created_at,
+	updated_at
+FROM mailing_list_updates
+WHERE
+	%s
+	AND mailing_list_id = @mailing_list_id
+	AND status = 'SENT'
+	AND id = @id
+LIMIT 1;
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"mailing_list_id": mailingListID,
+		"id":              id,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query mailing list update: %w", err)
+	}
+
+	result, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[MailingListUpdate])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect mailing list update: %w", err)
+	}
+
+	*mlu = result
+
+	return nil
+}
+
+func (mlul *MailingListUpdateItems) LoadSentByMailingListID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	mailingListID gid.GID,
+	cursor *page.Cursor[MailingListUpdateOrderField],
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	mailing_list_id,
+	title,
+	body,
+	status,
+	created_at,
+	updated_at
+FROM mailing_list_updates
+WHERE
+	%s
+	AND mailing_list_id = @mailing_list_id
+	AND status = 'SENT'
+	AND %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"mailing_list_id": mailingListID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query sent mailing list updates: %w", err)
+	}
+
+	results, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[MailingListUpdate])
+	if err != nil {
+		return fmt.Errorf("cannot collect sent mailing list updates: %w", err)
+	}
+
+	*mlul = results
+
+	return nil
+}
+
+func (mlul *MailingListUpdateItems) LoadByMailingListID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	mailingListID gid.GID,
+	cursor *page.Cursor[MailingListUpdateOrderField],
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	mailing_list_id,
+	title,
+	body,
+	status,
+	created_at,
+	updated_at
+FROM mailing_list_updates
+WHERE
+	%s
+	AND mailing_list_id = @mailing_list_id
+	AND %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"mailing_list_id": mailingListID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query mailing list updates: %w", err)
+	}
+
+	results, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[MailingListUpdate])
+	if err != nil {
+		return fmt.Errorf("cannot collect mailing list updates: %w", err)
+	}
+
+	*mlul = results
+
+	return nil
+}
+
+func (mlul *MailingListUpdateItems) CountByMailingListID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	mailingListID gid.GID,
+) (int, error) {
+	q := `
+SELECT COUNT(*)
+FROM mailing_list_updates
+WHERE
+	%s
+	AND mailing_list_id = @mailing_list_id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"mailing_list_id": mailingListID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	var count int
+	if err := conn.QueryRow(ctx, q, args).Scan(&count); err != nil {
+		return 0, fmt.Errorf("cannot count mailing list updates: %w", err)
+	}
+
+	return count, nil
+}
+
+func (mlu *MailingListUpdate) LoadNextEnqueuedForUpdateSkipLocked(
+	ctx context.Context,
+	conn pg.Tx,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	mailing_list_id,
+	title,
+	body,
+	status,
+	created_at,
+	updated_at
+FROM mailing_list_updates
+WHERE status = 'ENQUEUED'
+ORDER BY updated_at ASC
+LIMIT 1
+FOR UPDATE SKIP LOCKED
+`
+
+	rows, err := conn.Query(ctx, q)
+	if err != nil {
+		return fmt.Errorf("cannot query enqueued mailing list updates: %w", err)
+	}
+
+	result, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[MailingListUpdate])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect enqueued mailing list update: %w", err)
+	}
+
+	*mlu = result
+
+	return nil
+}
+
+func ResetStaleProcessingMailingListUpdates(
+	ctx context.Context,
+	conn pg.Tx,
+	staleAfter time.Duration,
+) error {
+	q := `
+UPDATE mailing_list_updates
+SET status = 'ENQUEUED', updated_at = NOW()
+WHERE status = 'PROCESSING'
+	AND updated_at < NOW() - @stale_after::interval
+`
+
+	_, err := conn.Exec(ctx, q, pgx.StrictNamedArgs{"stale_after": staleAfter})
+	if err != nil {
+		return fmt.Errorf("cannot reset stale processing mailing list updates: %w", err)
+	}
+
+	return nil
+}

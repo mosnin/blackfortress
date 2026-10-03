@@ -1,0 +1,324 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package probo
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/page"
+	"go.probo.inc/probo/pkg/validator"
+)
+
+type (
+	DatumService struct {
+		svc *Service
+	}
+
+	CreateDatumRequest struct {
+		OrganizationID     gid.GID
+		Name               string
+		DataClassification coredata.DataClassification
+		OwnerID            gid.GID
+		ThirdPartyIDs      []gid.GID
+	}
+
+	UpdateDatumRequest struct {
+		ID                 gid.GID
+		Name               *string
+		DataClassification *coredata.DataClassification
+		OwnerID            *gid.GID
+		ThirdPartyIDs      []gid.GID
+	}
+)
+
+func (cdr *CreateDatumRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(cdr.OrganizationID, "organization_id", validator.Required(), validator.GID(coredata.OrganizationEntityType))
+	v.Check(cdr.Name, "name", validator.SafeTextNoNewLine(NameMaxLength))
+	v.Check(cdr.DataClassification, "data_classification", validator.Required(), validator.OneOfSlice(coredata.DataClassifications()))
+	v.Check(cdr.OwnerID, "owner_id", validator.Required(), validator.GID(coredata.MembershipProfileEntityType))
+	v.CheckEach(cdr.ThirdPartyIDs, "third_party_ids", func(index int, item any) {
+		v.Check(item, fmt.Sprintf("third_party_ids[%d]", index), validator.Required(), validator.GID(coredata.ThirdPartyEntityType))
+	})
+
+	return v.Error()
+}
+
+func (udr *UpdateDatumRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(udr.ID, "id", validator.Required(), validator.GID(coredata.DatumEntityType))
+	v.Check(udr.Name, "name", validator.SafeTextNoNewLine(NameMaxLength))
+	v.Check(udr.DataClassification, "data_classification", validator.OneOfSlice(coredata.DataClassifications()))
+	v.Check(udr.OwnerID, "owner_id", validator.GID(coredata.MembershipProfileEntityType))
+	v.CheckEach(udr.ThirdPartyIDs, "third_party_ids", func(index int, item any) {
+		v.Check(item, fmt.Sprintf("third_party_ids[%d]", index), validator.Required(), validator.GID(coredata.ThirdPartyEntityType))
+	})
+
+	return v.Error()
+}
+
+func (s DatumService) Get(
+	ctx context.Context, scope coredata.Scoper,
+	datumID gid.GID,
+) (*coredata.Datum, error) {
+	datum := &coredata.Datum{}
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			return datum.LoadByID(ctx, conn, scope, datumID)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return datum, nil
+}
+
+func (s DatumService) GetByOwnerID(
+	ctx context.Context, scope coredata.Scoper,
+	ownerID gid.GID,
+) (*coredata.Datum, error) {
+	datum := &coredata.Datum{OwnerID: ownerID}
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			return datum.LoadByOwnerID(ctx, conn, scope)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return datum, nil
+}
+
+func (s DatumService) CountForOrganizationID(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+) (int, error) {
+	var count int
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) (err error) {
+			data := coredata.Data{}
+
+			count, err = data.CountByOrganizationID(ctx, conn, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot count data: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func (s DatumService) ListForOrganizationID(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+	cursor *page.Cursor[coredata.DatumOrderField],
+) (*page.Page[*coredata.Datum, coredata.DatumOrderField], error) {
+	var data coredata.Data
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			return data.LoadByOrganizationID(
+				ctx,
+				conn,
+				scope,
+				organizationID,
+				cursor,
+			)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(data, cursor), nil
+}
+
+func (s DatumService) Update(
+	ctx context.Context, scope coredata.Scoper,
+	req UpdateDatumRequest,
+) (*coredata.Datum, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	now := time.Now()
+	datum := &coredata.Datum{}
+	datumThirdParties := &coredata.DatumThirdParties{}
+
+	err := s.svc.pg.WithTx(ctx, func(ctx context.Context, conn pg.Tx) error {
+		if err := datum.LoadByID(ctx, conn, scope, req.ID); err != nil {
+			return fmt.Errorf("cannot load data: %w", err)
+		}
+
+		if req.Name != nil {
+			datum.Name = *req.Name
+		}
+
+		if req.DataClassification != nil {
+			datum.DataClassification = *req.DataClassification
+		}
+
+		if req.OwnerID != nil {
+			owner := &coredata.MembershipProfile{}
+			if err := owner.LoadByID(ctx, conn, scope, *req.OwnerID); err != nil {
+				return fmt.Errorf("cannot load owner profile: %w", err)
+			}
+
+			datum.OwnerID = *req.OwnerID
+		}
+
+		datum.UpdatedAt = now
+
+		if err := datum.Update(ctx, conn, scope); err != nil {
+			return fmt.Errorf("cannot update data: %w", err)
+		}
+
+		if req.ThirdPartyIDs != nil {
+			if len(req.ThirdPartyIDs) > 0 {
+				thirdParties := &coredata.ThirdParties{}
+				if err := thirdParties.LoadByIDs(ctx, conn, scope, req.ThirdPartyIDs); err != nil {
+					return fmt.Errorf("cannot load thirdParties: %w", err)
+				}
+			}
+
+			if err := datumThirdParties.Merge(ctx, conn, scope, datum.ID, datum.OrganizationID, req.ThirdPartyIDs); err != nil {
+				return fmt.Errorf("cannot update data thirdParties: %w", err)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return datum, nil
+}
+
+func (s DatumService) Create(
+	ctx context.Context, scope coredata.Scoper,
+	req CreateDatumRequest,
+) (*coredata.Datum, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	now := time.Now()
+	datumID := gid.New(scope.GetTenantID(), coredata.DatumEntityType)
+	datumThirdParties := &coredata.DatumThirdParties{}
+
+	datum := &coredata.Datum{
+		ID:                 datumID,
+		OrganizationID:     req.OrganizationID,
+		Name:               req.Name,
+		DataClassification: req.DataClassification,
+		OwnerID:            req.OwnerID,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+
+	err := s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, conn pg.Tx) error {
+			owner := &coredata.MembershipProfile{}
+			if err := owner.LoadByID(ctx, conn, scope, req.OwnerID); err != nil {
+				return fmt.Errorf("cannot load owner profile: %w", err)
+			}
+
+			if err := datum.Insert(ctx, conn, scope); err != nil {
+				return fmt.Errorf("cannot insert datum: %w", err)
+			}
+
+			if len(req.ThirdPartyIDs) > 0 {
+				thirdParties := &coredata.ThirdParties{}
+				if err := thirdParties.LoadByIDs(ctx, conn, scope, req.ThirdPartyIDs); err != nil {
+					return fmt.Errorf("cannot load thirdParties: %w", err)
+				}
+
+				if err := datumThirdParties.Insert(ctx, conn, scope, datum.ID, datum.OrganizationID, req.ThirdPartyIDs); err != nil {
+					return fmt.Errorf("cannot create data thirdParties: %w", err)
+				}
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return datum, nil
+}
+
+func (s DatumService) Delete(
+	ctx context.Context, scope coredata.Scoper,
+	datumID gid.GID,
+) error {
+	datum := &coredata.Datum{ID: datumID}
+
+	return s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			return datum.Delete(ctx, tx, scope)
+		},
+	)
+}
+
+func (s DatumService) ListThirdParties(
+	ctx context.Context, scope coredata.Scoper,
+	datumID gid.GID,
+	cursor *page.Cursor[coredata.ThirdPartyOrderField],
+) (*page.Page[*coredata.ThirdParty, coredata.ThirdPartyOrderField], error) {
+	var thirdParties coredata.ThirdParties
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			return thirdParties.LoadByDatumID(ctx, conn, scope, datumID, cursor)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(thirdParties, cursor), nil
+}

@@ -1,0 +1,376 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+// These tests extend the GHSA-c74x-79w6-63jh read-path regression coverage to
+// every parent-authorized Profile field resolver. The advisory's confirmed
+// exploit #2 disclosed another organization's person PII through
+// processingActivity.dataProtectionOfficer; the same wrong-object
+// authorization shape (authorizing the parent obj.ID with the child's
+// ActionMembershipProfileGet, then loading the child through the scope-by-key
+// Profile dataloader) also existed on asset.owner, datum.owner, finding.owner,
+// obligation.owner, risk.owner, task.assignedTo, and
+// thirdParty.administrators. Each of those write paths validates the owner FK
+// today, so these tests plant a foreign profile id directly -- proving the
+// read resolver refuses cross-tenant PII independently of the write check
+// (a future write regression, migration bug, or direct DB access).
+package console_test
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/e2e/internal/factory"
+	"go.probo.inc/probo/e2e/internal/testutil"
+)
+
+func TestSecurity_ReadGap_AssetOwner(t *testing.T) {
+	t.Parallel()
+
+	org1Owner := testutil.NewClient(t, testutil.RoleOwner)
+	org2Owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	org1ProfileID := factory.CreateUser(org1Owner)
+	org2ProfileID := factory.CreateUser(org2Owner, factory.Attrs{"fullName": "Org2 Secret Asset Owner (read-gap probe)"})
+
+	var createResult struct {
+		CreateAsset struct {
+			AssetEdge struct {
+				Node struct {
+					ID string `json:"id"`
+				} `json:"node"`
+			} `json:"assetEdge"`
+		} `json:"createAsset"`
+	}
+
+	err := org1Owner.Execute(`
+		mutation($input: CreateAssetInput!) {
+			createAsset(input: $input) {
+				assetEdge { node { id } }
+			}
+		}
+	`, map[string]any{
+		"input": map[string]any{
+			"organizationId":  org1Owner.GetOrganizationID().String(),
+			"name":            "Org1 Asset for read-gap probe",
+			"amount":          1,
+			"ownerId":         org1ProfileID,
+			"assetType":       "VIRTUAL",
+			"dataTypesStored": "Test data",
+		},
+	}, &createResult)
+	require.NoError(t, err)
+
+	assetID := createResult.CreateAsset.AssetEdge.Node.ID
+
+	injectCrossTenantFK(t, "assets", "owner_profile_id", assetID, org2ProfileID)
+
+	var readResult struct {
+		Node struct {
+			Owner *struct {
+				ID       string `json:"id"`
+				FullName string `json:"fullName"`
+			} `json:"owner"`
+		} `json:"node"`
+	}
+
+	err = org1Owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on Asset {
+					owner { id fullName }
+				}
+			}
+		}
+	`, map[string]any{"id": assetID}, &readResult)
+
+	testutil.AssertNodeNotAccessible(t, err, readResult.Node.Owner == nil, "cross-tenant profile PII via asset.owner")
+}
+
+func TestSecurity_ReadGap_DatumOwner(t *testing.T) {
+	t.Parallel()
+
+	org1Owner := testutil.NewClient(t, testutil.RoleOwner)
+	org2Owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	org1ProfileID := factory.CreateUser(org1Owner)
+	org2ProfileID := factory.CreateUser(org2Owner, factory.Attrs{"fullName": "Org2 Secret Data Owner (read-gap probe)"})
+
+	datumID := factory.CreateDatum(org1Owner, org1ProfileID, factory.Attrs{"name": "Org1 Datum for read-gap probe"})
+
+	injectCrossTenantFK(t, "data", "owner_profile_id", datumID, org2ProfileID)
+
+	var readResult struct {
+		Node struct {
+			Owner *struct {
+				ID       string `json:"id"`
+				FullName string `json:"fullName"`
+			} `json:"owner"`
+		} `json:"node"`
+	}
+
+	err := org1Owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on Datum {
+					owner { id fullName }
+				}
+			}
+		}
+	`, map[string]any{"id": datumID}, &readResult)
+
+	testutil.AssertNodeNotAccessible(t, err, readResult.Node.Owner == nil, "cross-tenant profile PII via datum.owner")
+}
+
+func TestSecurity_ReadGap_FindingOwner(t *testing.T) {
+	t.Parallel()
+
+	org1Owner := testutil.NewClient(t, testutil.RoleOwner)
+	org2Owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	org1ProfileID := factory.CreateUser(org1Owner)
+	org2ProfileID := factory.CreateUser(org2Owner, factory.Attrs{"fullName": "Org2 Secret Finding Owner (read-gap probe)"})
+
+	var createResult struct {
+		CreateFinding struct {
+			FindingEdge struct {
+				Node struct {
+					ID string `json:"id"`
+				} `json:"node"`
+			} `json:"findingEdge"`
+		} `json:"createFinding"`
+	}
+
+	err := org1Owner.Execute(`
+		mutation($input: CreateFindingInput!) {
+			createFinding(input: $input) {
+				findingEdge { node { id } }
+			}
+		}
+	`, map[string]any{
+		"input": map[string]any{
+			"organizationId": org1Owner.GetOrganizationID().String(),
+			"kind":           "OBSERVATION",
+			"status":         "OPEN",
+			"priority":       "LOW",
+			"ownerId":        org1ProfileID,
+		},
+	}, &createResult)
+	require.NoError(t, err)
+
+	findingID := createResult.CreateFinding.FindingEdge.Node.ID
+
+	injectCrossTenantFK(t, "findings", "owner_id", findingID, org2ProfileID)
+
+	var readResult struct {
+		Node struct {
+			Owner *struct {
+				ID       string `json:"id"`
+				FullName string `json:"fullName"`
+			} `json:"owner"`
+		} `json:"node"`
+	}
+
+	err = org1Owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on Finding {
+					owner { id fullName }
+				}
+			}
+		}
+	`, map[string]any{"id": findingID}, &readResult)
+
+	testutil.AssertNodeNotAccessible(t, err, readResult.Node.Owner == nil, "cross-tenant profile PII via finding.owner")
+}
+
+func TestSecurity_ReadGap_ObligationOwner(t *testing.T) {
+	t.Parallel()
+
+	org1Owner := testutil.NewClient(t, testutil.RoleOwner)
+	org2Owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	org1ProfileID := factory.CreateUser(org1Owner)
+	org2ProfileID := factory.CreateUser(org2Owner, factory.Attrs{"fullName": "Org2 Secret Obligation Owner (read-gap probe)"})
+
+	var createResult struct {
+		CreateObligation struct {
+			ObligationEdge struct {
+				Node struct {
+					ID string `json:"id"`
+				} `json:"node"`
+			} `json:"obligationEdge"`
+		} `json:"createObligation"`
+	}
+
+	err := org1Owner.Execute(`
+		mutation($input: CreateObligationInput!) {
+			createObligation(input: $input) {
+				obligationEdge { node { id } }
+			}
+		}
+	`, map[string]any{
+		"input": map[string]any{
+			"organizationId": org1Owner.GetOrganizationID().String(),
+			"area":           "Data Protection",
+			"source":         "GDPR Article 5",
+			"requirement":    "Org1 obligation for read-gap probe",
+			"ownerId":        org1ProfileID,
+			"status":         "NON_COMPLIANT",
+			"type":           "LEGAL",
+		},
+	}, &createResult)
+	require.NoError(t, err)
+
+	obligationID := createResult.CreateObligation.ObligationEdge.Node.ID
+
+	injectCrossTenantFK(t, "obligations", "owner_profile_id", obligationID, org2ProfileID)
+
+	var readResult struct {
+		Node struct {
+			Owner *struct {
+				ID       string `json:"id"`
+				FullName string `json:"fullName"`
+			} `json:"owner"`
+		} `json:"node"`
+	}
+
+	err = org1Owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on Obligation {
+					owner { id fullName }
+				}
+			}
+		}
+	`, map[string]any{"id": obligationID}, &readResult)
+
+	testutil.AssertNodeNotAccessible(t, err, readResult.Node.Owner == nil, "cross-tenant profile PII via obligation.owner")
+}
+
+func TestSecurity_ReadGap_RiskOwner(t *testing.T) {
+	t.Parallel()
+
+	org1Owner := testutil.NewClient(t, testutil.RoleOwner)
+	org2Owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	org2ProfileID := factory.CreateUser(org2Owner, factory.Attrs{"fullName": "Org2 Secret Risk Owner (read-gap probe)"})
+
+	riskID := factory.CreateRisk(org1Owner, factory.Attrs{"name": "Org1 Risk for read-gap probe"})
+
+	injectCrossTenantFK(t, "risks", "owner_profile_id", riskID, org2ProfileID)
+
+	var readResult struct {
+		Node struct {
+			Owner *struct {
+				ID       string `json:"id"`
+				FullName string `json:"fullName"`
+			} `json:"owner"`
+		} `json:"node"`
+	}
+
+	err := org1Owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on Risk {
+					owner { id fullName }
+				}
+			}
+		}
+	`, map[string]any{"id": riskID}, &readResult)
+
+	testutil.AssertNodeNotAccessible(t, err, readResult.Node.Owner == nil, "cross-tenant profile PII via risk.owner")
+}
+
+func TestSecurity_ReadGap_TaskAssignedTo(t *testing.T) {
+	t.Parallel()
+
+	org1Owner := testutil.NewClient(t, testutil.RoleOwner)
+	org2Owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	org2ProfileID := factory.CreateUser(org2Owner, factory.Attrs{"fullName": "Org2 Secret Assignee (read-gap probe)"})
+
+	taskID := factory.CreateTask(org1Owner, nil, factory.Attrs{"name": "Org1 Task for read-gap probe"})
+
+	injectCrossTenantFK(t, "tasks", "assigned_to_profile_id", taskID, org2ProfileID)
+
+	var readResult struct {
+		Node struct {
+			AssignedTo *struct {
+				ID       string `json:"id"`
+				FullName string `json:"fullName"`
+			} `json:"assignedTo"`
+		} `json:"node"`
+	}
+
+	err := org1Owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on Task {
+					assignedTo { id fullName }
+				}
+			}
+		}
+	`, map[string]any{"id": taskID}, &readResult)
+
+	testutil.AssertNodeNotAccessible(t, err, readResult.Node.AssignedTo == nil, "cross-tenant profile PII via task.assignedTo")
+}
+
+func TestSecurity_ReadGap_ThirdPartyAdministrators(t *testing.T) {
+	t.Parallel()
+
+	org1Owner := testutil.NewClient(t, testutil.RoleOwner)
+	org2Owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	org2ProfileID := factory.CreateUser(org2Owner, factory.Attrs{"fullName": "Org2 Secret Administrator (read-gap probe)"})
+
+	thirdPartyID := factory.CreateThirdParty(org1Owner, factory.Attrs{"name": "Org1 ThirdParty for read-gap probe"})
+
+	factory.InjectCrossTenantThirdPartyAdministrator(t, thirdPartyID, org2ProfileID)
+
+	var readResult struct {
+		Node struct {
+			Administrators []struct {
+				ID       string `json:"id"`
+				FullName string `json:"fullName"`
+			} `json:"administrators"`
+		} `json:"node"`
+	}
+
+	err := org1Owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on ThirdParty {
+					administrators { id fullName }
+				}
+			}
+		}
+	`, map[string]any{"id": thirdPartyID}, &readResult)
+
+	leaked := false
+
+	for _, a := range readResult.Node.Administrators {
+		if a.ID == org2ProfileID || a.FullName != "" && a.ID == org2ProfileID {
+			leaked = true
+			break
+		}
+	}
+
+	testutil.AssertNodeNotAccessible(t, err, !leaked && len(readResult.Node.Administrators) == 0, "cross-tenant profile PII via thirdParty.administrators")
+}

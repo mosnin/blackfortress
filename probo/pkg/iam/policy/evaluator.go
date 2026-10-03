@@ -1,0 +1,211 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package policy
+
+import "go.probo.inc/probo/pkg/gid"
+
+// Decision represents the result of a policy evaluation.
+type Decision string
+
+const (
+	// DecisionAllow means access is explicitly allowed.
+	DecisionAllow Decision = "allow"
+
+	// DecisionDeny means access is explicitly denied.
+	DecisionDeny Decision = "deny"
+
+	// DecisionNoMatch means no policy statement matched (implicit deny).
+	DecisionNoMatch Decision = "no_match"
+)
+
+// EvaluationResult contains the decision and context about how it was reached.
+type EvaluationResult struct {
+	// Decision is the final authorization decision.
+	Decision Decision
+
+	// MatchedStatement is the statement that produced the decision (if any).
+	MatchedStatement *Statement
+
+	// MatchedPolicy is the policy containing the matched statement (if any).
+	MatchedPolicy *Policy
+}
+
+// IsAllowed returns true if access should be granted.
+func (r EvaluationResult) IsAllowed() bool {
+	return r.Decision == DecisionAllow
+}
+
+func (r EvaluationResult) statementSID() string {
+	if r.MatchedStatement != nil {
+		return r.MatchedStatement.SID
+	}
+
+	return ""
+}
+
+// PolicyID returns the statement SID or matched policy ID for logging.
+func (r EvaluationResult) PolicyID() string {
+	if sid := r.statementSID(); sid != "" {
+		return sid
+	}
+
+	if r.MatchedPolicy != nil {
+		return r.MatchedPolicy.ID
+	}
+
+	return ""
+}
+
+// Reason returns a human-readable explanation for logging.
+func (r EvaluationResult) Reason(role string) string {
+	if sid := r.statementSID(); sid != "" {
+		switch r.Decision {
+		case DecisionAllow:
+			return "allowed by statement " + sid
+		case DecisionDeny:
+			return "explicit deny by statement " + sid
+		}
+	}
+
+	switch r.Decision {
+	case DecisionAllow:
+		return "allowed"
+	case DecisionDeny:
+		return "explicit deny"
+	default:
+		if role != "" {
+			return "implicit deny: no matching allow for role " + role
+		}
+
+		return "implicit deny: no matching allow"
+	}
+}
+
+// AuthorizationRequest contains all information needed to evaluate access.
+type AuthorizationRequest struct {
+	// Principal is the actor requesting access.
+	Principal gid.GID
+
+	// Resource is the target resource.
+	Resource gid.GID
+
+	// Action is the operation being performed.
+	Action string
+
+	// ConditionContext provides attributes for condition evaluation.
+	ConditionContext ConditionContext
+}
+
+// Evaluator evaluates policies to determine access decisions.
+// Evaluation order: Explicit Deny > Explicit Allow > Implicit Deny
+type Evaluator struct {
+	matcher *ActionMatcher
+}
+
+// NewEvaluator creates a new policy evaluator.
+func NewEvaluator() *Evaluator {
+	return &Evaluator{
+		matcher: NewActionMatcher(),
+	}
+}
+
+// Evaluate evaluates a set of policies against an authorization request.
+// Returns the decision and information about which policy/statement matched.
+//
+// Evaluation logic (AWS-style):
+//  1. If any statement explicitly denies, return Deny
+//  2. If any statement explicitly allows, return Allow
+//  3. Otherwise, return NoMatch (implicit deny)
+func (e *Evaluator) Evaluate(req AuthorizationRequest, policies []*Policy) EvaluationResult {
+	var allowResult *EvaluationResult
+
+	// First pass: check for explicit denies and collect allows
+	for _, policy := range policies {
+		for i := range policy.Statements {
+			stmt := &policy.Statements[i]
+
+			if !e.statementMatches(stmt, req) {
+				continue
+			}
+
+			if stmt.Effect == EffectDeny {
+				// Explicit deny - return immediately
+				return EvaluationResult{
+					Decision:         DecisionDeny,
+					MatchedStatement: stmt,
+					MatchedPolicy:    policy,
+				}
+			}
+
+			if stmt.Effect == EffectAllow && allowResult == nil {
+				// First matching allow - save it
+				allowResult = &EvaluationResult{
+					Decision:         DecisionAllow,
+					MatchedStatement: stmt,
+					MatchedPolicy:    policy,
+				}
+			}
+		}
+	}
+
+	// No explicit deny found, check for allow
+	if allowResult != nil {
+		return *allowResult
+	}
+
+	// No matching statements - implicit deny
+	return EvaluationResult{
+		Decision: DecisionNoMatch,
+	}
+}
+
+// statementMatches checks if a statement applies to the request.
+func (e *Evaluator) statementMatches(stmt *Statement, req AuthorizationRequest) bool {
+	// Check action match
+	if !e.matcher.MatchesAny(stmt.Actions, req.Action) {
+		return false
+	}
+
+	// Check resource match (if resources are specified)
+	if len(stmt.Resources) > 0 {
+		resourceMatched := false
+
+		for _, pattern := range stmt.Resources {
+			if pattern.MatchesResource(req.Resource) {
+				resourceMatched = true
+				break
+			}
+		}
+
+		if !resourceMatched {
+			return false
+		}
+	}
+
+	// Check conditions (all must be satisfied)
+	for _, condition := range stmt.Conditions {
+		if !condition.Evaluate(req.ConditionContext) {
+			return false
+		}
+	}
+
+	return true
+}

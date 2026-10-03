@@ -1,0 +1,1033 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package console_test
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/e2e/internal/factory"
+	"go.probo.inc/probo/e2e/internal/testutil"
+)
+
+// TestUser_AdminCannotCreateOwner is a non-regression test for the vertical
+// privilege escalation where an ADMIN could mint an OWNER membership via
+// createUser. Granting ownership (whether by creating an OWNER member or
+// promoting one) is owner-only, enforced by policy on the target role.
+func TestUser_AdminCannotCreateOwner(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	admin := testutil.NewClientInOrg(t, testutil.RoleAdmin, owner)
+
+	const createUserMutation = `
+		mutation($input: CreateUserInput!) {
+			createUser(input: $input) {
+				profileEdge {
+					node {
+						membership { role }
+					}
+				}
+			}
+		}
+	`
+
+	newUserInput := func(role string) map[string]any {
+		return map[string]any{
+			"input": map[string]any{
+				"organizationId":           owner.GetOrganizationID().String(),
+				"emailAddress":             factory.SafeEmail(),
+				"fullName":                 factory.SafeName("Privesc User"),
+				"role":                     role,
+				"kind":                     "EMPLOYEE",
+				"additionalEmailAddresses": []string{},
+			},
+		}
+	}
+
+	// An ADMIN must not be able to create an OWNER membership.
+	_, err := admin.DoConnect(createUserMutation, newUserInput("OWNER"))
+	testutil.RequireForbiddenError(t, err)
+
+	// The same ADMIN can still create a lower-privileged member.
+	var adminCreate struct {
+		CreateUser struct {
+			ProfileEdge struct {
+				Node struct {
+					Membership struct {
+						Role string `json:"role"`
+					} `json:"membership"`
+				} `json:"node"`
+			} `json:"profileEdge"`
+		} `json:"createUser"`
+	}
+
+	err = admin.ExecuteConnect(createUserMutation, newUserInput("ADMIN"), &adminCreate)
+	require.NoError(t, err)
+	assert.Equal(t, "ADMIN", adminCreate.CreateUser.ProfileEdge.Node.Membership.Role)
+
+	// An OWNER remains able to create an OWNER membership.
+	var ownerCreate struct {
+		CreateUser struct {
+			ProfileEdge struct {
+				Node struct {
+					Membership struct {
+						Role string `json:"role"`
+					} `json:"membership"`
+				} `json:"node"`
+			} `json:"profileEdge"`
+		} `json:"createUser"`
+	}
+
+	err = owner.ExecuteConnect(createUserMutation, newUserInput("OWNER"), &ownerCreate)
+	require.NoError(t, err)
+	assert.Equal(t, "OWNER", ownerCreate.CreateUser.ProfileEdge.Node.Membership.Role)
+}
+
+// TestUser_AdminCannotPromoteToOwner is a non-regression test that an ADMIN
+// cannot grant ownership by promoting an existing member to OWNER via
+// updateMembership. Granting ownership is owner-only, enforced by policy on the
+// assigned (target) role; an ADMIN may still change members between non-owner
+// roles.
+func TestUser_AdminCannotPromoteToOwner(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	admin := testutil.NewClientInOrg(t, testutil.RoleAdmin, owner)
+	viewer := testutil.NewClientInOrg(t, testutil.RoleViewer, owner)
+
+	const membershipQuery = `
+		query($id: ID!) {
+			node(id: $id) {
+				... on Profile {
+					membership { id }
+				}
+			}
+		}
+	`
+
+	var viewerMembership struct {
+		Node struct {
+			Membership struct {
+				ID string `json:"id"`
+			} `json:"membership"`
+		} `json:"node"`
+	}
+
+	err := owner.ExecuteConnect(membershipQuery, map[string]any{
+		"id": viewer.GetProfileID().String(),
+	}, &viewerMembership)
+	require.NoError(t, err)
+	require.NotEmpty(t, viewerMembership.Node.Membership.ID)
+
+	membershipID := viewerMembership.Node.Membership.ID
+
+	const updateMembershipMutation = `
+		mutation($input: UpdateMembershipInput!) {
+			updateMembership(input: $input) {
+				membership { role }
+			}
+		}
+	`
+
+	updateInput := func(role string) map[string]any {
+		return map[string]any{
+			"input": map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+				"membershipId":   membershipID,
+				"role":           role,
+			},
+		}
+	}
+
+	// An ADMIN must not be able to promote a member to OWNER.
+	_, err = admin.DoConnect(updateMembershipMutation, updateInput("OWNER"))
+	testutil.RequireForbiddenError(t, err)
+
+	// The same ADMIN can still change a member between non-owner roles.
+	var adminUpdate struct {
+		UpdateMembership struct {
+			Membership struct {
+				Role string `json:"role"`
+			} `json:"membership"`
+		} `json:"updateMembership"`
+	}
+
+	err = admin.ExecuteConnect(updateMembershipMutation, updateInput("ADMIN"), &adminUpdate)
+	require.NoError(t, err)
+	assert.Equal(t, "ADMIN", adminUpdate.UpdateMembership.Membership.Role)
+
+	// An OWNER remains able to promote a member to OWNER.
+	var ownerUpdate struct {
+		UpdateMembership struct {
+			Membership struct {
+				Role string `json:"role"`
+			} `json:"membership"`
+		} `json:"updateMembership"`
+	}
+
+	err = owner.ExecuteConnect(updateMembershipMutation, updateInput("OWNER"), &ownerUpdate)
+	require.NoError(t, err)
+	assert.Equal(t, "OWNER", ownerUpdate.UpdateMembership.Membership.Role)
+}
+
+// TestUser_AdminCannotRemoveMembers is a non-regression test for the broken
+// access control where an ADMIN could hard-remove members (including OWNERs)
+// via removeUser because the mutation only checked the weaker
+// iam:membership-profile:delete gate instead of the owner-only
+// iam:membership:delete gate. Removing members is owner-only.
+func TestUser_AdminCannotRemoveMembers(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	admin := testutil.NewClientInOrg(t, testutil.RoleAdmin, owner)
+	viewer := testutil.NewClientInOrg(t, testutil.RoleViewer, owner)
+	secondOwner := testutil.NewClientInOrg(t, testutil.RoleOwner, owner)
+
+	const removeUserMutation = `
+		mutation($input: RemoveUserInput!) {
+			removeUser(input: $input) {
+				deletedProfileId
+			}
+		}
+	`
+
+	removeInput := func(profileID string) map[string]any {
+		return map[string]any{
+			"input": map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+				"profileId":      profileID,
+			},
+		}
+	}
+
+	// An ADMIN must not be able to remove a lower-privileged member.
+	_, err := admin.DoConnect(removeUserMutation, removeInput(viewer.GetProfileID().String()))
+	testutil.RequireForbiddenError(t, err)
+
+	// An ADMIN must not be able to remove another ADMIN (itself).
+	_, err = admin.DoConnect(removeUserMutation, removeInput(admin.GetProfileID().String()))
+	testutil.RequireForbiddenError(t, err)
+
+	// An ADMIN must not be able to remove an OWNER, even when more than one
+	// active owner remains.
+	_, err = admin.DoConnect(removeUserMutation, removeInput(secondOwner.GetProfileID().String()))
+	testutil.RequireForbiddenError(t, err)
+
+	// An OWNER remains able to remove members.
+	var removeResult struct {
+		RemoveUser struct {
+			DeletedProfileID string `json:"deletedProfileId"`
+		} `json:"removeUser"`
+	}
+
+	err = owner.ExecuteConnect(removeUserMutation, removeInput(viewer.GetProfileID().String()), &removeResult)
+	require.NoError(t, err)
+	assert.Equal(t, viewer.GetProfileID().String(), removeResult.RemoveUser.DeletedProfileID)
+}
+
+func TestUser_UpdateMembership(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	// Create an admin to update
+	_ = testutil.NewClientInOrg(t, testutil.RoleAdmin, owner)
+
+	// Get the user ID of the admin
+	query := `
+		query($id: ID!) {
+			node(id: $id) {
+				... on Organization {
+					profiles(first: 10) {
+						edges {
+							node {
+								membership {
+									id
+									role
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	`
+
+	var result struct {
+		Node struct {
+			Profiles struct {
+				Edges []struct {
+					Node struct {
+						Membership struct {
+							ID   string `json:"id"`
+							Role string `json:"role"`
+						} `json:"membership"`
+					} `json:"node"`
+				} `json:"edges"`
+			} `json:"profiles"`
+		} `json:"node"`
+	}
+
+	err := owner.ExecuteConnect(query, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+
+	// Find the admin
+	var adminMembershipID string
+
+	for _, edge := range result.Node.Profiles.Edges {
+		if edge.Node.Membership.Role == "ADMIN" {
+			adminMembershipID = edge.Node.Membership.ID
+			break
+		}
+	}
+
+	require.NotEmpty(t, adminMembershipID, "Should find admin member")
+
+	// Update the member role to VIEWER
+	mutation := `
+		mutation($input: UpdateMembershipInput!) {
+			updateMembership(input: $input) {
+				membership {
+					id
+					role
+				}
+			}
+		}
+	`
+
+	var mutationResult struct {
+		UpdateMembership struct {
+			Membership struct {
+				ID   string `json:"id"`
+				Role string `json:"role"`
+			} `json:"membership"`
+		} `json:"updateMembership"`
+	}
+
+	err = owner.ExecuteConnect(mutation, map[string]any{
+		"input": map[string]any{
+			"organizationId": owner.GetOrganizationID().String(),
+			"membershipId":   adminMembershipID,
+			"role":           "VIEWER",
+		},
+	}, &mutationResult)
+	require.NoError(t, err)
+
+	assert.Equal(t, "VIEWER", mutationResult.UpdateMembership.Membership.Role)
+}
+
+func TestUser_UpdateMembershipRejectsLastOwnerDemotion(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	queryProfiles := `
+		query($id: ID!) {
+			node(id: $id) {
+				... on Organization {
+					profiles(first: 10) {
+						edges {
+							node {
+								membership {
+									id
+									role
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	`
+
+	var profilesResult struct {
+		Node struct {
+			Profiles struct {
+				Edges []struct {
+					Node struct {
+						Membership struct {
+							ID   string `json:"id"`
+							Role string `json:"role"`
+						} `json:"membership"`
+					} `json:"node"`
+				} `json:"edges"`
+			} `json:"profiles"`
+		} `json:"node"`
+	}
+
+	err := owner.ExecuteConnect(queryProfiles, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &profilesResult)
+	require.NoError(t, err)
+
+	var ownerMembershipID string
+
+	for _, edge := range profilesResult.Node.Profiles.Edges {
+		if edge.Node.Membership.Role == "OWNER" {
+			ownerMembershipID = edge.Node.Membership.ID
+
+			break
+		}
+	}
+
+	require.NotEmpty(t, ownerMembershipID, "Should find owner member")
+
+	mutation := `
+		mutation($input: UpdateMembershipInput!) {
+			updateMembership(input: $input) {
+				membership {
+					id
+					role
+				}
+			}
+		}
+	`
+
+	err = owner.ExecuteConnect(mutation, map[string]any{
+		"input": map[string]any{
+			"organizationId": owner.GetOrganizationID().String(),
+			"membershipId":   ownerMembershipID,
+			"role":           "VIEWER",
+		},
+	}, nil)
+	testutil.RequireErrorCode(t, err, "CONFLICT")
+
+	var gqlErrors testutil.GraphQLErrors
+	require.ErrorAs(t, err, &gqlErrors)
+	assert.Equal(t, "cannot demote last active owner", gqlErrors[0].Message)
+
+	queryMembership := `
+		query($id: ID!) {
+			node(id: $id) {
+				... on Membership {
+					id
+					role
+				}
+			}
+		}
+	`
+
+	var membershipResult struct {
+		Node struct {
+			ID   string `json:"id"`
+			Role string `json:"role"`
+		} `json:"node"`
+	}
+
+	err = owner.ExecuteConnect(queryMembership, map[string]any{
+		"id": ownerMembershipID,
+	}, &membershipResult)
+	require.NoError(t, err)
+	assert.Equal(t, "OWNER", membershipResult.Node.Role)
+}
+
+func TestUser_RemoveUser(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	// Create a user to remove
+	userToRemove := testutil.NewClientInOrg(t, testutil.RoleViewer, owner)
+	_ = userToRemove
+
+	// Get the user ID
+	query := `
+		query($id: ID!) {
+			node(id: $id) {
+				... on Organization {
+					profiles(first: 50) {
+						edges {
+							node {
+								id
+								state
+								membership {
+									role
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	`
+
+	var result struct {
+		Node struct {
+			Profiles struct {
+				Edges []struct {
+					Node struct {
+						ID         string `json:"id"`
+						State      string `json:"state"`
+						Membership struct {
+							Role string `json:"role"`
+						} `json:"membership"`
+					} `json:"node"`
+				} `json:"edges"`
+			} `json:"profiles"`
+		} `json:"node"`
+	}
+
+	err := owner.ExecuteConnect(query, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+
+	// Find a viewer user to remove
+	var userID string
+
+	for _, edge := range result.Node.Profiles.Edges {
+		if edge.Node.Membership.Role == "VIEWER" {
+			userID = edge.Node.ID
+			break
+		}
+	}
+
+	assert.NotEmpty(t, userID, "Should find viewer member")
+
+	// Remove the member
+	mutation := `
+		mutation($input: RemoveUserInput!) {
+			removeUser(input: $input) {
+				deletedProfileId
+			}
+		}
+	`
+
+	var mutationResult struct {
+		RemoveUser struct {
+			DeletedProfileID string `json:"deletedProfileId"`
+		} `json:"removeUser"`
+	}
+
+	err = owner.ExecuteConnect(mutation, map[string]any{
+		"input": map[string]any{
+			"organizationId": owner.GetOrganizationID().String(),
+			"profileId":      userID,
+		},
+	}, &mutationResult)
+	require.NoError(t, err)
+
+	assert.Equal(t, userID, mutationResult.RemoveUser.DeletedProfileID)
+
+	// Removed user should no longer be returned.
+	err = owner.ExecuteConnect(query, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+
+	var removedUserFound bool
+
+	for _, edge := range result.Node.Profiles.Edges {
+		if edge.Node.ID == userID {
+			removedUserFound = true
+			break
+		}
+	}
+
+	assert.False(t, removedUserFound, "Should not find removed user")
+}
+
+func TestUser_RemoveUser_ProfileInUse(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	profileID := factory.CreateUser(owner)
+
+	const createAssetMutation = `
+		mutation($input: CreateAssetInput!) {
+			createAsset(input: $input) {
+				assetEdge {
+					node {
+						id
+					}
+				}
+			}
+		}
+	`
+
+	var createAssetResult struct {
+		CreateAsset struct {
+			AssetEdge struct {
+				Node struct {
+					ID string `json:"id"`
+				} `json:"node"`
+			} `json:"assetEdge"`
+		} `json:"createAsset"`
+	}
+
+	err := owner.Execute(createAssetMutation, map[string]any{
+		"input": map[string]any{
+			"organizationId":  owner.GetOrganizationID().String(),
+			"name":            "Production Database Server",
+			"amount":          1,
+			"ownerId":         profileID,
+			"assetType":       "VIRTUAL",
+			"dataTypesStored": "Customer PII",
+		},
+	}, &createAssetResult)
+	require.NoError(t, err)
+	require.NotEmpty(t, createAssetResult.CreateAsset.AssetEdge.Node.ID)
+
+	const removeUserMutation = `
+		mutation($input: RemoveUserInput!) {
+			removeUser(input: $input) {
+				deletedProfileId
+			}
+		}
+	`
+
+	err = owner.ExecuteConnect(removeUserMutation, map[string]any{
+		"input": map[string]any{
+			"organizationId": owner.GetOrganizationID().String(),
+			"profileId":      profileID,
+		},
+	}, nil)
+	testutil.RequireErrorCode(t, err, "CONFLICT")
+
+	var gqlErrors testutil.GraphQLErrors
+	require.ErrorAs(t, err, &gqlErrors)
+	assert.Contains(t, gqlErrors[0].Message, "referenced by other resources")
+}
+
+func TestUser_DeactivateUser(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	// Create a user to deactivate.
+	userToDeactivate := testutil.NewClientInOrg(t, testutil.RoleViewer, owner)
+	_ = userToDeactivate
+
+	query := `
+		query($id: ID!) {
+			node(id: $id) {
+				... on Organization {
+					profiles(first: 50) {
+						edges {
+							node {
+								id
+								state
+								membership {
+									role
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	`
+
+	var result struct {
+		Node struct {
+			Profiles struct {
+				Edges []struct {
+					Node struct {
+						ID         string `json:"id"`
+						State      string `json:"state"`
+						Membership struct {
+							Role string `json:"role"`
+						} `json:"membership"`
+					} `json:"node"`
+				} `json:"edges"`
+			} `json:"profiles"`
+		} `json:"node"`
+	}
+
+	err := owner.ExecuteConnect(query, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+
+	var userID string
+
+	for _, edge := range result.Node.Profiles.Edges {
+		if edge.Node.Membership.Role == "VIEWER" {
+			userID = edge.Node.ID
+			break
+		}
+	}
+
+	require.NotEmpty(t, userID, "Should find viewer member")
+
+	mutation := `
+		mutation($input: DeactivateUserInput!) {
+			deactivateUser(input: $input) {
+				success
+			}
+		}
+	`
+
+	var mutationResult struct {
+		DeactivateUser struct {
+			Success bool `json:"success"`
+		} `json:"deactivateUser"`
+	}
+
+	err = owner.ExecuteConnect(mutation, map[string]any{
+		"input": map[string]any{
+			"organizationId": owner.GetOrganizationID().String(),
+			"profileId":      userID,
+		},
+	}, &mutationResult)
+	require.NoError(t, err)
+
+	assert.True(t, mutationResult.DeactivateUser.Success)
+
+	err = owner.ExecuteConnect(query, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+
+	var deactivatedUserState string
+
+	for _, edge := range result.Node.Profiles.Edges {
+		if edge.Node.ID == userID {
+			deactivatedUserState = edge.Node.State
+			break
+		}
+	}
+
+	require.NotEmpty(t, deactivatedUserState, "Should still find deactivated user")
+	assert.Equal(t, "DEACTIVATED", deactivatedUserState)
+}
+
+func TestUser_DeactivateUserCancelsSignatureRequests(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	signer := testutil.NewClientInOrg(t, testutil.RoleViewer, owner)
+
+	docID, _ := createTestDocument(t, owner)
+	approveTestDocument(t, owner, docID)
+
+	var versionResult struct {
+		Node struct {
+			Versions struct {
+				Edges []struct {
+					Node struct {
+						ID string `json:"id"`
+					} `json:"node"`
+				} `json:"edges"`
+			} `json:"versions"`
+		} `json:"node"`
+	}
+
+	err := owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on Document {
+					versions(first: 1, orderBy: { field: CREATED_AT, direction: DESC }) {
+						edges { node { id } }
+					}
+				}
+			}
+		}
+	`, map[string]any{"id": docID}, &versionResult)
+	require.NoError(t, err)
+	require.NotEmpty(t, versionResult.Node.Versions.Edges)
+
+	documentVersionID := versionResult.Node.Versions.Edges[0].Node.ID
+	signerProfileID := signer.GetProfileID().String()
+
+	_, err = owner.Do(`
+		mutation($input: RequestSignatureInput!) {
+			requestSignature(input: $input) {
+				documentVersionSignatureEdge { node { id } }
+			}
+		}
+	`, map[string]any{
+		"input": map[string]any{
+			"documentVersionId": documentVersionID,
+			"signatoryId":       signerProfileID,
+		},
+	})
+	require.NoError(t, err)
+
+	assertRequestedSignatureCount(t, owner, documentVersionID, 1)
+
+	var deactivateResult struct {
+		DeactivateUser struct {
+			Success bool `json:"success"`
+		} `json:"deactivateUser"`
+	}
+
+	err = owner.ExecuteConnect(`
+		mutation($input: DeactivateUserInput!) {
+			deactivateUser(input: $input) {
+				success
+			}
+		}
+	`, map[string]any{
+		"input": map[string]any{
+			"organizationId": owner.GetOrganizationID().String(),
+			"profileId":      signerProfileID,
+		},
+	}, &deactivateResult)
+	require.NoError(t, err)
+	require.True(t, deactivateResult.DeactivateUser.Success)
+
+	assertRequestedSignatureCount(t, owner, documentVersionID, 0)
+}
+
+func TestUser_EndedContractCancelsSignatureRequests(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	signer := testutil.NewClientInOrg(t, testutil.RoleViewer, owner)
+
+	docID, _ := createTestDocument(t, owner)
+	approveTestDocument(t, owner, docID)
+
+	var versionResult struct {
+		Node struct {
+			Versions struct {
+				Edges []struct {
+					Node struct {
+						ID string `json:"id"`
+					} `json:"node"`
+				} `json:"edges"`
+			} `json:"versions"`
+		} `json:"node"`
+	}
+
+	err := owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on Document {
+					versions(first: 1, orderBy: { field: CREATED_AT, direction: DESC }) {
+						edges { node { id } }
+					}
+				}
+			}
+		}
+	`, map[string]any{"id": docID}, &versionResult)
+	require.NoError(t, err)
+	require.NotEmpty(t, versionResult.Node.Versions.Edges)
+
+	documentVersionID := versionResult.Node.Versions.Edges[0].Node.ID
+	signerProfileID := signer.GetProfileID().String()
+
+	_, err = owner.Do(`
+		mutation($input: RequestSignatureInput!) {
+			requestSignature(input: $input) {
+				documentVersionSignatureEdge { node { id } }
+			}
+		}
+	`, map[string]any{
+		"input": map[string]any{
+			"documentVersionId": documentVersionID,
+			"signatoryId":       signerProfileID,
+		},
+	})
+	require.NoError(t, err)
+
+	assertRequestedSignatureCount(t, owner, documentVersionID, 1)
+
+	contractEndDate := time.Now().Add(-24 * time.Hour).Format(time.RFC3339)
+	_, err = owner.DoConnect(`
+		mutation($input: UpdateUserInput!) {
+			updateUser(input: $input) {
+				profile { id }
+			}
+		}
+	`, map[string]any{
+		"input": map[string]any{
+			"id":                       signerProfileID,
+			"fullName":                 "Ended Contract Signer",
+			"additionalEmailAddresses": []string{},
+			"contract": map[string]any{
+				"end": contractEndDate,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	assertRequestedSignatureCount(t, owner, documentVersionID, 0)
+}
+
+func assertRequestedSignatureCount(
+	t *testing.T,
+	owner *testutil.Client,
+	documentVersionID string,
+	expected int,
+) {
+	t.Helper()
+
+	var result struct {
+		Node struct {
+			Signatures struct {
+				TotalCount int `json:"totalCount"`
+			} `json:"signatures"`
+		} `json:"node"`
+	}
+
+	err := owner.Execute(`
+		query($id: ID!) {
+			node(id: $id) {
+				... on DocumentVersion {
+					signatures(first: 10, filter: { states: [REQUESTED] }) {
+						totalCount
+					}
+				}
+			}
+		}
+	`, map[string]any{"id": documentVersionID}, &result)
+	require.NoError(t, err)
+	assert.Equal(t, expected, result.Node.Signatures.TotalCount)
+}
+
+func TestUser_RemoveOwner(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	// Create another owner to remove
+	_ = testutil.NewClientInOrg(t, testutil.RoleOwner, owner)
+
+	// Get the profiles
+	query := `
+		query($id: ID!) {
+			node(id: $id) {
+				... on Organization {
+					profiles(first: 50) {
+						edges {
+							node {
+								id
+								identity {
+									id
+								}
+								membership {
+									role
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	`
+
+	var result struct {
+		Node struct {
+			Profiles struct {
+				Edges []struct {
+					Node struct {
+						ID       string `json:"id"`
+						Identity struct {
+							ID string `json:"id"`
+						} `json:"identity"`
+						Membership struct {
+							Role string `json:"role"`
+						} `json:"membership"`
+					} `json:"node"`
+				} `json:"edges"`
+			} `json:"profiles"`
+		} `json:"node"`
+	}
+
+	err := owner.ExecuteConnect(query, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+
+	// Find the other owner (not the calling owner)
+	var targetProfileID string
+
+	for _, edge := range result.Node.Profiles.Edges {
+		if edge.Node.Membership.Role == "OWNER" && edge.Node.Identity.ID != owner.GetUserID().String() {
+			targetProfileID = edge.Node.ID
+			break
+		}
+	}
+
+	require.NotEmpty(t, targetProfileID, "Should find another owner to remove")
+
+	mutation := `
+		mutation($input: RemoveUserInput!) {
+			removeUser(input: $input) {
+				deletedProfileId
+			}
+		}
+	`
+
+	var mutationResult struct {
+		RemoveUser struct {
+			DeletedProfileID string `json:"deletedProfileId"`
+		} `json:"removeUser"`
+	}
+
+	err = owner.ExecuteConnect(mutation, map[string]any{
+		"input": map[string]any{
+			"organizationId": owner.GetOrganizationID().String(),
+			"profileId":      targetProfileID,
+		},
+	}, &mutationResult)
+	require.NoError(t, err)
+
+	assert.Equal(t, targetProfileID, mutationResult.RemoveUser.DeletedProfileID)
+}
+
+func TestUser_List(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	// Create additional members
+	testutil.NewClientInOrg(t, testutil.RoleAdmin, owner)
+	testutil.NewClientInOrg(t, testutil.RoleViewer, owner)
+
+	query := `
+		query($id: ID!) {
+			node(id: $id) {
+				... on Organization {
+					profiles(first: 10) {
+						edges {
+							node {
+								id
+								membership {
+									role
+								}
+							}
+						}
+						totalCount
+					}
+				}
+			}
+		}
+	`
+
+	var result struct {
+		Node struct {
+			Profiles struct {
+				Edges []struct {
+					Node struct {
+						ID         string `json:"id"`
+						Membership struct {
+							Role string `json:"role"`
+						} `json:"membership"`
+					} `json:"node"`
+				} `json:"edges"`
+				TotalCount int `json:"totalCount"`
+			} `json:"profiles"`
+		} `json:"node"`
+	}
+
+	err := owner.ExecuteConnect(query, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+
+	assert.GreaterOrEqual(t, result.Node.Profiles.TotalCount, 3, "Should have at least 3 members")
+}

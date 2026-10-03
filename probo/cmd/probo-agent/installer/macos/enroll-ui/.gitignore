@@ -1,0 +1,13 @@
+# SwiftPM
+.build/
+.swiftpm/
+
+# Rendered by build.sh from *.tmpl (do not commit)
+Shared/*.generated.swift
+
+# Generated AppIcon artifacts (build staging preferred; ignore if
+# produced locally under enroll-ui). The color master lives in
+# pkg/deviceagent/tray/icon_color.png.
+Resources/AppIcon.icns
+Resources/AppIcon.iconset/
+Resources/icon-padded.png

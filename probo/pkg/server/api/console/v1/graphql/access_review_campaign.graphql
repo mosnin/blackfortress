@@ -1,0 +1,731 @@
+enum AccessReviewCampaignStatus
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignStatus"
+    ) {
+    DRAFT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignStatusDraft"
+        )
+    IN_PROGRESS
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignStatusInProgress"
+        )
+    PENDING_ACTIONS
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignStatusPendingActions"
+        )
+    COMPLETED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignStatusCompleted"
+        )
+    CANCELLED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignStatusCancelled"
+        )
+}
+
+enum AccessReviewCampaignSourceFetchStatus
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignSourceFetchStatus"
+    ) {
+    QUEUED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignSourceFetchStatusQueued"
+        )
+    FETCHING
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignSourceFetchStatusFetching"
+        )
+    SUCCESS
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignSourceFetchStatusSuccess"
+        )
+    FAILED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignSourceFetchStatusFailed"
+        )
+}
+
+enum AccessReviewEntryFlag
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlag") {
+    NONE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagNone"
+        )
+    ORPHANED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagOrphaned"
+        )
+    INACTIVE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagInactive"
+        )
+    EXCESSIVE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagExcessive"
+        )
+    ROLE_MISMATCH
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagRoleMismatch"
+        )
+    NEW
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagNew"
+        )
+    DORMANT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagDormant"
+        )
+    TERMINATED_USER
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagTerminatedUser"
+        )
+    CONTRACTOR_EXPIRED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagContractorExpired"
+        )
+    SOD_CONFLICT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagSoDConflict"
+        )
+    PRIVILEGED_ACCESS
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagPrivilegedAccess"
+        )
+    ROLE_CREEP
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagRoleCreep"
+        )
+    NO_BUSINESS_JUSTIFICATION
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagNoBusinessJustification"
+        )
+    OUT_OF_DEPARTMENT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagOutOfDepartment"
+        )
+    SHARED_ACCOUNT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFlagSharedAccount"
+        )
+}
+
+enum AccessReviewEntryDecision
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryDecision"
+    ) {
+    PENDING
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryDecisionPending"
+        )
+    APPROVED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryDecisionApproved"
+        )
+    REVOKE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryDecisionRevoke"
+        )
+    DEFER
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryDecisionDefer"
+        )
+    ESCALATE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryDecisionEscalate"
+        )
+}
+
+enum MfaStatus
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.MFAStatus") {
+    ENABLED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.MFAStatusEnabled"
+        )
+    DISABLED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.MFAStatusDisabled"
+        )
+    UNKNOWN
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.MFAStatusUnknown"
+        )
+}
+
+enum AccessReviewEntryAuthMethod
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAuthMethod"
+    ) {
+    SSO
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAuthMethodSSO"
+        )
+    PASSWORD
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAuthMethodPassword"
+        )
+    API_KEY
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAuthMethodAPIKey"
+        )
+    OAUTH2
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAuthMethodOAuth2"
+        )
+    SSH
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAuthMethodSSH"
+        )
+    SERVICE_ACCOUNT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAuthMethodServiceAccount"
+        )
+    UNKNOWN
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAuthMethodUnknown"
+        )
+}
+
+enum AccessReviewEntryAccountType
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAccountType"
+    ) {
+    USER
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAccountTypeUser"
+        )
+    SERVICE_ACCOUNT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryAccountTypeServiceAccount"
+        )
+}
+
+enum AccessReviewSourceOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewSourceOrderField"
+    ) {
+    CREATED_AT
+}
+
+enum AccessReviewCampaignOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignOrderField"
+    ) {
+    CREATED_AT
+}
+
+enum AccessReviewEntryOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryOrderField"
+    ) {
+    CREATED_AT
+}
+
+enum AccessReviewCampaignSourceFetchAttemptOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignSourceFetchAttemptOrderField"
+    ) {
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.AccessReviewCampaignSourceFetchAttemptOrderFieldCreatedAt"
+        )
+}
+
+input AccessReviewCampaignSourceFetchAttemptOrder {
+    direction: OrderDirection!
+    field: AccessReviewCampaignSourceFetchAttemptOrderField!
+}
+
+enum AccessReviewSourceConnectionStatus {
+    CONNECTED
+    DISCONNECTED
+    """
+    NOT_AUTHORIZED mirrors ConnectorConnectionStatus.NOT_AUTHORIZED: the
+    provider accepted the credential and refused the operation anyway.
+    """
+    NOT_AUTHORIZED
+    RECONNECT_REQUIRED
+    NOT_APPLICABLE
+}
+
+input AccessReviewSourceOrder {
+    direction: OrderDirection!
+    field: AccessReviewSourceOrderField!
+}
+
+input AccessReviewCampaignOrder {
+    direction: OrderDirection!
+    field: AccessReviewCampaignOrderField!
+}
+
+input AccessReviewEntryOrder {
+    direction: OrderDirection!
+    field: AccessReviewEntryOrderField!
+}
+
+input AccessReviewEntryFilter
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.AccessReviewEntryFilter"
+    ) {
+    decision: AccessReviewEntryDecision
+    flag: AccessReviewEntryFlag
+    isAdmin: Boolean
+    active: Boolean
+    authMethod: AccessReviewEntryAuthMethod
+    accountType: AccessReviewEntryAccountType
+}
+
+type ProviderOrganization {
+    slug: String!
+    displayName: String!
+}
+
+enum ProviderOrganizationsStatus {
+    """
+    The provider returned at least one organization.
+    """
+    AVAILABLE
+
+    """
+    The provider has no organization picker: its organization is captured
+    during the OAuth callback rather than chosen by the user (PagerDuty's
+    subdomain, Vercel's team, Datadog's domain, Zendesk's subdomain). An empty
+    list here is normal and says nothing about the health of the connection.
+    """
+    NOT_APPLICABLE
+
+    """
+    The call succeeded and returned no organization.
+    """
+    EMPTY
+
+    """
+    The call failed.
+    """
+    UNAVAILABLE
+}
+
+"""
+Organizations the connected provider exposes, together with why the list
+looks the way it does.
+
+EMPTY and UNAVAILABLE are deliberately distinct, and neither is fixable by
+typing an organization slug by hand: whatever prevented the listing also
+prevents the member listing that the access review actually runs.
+
+- EMPTY means the provider answered and owns no organization we can see.
+  On GitHub this is usually an organization that enabled OAuth App access
+  restrictions without approving Probo, or a personal account (which never
+  appears in the org listing). The user acts on remediationUrl.
+- UNAVAILABLE means the call itself failed: revoked or expired credential,
+  a missing scope, or a provider outage. The user must reconnect or retry;
+  the underlying error stays server-side.
+"""
+type ProviderOrganizations {
+    status: ProviderOrganizationsStatus!
+    nodes: [ProviderOrganization!]!
+
+    """
+    Where the user can act when the list is EMPTY — for GitHub, the page
+    listing their authorized OAuth Apps, where an org owner can be asked
+    to approve Probo. Null when we know of no such page.
+    """
+    remediationUrl: String
+}
+
+type AccessReviewSource implements Node {
+    id: ID!
+    organization: Organization! @goField(forceResolver: true)
+    connectorId: ID @goField(forceResolver: true)
+    connector: Connector @goField(forceResolver: true)
+    connectorAccountId: ID
+    name: String!
+    csvData: String
+    providerOrganizations: ProviderOrganizations! @goField(forceResolver: true)
+    needsConfiguration: Boolean! @goField(forceResolver: true)
+    connectionStatus: AccessReviewSourceConnectionStatus! @goField(forceResolver: true)
+    selectedOrganization: String @goField(forceResolver: true)
+    createdAt: Datetime!
+    updatedAt: Datetime!
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type AccessReviewCampaignSourceFetchAttempt {
+    id: ID!
+    attemptNumber: Int!
+    status: AccessReviewCampaignSourceFetchStatus!
+    fetchedAccountsCount: Int!
+    error: String
+    startedAt: Datetime
+    completedAt: Datetime
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+type AccessReviewCampaignSource implements Node {
+    id: ID!
+    campaign: AccessReviewCampaign! @goField(forceResolver: true)
+    sourceId: ID
+    "The live access source this snapshot was taken from. Null once the source is deleted."
+    source: AccessReviewSource @goField(forceResolver: true)
+    name: String!
+
+    fetchAttempts(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: AccessReviewCampaignSourceFetchAttemptOrder
+    ): AccessReviewCampaignSourceFetchAttemptConnection!
+        @goField(forceResolver: true)
+
+    entries(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: AccessReviewEntryOrder
+        filter: AccessReviewEntryFilter
+    ): AccessReviewEntryConnection! @goField(forceResolver: true)
+
+    statistics: AccessReviewStatistics! @goField(forceResolver: true)
+}
+
+type AccessReviewCampaign implements Node {
+    id: ID!
+    organization: Organization! @goField(forceResolver: true)
+    name: String!
+    description: String!
+    status: AccessReviewCampaignStatus!
+    startedAt: Datetime
+    completedAt: Datetime
+    createdAt: Datetime!
+    updatedAt: Datetime!
+
+    sources: [AccessReviewCampaignSource!]! @goField(forceResolver: true)
+
+    entries(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: AccessReviewEntryOrder
+        filter: AccessReviewEntryFilter
+    ): AccessReviewEntryConnection! @goField(forceResolver: true)
+
+    statistics: AccessReviewStatistics! @goField(forceResolver: true)
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type AccessReviewEntry implements Node {
+    id: ID!
+    campaign: AccessReviewCampaign! @goField(forceResolver: true)
+    campaignSource: AccessReviewCampaignSource! @goField(forceResolver: true)
+    email: String!
+    fullName: String!
+    roles: [String!]!
+    jobTitle: String!
+    isAdmin: Boolean
+    active: Boolean
+    mfaStatus: MfaStatus!
+    authMethod: AccessReviewEntryAuthMethod!
+    accountType: AccessReviewEntryAccountType!
+    lastLogin: Datetime
+    accountCreatedAt: Datetime
+    externalId: String!
+    flags: [AccessReviewEntryFlag!]!
+    flagReasons: [String!]!
+    decision: AccessReviewEntryDecision!
+    decisionNote: String
+    decidedBy: ID
+    decidedAt: Datetime
+    decisionHistory: [AccessReviewEntryDecisionHistoryEntry!]!
+        @goField(forceResolver: true)
+    createdAt: Datetime!
+    updatedAt: Datetime!
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type AccessReviewEntryDecisionHistoryEntry {
+    id: ID!
+    decision: AccessReviewEntryDecision!
+    decisionNote: String
+    decidedBy: ID
+    decidedAt: Datetime!
+    createdAt: Datetime!
+}
+
+type AccessReviewSourceConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.AccessReviewSourceConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [AccessReviewSourceEdge!]!
+    pageInfo: PageInfo!
+}
+
+type AccessReviewSourceEdge {
+    cursor: CursorKey!
+    node: AccessReviewSource!
+}
+
+type AccessReviewCampaignConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.AccessReviewCampaignConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [AccessReviewCampaignEdge!]!
+    pageInfo: PageInfo!
+}
+
+type AccessReviewCampaignEdge {
+    cursor: CursorKey!
+    node: AccessReviewCampaign!
+}
+
+type AccessReviewEntryConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.AccessReviewEntryConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [AccessReviewEntryEdge!]!
+    pageInfo: PageInfo!
+}
+
+type AccessReviewEntryEdge {
+    cursor: CursorKey!
+    node: AccessReviewEntry!
+}
+
+type AccessReviewCampaignSourceFetchAttemptConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.AccessReviewCampaignSourceFetchAttemptConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [AccessReviewCampaignSourceFetchAttemptEdge!]!
+    pageInfo: PageInfo!
+}
+
+type AccessReviewCampaignSourceFetchAttemptEdge {
+    cursor: CursorKey!
+    node: AccessReviewCampaignSourceFetchAttempt!
+}
+
+type AccessReviewStatistics {
+    totalCount: Int!
+    decisionCounts: [AccessReviewEntryDecisionCount!]!
+    flagCounts: [AccessReviewEntryFlagCount!]!
+}
+
+type AccessReviewEntryDecisionCount {
+    decision: AccessReviewEntryDecision!
+    count: Int!
+}
+
+type AccessReviewEntryFlagCount {
+    flag: AccessReviewEntryFlag!
+    count: Int!
+}
+
+extend type Mutation {
+    createAccessReviewSource(
+        input: CreateAccessReviewSourceInput!
+    ): CreateAccessReviewSourcePayload!
+    updateAccessReviewSource(
+        input: UpdateAccessReviewSourceInput!
+    ): UpdateAccessReviewSourcePayload!
+    deleteAccessReviewSource(
+        input: DeleteAccessReviewSourceInput!
+    ): DeleteAccessReviewSourcePayload!
+    configureAccessReviewSource(
+        input: ConfigureAccessReviewSourceInput!
+    ): ConfigureAccessReviewSourcePayload!
+    createAccessReviewCampaign(
+        input: CreateAccessReviewCampaignInput!
+    ): CreateAccessReviewCampaignPayload!
+    updateAccessReviewCampaign(
+        input: UpdateAccessReviewCampaignInput!
+    ): UpdateAccessReviewCampaignPayload!
+    deleteAccessReviewCampaign(
+        input: DeleteAccessReviewCampaignInput!
+    ): DeleteAccessReviewCampaignPayload!
+    startAccessReviewCampaign(
+        input: StartAccessReviewCampaignInput!
+    ): StartAccessReviewCampaignPayload!
+    closeAccessReviewCampaign(
+        input: CloseAccessReviewCampaignInput!
+    ): CloseAccessReviewCampaignPayload!
+    cancelAccessReviewCampaign(
+        input: CancelAccessReviewCampaignInput!
+    ): CancelAccessReviewCampaignPayload!
+    addAccessReviewCampaignSource(
+        input: AddAccessReviewCampaignSourceInput!
+    ): AddAccessReviewCampaignSourcePayload!
+    removeAccessReviewCampaignSource(
+        input: RemoveAccessReviewCampaignSourceInput!
+    ): RemoveAccessReviewCampaignSourcePayload!
+    recordAccessReviewEntryDecision(
+        input: RecordAccessReviewEntryDecisionInput!
+    ): RecordAccessReviewEntryDecisionPayload!
+    recordAccessReviewEntryDecisions(
+        input: RecordAccessReviewEntryDecisionsInput!
+    ): RecordAccessReviewEntryDecisionsPayload!
+    flagAccessReviewEntry(
+        input: FlagAccessReviewEntryInput!
+    ): FlagAccessReviewEntryPayload!
+}
+
+input CreateAccessReviewSourceInput {
+    organizationId: ID!
+    connectorId: ID
+    connectorAccountId: ID
+    name: String!
+    csvData: String
+}
+
+type CreateAccessReviewSourcePayload {
+    accessReviewSourceEdge: AccessReviewSourceEdge!
+    """
+    created is false when a source already existed for the requested
+    connector account: creation is idempotent per connector account, and
+    the existing source is returned instead of a duplicate.
+    """
+    created: Boolean!
+}
+
+input UpdateAccessReviewSourceInput {
+    accessReviewSourceId: ID!
+    name: String @goField(omittable: true)
+    connectorId: ID @goField(omittable: true)
+    csvData: String @goField(omittable: true)
+}
+
+type UpdateAccessReviewSourcePayload {
+    accessReviewSource: AccessReviewSource!
+}
+
+input DeleteAccessReviewSourceInput {
+    accessReviewSourceId: ID!
+}
+
+type DeleteAccessReviewSourcePayload {
+    deletedAccessReviewSourceId: ID!
+}
+
+input ConfigureAccessReviewSourceInput {
+    accessReviewSourceId: ID!
+    organizationSlug: String!
+}
+
+type ConfigureAccessReviewSourcePayload {
+    accessReviewSource: AccessReviewSource!
+}
+
+input CreateAccessReviewCampaignInput {
+    organizationId: ID!
+    name: String!
+    description: String
+    accessReviewSourceIds: [ID!]
+}
+
+type CreateAccessReviewCampaignPayload {
+    accessReviewCampaignEdge: AccessReviewCampaignEdge!
+}
+
+input UpdateAccessReviewCampaignInput {
+    accessReviewCampaignId: ID!
+    name: String @goField(omittable: true)
+    description: String @goField(omittable: true)
+    accessReviewSourceIds: [ID!] @goField(omittable: true)
+}
+
+type UpdateAccessReviewCampaignPayload {
+    accessReviewCampaign: AccessReviewCampaign!
+}
+
+input DeleteAccessReviewCampaignInput {
+    accessReviewCampaignId: ID!
+}
+
+type DeleteAccessReviewCampaignPayload {
+    deletedAccessReviewCampaignId: ID!
+}
+
+input StartAccessReviewCampaignInput {
+    accessReviewCampaignId: ID!
+}
+
+type StartAccessReviewCampaignPayload {
+    accessReviewCampaign: AccessReviewCampaign!
+}
+
+input CloseAccessReviewCampaignInput {
+    accessReviewCampaignId: ID!
+}
+
+type CloseAccessReviewCampaignPayload {
+    accessReviewCampaign: AccessReviewCampaign!
+}
+
+input CancelAccessReviewCampaignInput {
+    accessReviewCampaignId: ID!
+}
+
+type CancelAccessReviewCampaignPayload {
+    accessReviewCampaign: AccessReviewCampaign!
+}
+
+input AddAccessReviewCampaignSourceInput {
+    accessReviewCampaignId: ID!
+    accessReviewSourceId: ID!
+}
+
+type AddAccessReviewCampaignSourcePayload {
+    accessReviewCampaign: AccessReviewCampaign!
+}
+
+input RemoveAccessReviewCampaignSourceInput {
+    accessReviewCampaignId: ID!
+    accessReviewSourceId: ID!
+}
+
+type RemoveAccessReviewCampaignSourcePayload {
+    accessReviewCampaign: AccessReviewCampaign!
+}
+
+input RecordAccessReviewEntryDecisionInput {
+    accessReviewEntryId: ID!
+    decision: AccessReviewEntryDecision!
+    decisionNote: String
+}
+
+type RecordAccessReviewEntryDecisionPayload {
+    accessReviewEntry: AccessReviewEntry!
+}
+
+input RecordAccessReviewEntryDecisionsInput {
+    decisions: [AccessReviewEntryDecisionInput!]!
+}
+
+input AccessReviewEntryDecisionInput {
+    accessReviewEntryId: ID!
+    decision: AccessReviewEntryDecision!
+    decisionNote: String
+}
+
+type RecordAccessReviewEntryDecisionsPayload {
+    accessReviewEntries: [AccessReviewEntry!]!
+}
+
+input FlagAccessReviewEntryInput {
+    accessReviewEntryId: ID!
+    flags: [AccessReviewEntryFlag!]!
+    flagReasons: [String!]
+}
+
+type FlagAccessReviewEntryPayload {
+    accessReviewEntry: AccessReviewEntry!
+}

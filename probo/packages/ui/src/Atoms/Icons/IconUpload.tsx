@@ -1,0 +1,30 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import type { IconProps } from "./type";
+
+export function IconUpload({ size = 24, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
+      <path d="M20.3333 14.6667C19.7813 14.6667 19.3333 15.1147 19.3333 15.6667V17.6667C19.3333 18.5853 18.5853 19.3333 17.6667 19.3333H6.33334C5.41467 19.3333 4.66667 18.5853 4.66667 17.6667V15.6667C4.66667 15.1147 4.21867 14.6667 3.66667 14.6667C3.11467 14.6667 2.66667 15.1147 2.66667 15.6667V17.6667C2.66667 19.6893 4.31067 21.3333 6.33334 21.3333H17.6667C19.6893 21.3333 21.3333 19.6893 21.3333 17.6667V15.6667C21.3333 15.1147 20.8853 14.6667 20.3333 14.6667Z" fill="currentColor" />
+      <path d="M8.04001 9.04001L11 6.08001V13.6653C11 14.2173 11.448 14.6653 12 14.6653C12.552 14.6653 13 14.2173 13 13.6653V6.08134L15.96 9.04134C16.1547 9.23601 16.4107 9.33467 16.6667 9.33467C16.9227 9.33467 17.1787 9.23734 17.3733 9.04134C17.764 8.65067 17.764 8.01734 17.3733 7.62667L12.7067 2.96001C12.316 2.56934 11.6827 2.56934 11.292 2.96001L6.62534 7.62667C6.23467 8.01734 6.23467 8.65067 6.62534 9.04134C7.01601 9.43201 7.64934 9.43067 8.04001 9.04001Z" fill="currentColor" />
+    </svg>
+  );
+}

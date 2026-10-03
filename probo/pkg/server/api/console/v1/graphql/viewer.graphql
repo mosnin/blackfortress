@@ -1,0 +1,42 @@
+type Viewer {
+    id: ID!
+
+    signableDocuments(
+        organizationId: ID!
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: DocumentOrder
+        filter: EmployeeDocumentFilter
+    ): EmployeeDocumentConnection! @goField(forceResolver: true)
+
+    signableDocument(id: ID!): EmployeeDocument @goField(forceResolver: true)
+
+    approvableDocuments(
+        organizationId: ID!
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: DocumentOrder
+        filter: EmployeeDocumentFilter
+    ): EmployeeDocumentConnection! @goField(forceResolver: true)
+
+    approvableDocument(id: ID!): EmployeeDocument @goField(forceResolver: true)
+
+    enrolledDevices(
+        organizationId: ID!
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: DeviceOrder
+    ): EmployeeDeviceConnection! @goField(forceResolver: true)
+
+    # Own-device read for self-enrollment status polling before org assumption.
+    enrolledDevice(id: ID!): Device @goField(forceResolver: true)
+
+    probotIdentityBindings: [ProbotIdentityBinding!]!
+        @goField(forceResolver: true)
+}

@@ -1,0 +1,529 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package probo
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"mime"
+	"path/filepath"
+	"time"
+
+	"go.gearno.de/crypto/uuid"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/filemanager"
+	"go.probo.inc/probo/pkg/filevalidation"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/validator"
+)
+
+type (
+	OrganizationService struct {
+		svc           *Service
+		fileValidator *filevalidation.FileValidator
+	}
+
+	UpdateOrganizationRequest struct {
+		ID                 gid.GID
+		Name               *string
+		File               *File
+		HorizontalLogoFile *File
+	}
+
+	UpdateOrganizationContextRequest struct {
+		OrganizationID gid.GID
+		Product        **string
+		Architecture   **string
+		Team           **string
+		Processes      **string
+		Customers      **string
+	}
+)
+
+func (uor *UpdateOrganizationRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(uor.ID, "id", validator.Required(), validator.GID(coredata.OrganizationEntityType))
+	v.Check(uor.Name, "name", validator.SafeTextNoNewLine(TitleMaxLength))
+	v.Check(uor.File, "file", validator.NotEmpty())
+	v.Check(uor.HorizontalLogoFile, "horizontal_logo_file", validator.NotEmpty())
+
+	return v.Error()
+}
+
+func (uocr *UpdateOrganizationContextRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(uocr.OrganizationID, "organization_id", validator.Required(), validator.GID(coredata.OrganizationEntityType))
+	v.Check(uocr.Product, "product", validator.SafeText(30_000))
+	v.Check(uocr.Architecture, "architecture", validator.SafeText(30_000))
+	v.Check(uocr.Team, "team", validator.SafeText(30_000))
+	v.Check(uocr.Processes, "processes", validator.SafeText(30_000))
+	v.Check(uocr.Customers, "customers", validator.SafeText(30_000))
+
+	return v.Error()
+}
+
+func (s OrganizationService) Get(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+) (*coredata.Organization, error) {
+	organization := &coredata.Organization{}
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			return organization.LoadByID(
+				ctx,
+				conn,
+				scope,
+				organizationID,
+			)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organization, nil
+}
+
+// Exists reports whether the organization is present. The lookup is
+// deliberately cross-tenant: identity federation discovery is public, and the
+// caller has no identity to scope by. Only the boolean escapes, so no
+// organization data is reachable without a scope.
+func (s OrganizationService) Exists(
+	ctx context.Context,
+	scope coredata.Scoper,
+	organizationID gid.GID,
+) (bool, error) {
+	_, err := s.Get(ctx, scope, organizationID)
+	if err != nil {
+		if errors.Is(err, coredata.ErrResourceNotFound) {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (s OrganizationService) GetByIDs(
+	ctx context.Context, scope coredata.Scoper,
+	organizationIDs ...gid.GID,
+) (coredata.Organizations, error) {
+	var organizations coredata.Organizations
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := organizations.LoadByIDs(
+				ctx,
+				conn,
+				scope,
+				organizationIDs,
+			); err != nil && !errors.Is(err, coredata.ErrResourceNotFound) {
+				return fmt.Errorf("cannot load organizations by ids: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organizations, nil
+}
+
+func (s OrganizationService) GetContext(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+) (*coredata.OrganizationContext, error) {
+	organizationContext := &coredata.OrganizationContext{}
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := organizationContext.LoadByOrganizationID(
+				ctx,
+				conn,
+				scope,
+				organizationID,
+			)
+			if err != nil {
+				return fmt.Errorf("cannot load organization context: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organizationContext, nil
+}
+
+func (s OrganizationService) UpdateContext(
+	ctx context.Context, scope coredata.Scoper,
+	req UpdateOrganizationContextRequest,
+) (*coredata.OrganizationContext, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	organization := &coredata.Organization{}
+	organizationContext := &coredata.OrganizationContext{}
+
+	err := s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := organization.LoadByID(ctx, tx, scope, req.OrganizationID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			if err := organizationContext.LoadByOrganizationID(ctx, tx, scope, req.OrganizationID); err != nil {
+				return fmt.Errorf("cannot load organization context: %w", err)
+			}
+
+			if req.Product != nil {
+				organizationContext.Product = *req.Product
+			}
+
+			if req.Architecture != nil {
+				organizationContext.Architecture = *req.Architecture
+			}
+
+			if req.Team != nil {
+				organizationContext.Team = *req.Team
+			}
+
+			if req.Processes != nil {
+				organizationContext.Processes = *req.Processes
+			}
+
+			if req.Customers != nil {
+				organizationContext.Customers = *req.Customers
+			}
+
+			organizationContext.UpdatedAt = time.Now()
+
+			if err := organizationContext.Update(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot update organization context: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organizationContext, nil
+}
+
+func (s OrganizationService) Update(
+	ctx context.Context, scope coredata.Scoper,
+	req UpdateOrganizationRequest,
+) (*coredata.Organization, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	organization := &coredata.Organization{}
+
+	err := s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := organization.LoadByID(ctx, tx, scope, req.ID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			now := time.Now()
+			organization.UpdatedAt = now
+
+			if req.Name != nil {
+				organization.Name = *req.Name
+			}
+
+			if err := organization.Update(ctx, scope, tx); err != nil {
+				return fmt.Errorf("cannot update organization: %w", err)
+			}
+
+			if req.File != nil {
+				fileID := gid.New(scope.GetTenantID(), coredata.FileEntityType)
+
+				objectKey, err := uuid.NewV7()
+				if err != nil {
+					return fmt.Errorf("cannot generate object key: %w", err)
+				}
+
+				filename := req.File.Filename
+				contentType := req.File.ContentType
+
+				if contentType == "" {
+					contentType = "application/octet-stream"
+
+					if filename != "" {
+						if detectedType := mime.TypeByExtension(filepath.Ext(filename)); detectedType != "" {
+							contentType = detectedType
+						}
+					}
+				}
+
+				fileSize, err := filemanager.GetFileSize(req.File.Content)
+				if err != nil {
+					return fmt.Errorf("cannot get file size: %w", err)
+				}
+
+				if err := s.fileValidator.Validate(filename, contentType, fileSize); err != nil {
+					return err
+				}
+
+				fileRecord := &coredata.File{
+					ID:             fileID,
+					OrganizationID: organization.ID,
+					BucketName:     s.svc.bucket,
+					MimeType:       contentType,
+					FileName:       filename,
+					FileKey:        objectKey.String(),
+					Visibility:     coredata.FileVisibilityPublic,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				}
+
+				fileSize, err = s.svc.fileManager.PutFile(
+					ctx,
+					fileRecord,
+					req.File.Content,
+					map[string]string{
+						"type":            "organization-logo",
+						"organization-id": organization.ID.String(),
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("cannot upload logo file: %w", err)
+				}
+
+				fileRecord.FileSize = fileSize
+
+				if err := fileRecord.Insert(ctx, tx, scope); err != nil {
+					return fmt.Errorf("cannot insert file: %w", err)
+				}
+
+				organization.LogoFileID = &fileID
+			}
+
+			if req.HorizontalLogoFile != nil {
+				fileID := gid.New(scope.GetTenantID(), coredata.FileEntityType)
+
+				objectKey, err := uuid.NewV7()
+				if err != nil {
+					return fmt.Errorf("cannot generate object key: %w", err)
+				}
+
+				filename := req.HorizontalLogoFile.Filename
+				contentType := req.HorizontalLogoFile.ContentType
+
+				if contentType == "" {
+					contentType = "application/octet-stream"
+
+					if filename != "" {
+						if detectedType := mime.TypeByExtension(filepath.Ext(filename)); detectedType != "" {
+							contentType = detectedType
+						}
+					}
+				}
+
+				fileSize, err := filemanager.GetFileSize(req.HorizontalLogoFile.Content)
+				if err != nil {
+					return fmt.Errorf("cannot get file size: %w", err)
+				}
+
+				if err := s.fileValidator.Validate(filename, contentType, fileSize); err != nil {
+					return err
+				}
+
+				fileRecord := &coredata.File{
+					ID:             fileID,
+					OrganizationID: organization.ID,
+					BucketName:     s.svc.bucket,
+					MimeType:       contentType,
+					FileName:       filename,
+					FileKey:        objectKey.String(),
+					Visibility:     coredata.FileVisibilityPublic,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				}
+
+				fileSize, err = s.svc.fileManager.PutFile(
+					ctx,
+					fileRecord,
+					req.HorizontalLogoFile.Content,
+					map[string]string{
+						"type":            "organization-horizontal-logo",
+						"organization-id": organization.ID.String(),
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("cannot upload horizontal logo file: %w", err)
+				}
+
+				fileRecord.FileSize = fileSize
+
+				if err := fileRecord.Insert(ctx, tx, scope); err != nil {
+					return fmt.Errorf("cannot insert file: %w", err)
+				}
+
+				organization.HorizontalLogoFileID = &fileID
+			}
+
+			if err := organization.Update(ctx, scope, tx); err != nil {
+				return fmt.Errorf("cannot update organization: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organization, nil
+}
+
+func (s OrganizationService) GenerateLogoURL(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+	expiresIn time.Duration,
+) (*string, error) {
+	file := &coredata.File{}
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			organization := &coredata.Organization{}
+			if err := organization.LoadByID(ctx, conn, scope, organizationID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			if organization.LogoFileID == nil {
+				return nil
+			}
+
+			if err := file.LoadByID(ctx, conn, scope, *organization.LogoFileID); err != nil {
+				return fmt.Errorf("cannot load file: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if file.FileKey == "" {
+		return nil, nil
+	}
+
+	presignedURL, err := s.svc.fileManager.GeneratePresignedURL(ctx, file, expiresIn)
+	if err != nil {
+		return nil, fmt.Errorf("cannot generate file URL: %w", err)
+	}
+
+	return &presignedURL, nil
+}
+
+func (s OrganizationService) GenerateHorizontalLogoURL(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+	expiresIn time.Duration,
+) (*string, error) {
+	file := &coredata.File{}
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			organization := &coredata.Organization{}
+			if err := organization.LoadByID(ctx, conn, scope, organizationID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			if organization.HorizontalLogoFileID == nil {
+				return nil
+			}
+
+			if err := file.LoadByID(ctx, conn, scope, *organization.HorizontalLogoFileID); err != nil {
+				return fmt.Errorf("cannot load file: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if file.FileKey == "" {
+		return nil, nil
+	}
+
+	presignedURL, err := s.svc.fileManager.GeneratePresignedURL(ctx, file, expiresIn)
+	if err != nil {
+		return nil, fmt.Errorf("cannot generate file URL: %w", err)
+	}
+
+	return &presignedURL, nil
+}
+
+func (s OrganizationService) DeleteHorizontalLogo(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+) (*coredata.Organization, error) {
+	organization := &coredata.Organization{}
+
+	err := s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := organization.LoadByID(ctx, tx, scope, organizationID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			organization.HorizontalLogoFileID = nil
+			organization.UpdatedAt = time.Now()
+
+			if err := organization.Update(ctx, scope, tx); err != nil {
+				return fmt.Errorf("cannot update organization: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organization, nil
+}

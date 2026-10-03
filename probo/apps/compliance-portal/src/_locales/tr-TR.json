@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "Uyumluluk Portalı",
+    "getAccess": "Erişim İste",
+    "openMenu": "Menüyü aç",
+    "closeMenu": "Menüyü kapat",
+    "menuTitle": "Menü",
+    "nav": {
+      "documents": "Belgeler",
+      "subprocessors": "Alt işlemciler",
+      "updates": "Güncelleme",
+      "requests": "Talepler"
+    }
+  },
+  "userMenu": {
+    "subscribe": "Güncellemelere abone ol",
+    "subscribed": "Güncellemelere abone olundu",
+    "signOut": "Çıkış yap",
+    "signOutFailed": "Çıkış yapılamıyor",
+    "switchToDarkMode": "Karanlık moda geç",
+    "switchToLightMode": "Aydınlık moda geç"
+  },
+  "common": {
+    "error": "Bir şeyler ters gitti",
+    "previousPage": "Önceki sayfa",
+    "nextPage": "Sonraki sayfa",
+    "pageOf": "Sayfa {{current}} / {{total}}",
+    "zoomOut": "Uzaklaştır",
+    "zoomIn": "Yakınlaştır"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "Erişim talep edildi"
+    },
+    "fullName": {
+      "title": "Adınızı ekleyin",
+      "label": "Ad Soyad",
+      "placeholder": "Ahmet Yılmaz",
+      "required": "Ad soyad gereklidir",
+      "tooShort": "Ad soyad çok kısa",
+      "submit": "Devam Et"
+    },
+    "errors": {
+      "fullNameFailed": "Adınız kaydedilemedi. Lütfen tekrar deneyin.",
+      "requestFailed": "Erişim talebiniz tamamlanamadı. Lütfen tekrar deneyin."
+    }
+  },
+  "home": {
+    "heroTitle": "{{name}} için Uyumluluk.",
+    "heroDescription": "Uyumluluk Portalımıza hoş geldiniz. Güvenlik belgelerimizi ve sertifikalarımızı burada bulabilirsiniz.",
+    "sections": {
+      "compliance": "Uyumluluk",
+      "securityCommitments": "Güvenlik Taahhütleri",
+      "trustedBy": "Bize güvenenler",
+      "recentUpdates": "Son güncellemeler"
+    },
+    "recentUpdates": {
+      "viewAll": "Tümünü görüntüle"
+    }
+  },
+  "notFound": {
+    "title": "Sayfa bulunamadı",
+    "description": "Aradığınız sayfa mevcut değil veya taşınmış olabilir.",
+    "backHome": "Ana sayfaya dön"
+  },
+  "errors": {
+    "notFound": {
+      "title": "Sayfa bulunamadı",
+      "description": "Aradığınız sayfa mevcut değil veya taşınmış olabilir."
+    },
+    "forbidden": {
+      "title": "Erişim reddedildi",
+      "description": "Bu sayfayı görüntüleme izniniz yok."
+    },
+    "serverError": {
+      "title": "Bir şeyler ters gitti",
+      "description": "Beklenmeyen bir hatayla karşılaştık. Lütfen birazdan tekrar deneyin."
+    },
+    "generic": {
+      "title": "Bir şeyler ters gitti",
+      "description": "Beklenmeyen bir hatayla karşılaştık. Lütfen birazdan tekrar deneyin."
+    },
+    "actions": {
+      "backToCompliancePortal": "Uyumluluk Portalına geri dön",
+      "tryAgain": "Tekrar dene",
+      "contactSupport": "Destek ile iletişime geç",
+      "requestAccess": "Erişim iste"
+    },
+    "inline": {
+      "message": "İçerik yüklenemedi",
+      "retry": "Yeniden dene"
+    }
+  },
+  "footer": {
+    "poweredBy": "Destekleyen"
+  },
+  "pagination": {
+    "previous": "Önceki sayfa",
+    "next": "Sonraki sayfa"
+  },
+  "locale": {
+    "label": "Dil",
+    "updateFailed": "Dil güncellenemedi",
+    "mismatch": {
+      "message": "Bu sayfayı {{language}} olarak görüntülüyorsunuz.",
+      "switchToMine": "{{language}} diline geç",
+      "useThis": "{{language}} dilini benim dilim olarak kullan",
+      "dismiss": "Kapat"
+    }
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "Özel belgelere erişmek için gizlilik sözleşmesini imzalayın.",
+      "sign": "İncele ve imzala",
+      "dismiss": "Kapat"
+    }
+  }
+}

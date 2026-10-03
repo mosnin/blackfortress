@@ -1,0 +1,2290 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package probod
+
+import (
+	"context"
+	"crypto"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	proxyproto "github.com/pires/go-proxyproto"
+	"github.com/prometheus/client_golang/prometheus"
+	"go.gearno.de/kit/httpclient"
+	"go.gearno.de/kit/httpserver"
+	"go.gearno.de/kit/log"
+	"go.gearno.de/kit/migrator"
+	"go.gearno.de/kit/pg"
+	"go.gearno.de/kit/unit"
+	"go.gearno.de/kit/worker"
+	"go.gearno.de/x/ref"
+	"go.opentelemetry.io/otel/trace"
+	"go.probo.inc/probo/pkg/accessreview"
+	"go.probo.inc/probo/pkg/agentexecution"
+	"go.probo.inc/probo/pkg/awsconfig"
+	"go.probo.inc/probo/pkg/baseurl"
+	"go.probo.inc/probo/pkg/bot"
+	"go.probo.inc/probo/pkg/certmanager"
+	cloudaws "go.probo.inc/probo/pkg/cloud/aws"
+	cloudazure "go.probo.inc/probo/pkg/cloud/azure"
+	cloudgcp "go.probo.inc/probo/pkg/cloud/gcp"
+	portal "go.probo.inc/probo/pkg/complianceportal"
+	"go.probo.inc/probo/pkg/complianceportal/management"
+	"go.probo.inc/probo/pkg/complianceportal/visitor"
+	"go.probo.inc/probo/pkg/connector"
+	"go.probo.inc/probo/pkg/connector/provider"
+	"go.probo.inc/probo/pkg/cookiebanner"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/crypto/cipher"
+	"go.probo.inc/probo/pkg/crypto/jose"
+	"go.probo.inc/probo/pkg/crypto/keys"
+	"go.probo.inc/probo/pkg/crypto/passwdhash"
+	"go.probo.inc/probo/pkg/esign"
+	"go.probo.inc/probo/pkg/evidencedescriber"
+	"go.probo.inc/probo/pkg/filemanager"
+	"go.probo.inc/probo/pkg/geoloc"
+	"go.probo.inc/probo/pkg/html2pdf"
+	"go.probo.inc/probo/pkg/iam"
+	"go.probo.inc/probo/pkg/iam/oauth2"
+	"go.probo.inc/probo/pkg/iam/oauth2scope"
+	"go.probo.inc/probo/pkg/iam/oidc"
+	"go.probo.inc/probo/pkg/identityfederation"
+	"go.probo.inc/probo/pkg/itam"
+	"go.probo.inc/probo/pkg/mailer"
+	"go.probo.inc/probo/pkg/mailman"
+	"go.probo.inc/probo/pkg/probo"
+	"go.probo.inc/probo/pkg/probot"
+	compliancecapability "go.probo.inc/probo/pkg/probot/capability/complianceportal"
+	slackchannel "go.probo.inc/probo/pkg/probot/channel/slack"
+	"go.probo.inc/probo/pkg/probot/identitybinding"
+	"go.probo.inc/probo/pkg/resourcealias"
+	"go.probo.inc/probo/pkg/riskmanagement"
+	"go.probo.inc/probo/pkg/securecookie"
+	"go.probo.inc/probo/pkg/server"
+	complianceportal_v1 "go.probo.inc/probo/pkg/server/api/complianceportal/v1"
+	"go.probo.inc/probo/pkg/server/gqlutils"
+	"go.probo.inc/probo/pkg/server/trustedproxy"
+	"go.probo.inc/probo/pkg/slack"
+	"go.probo.inc/probo/pkg/task"
+	tasksync "go.probo.inc/probo/pkg/task/sync"
+	"go.probo.inc/probo/pkg/thirdparty"
+	"go.probo.inc/probo/pkg/webhook"
+	"golang.org/x/sync/errgroup"
+)
+
+type Implm struct {
+	cfg Config
+}
+
+var (
+	_ unit.Configurable = (*Implm)(nil)
+	_ unit.Runnable     = (*Implm)(nil)
+)
+
+func New() *Implm {
+	return &Implm{
+		cfg: Config{
+			BaseURL: "http://localhost:8080",
+			Api: APIConfig{
+				Addr: "localhost:8080",
+				GraphQL: GraphQLConfig{
+					ParserTokenLimit:  15000,
+					ComplexityLimit:   2000,
+					QueryCacheSize:    1000,
+					DisableSuggestion: true,
+				},
+			},
+			Pg: PgConfig{
+				Addr:                         "localhost:5432",
+				Username:                     "probod",
+				Password:                     "probod",
+				Database:                     "probod",
+				PoolSize:                     100,
+				MinPoolSize:                  10,
+				MaxConnIdleTimeSeconds:       1800,
+				MaxConnLifetimeSeconds:       3600,
+				MaxConnLifetimeJitterSeconds: 300,
+				HealthCheckPeriodSeconds:     60,
+			},
+			ChromeDPAddr: "localhost:9222",
+			Auth: AuthConfig{
+				Password: PasswordConfig{
+					Pepper:     "this-is-a-secure-pepper-for-password-hashing-at-least-32-bytes",
+					Iterations: 1000000,
+				},
+				Cookie: CookieConfig{
+					Name:     "SSID",
+					Secret:   "this-is-a-secure-secret-for-cookie-signing-at-least-32-bytes",
+					Duration: 24,
+					Domain:   "localhost",
+					Secure:   true,
+					SameSite: CookieSameSiteLax,
+				},
+				DisableSignup:                       false,
+				InvitationConfirmationTokenValidity: 3600,
+				PasswordResetTokenValidity:          3600,
+				MagicLinkTokenValidity:              900,
+				EmailConfirmationTokenValidity:      3600,
+				SAML: SAMLConfig{
+					SessionDuration:                   604800,
+					CleanupIntervalSeconds:            86400,
+					DomainVerificationIntervalSeconds: 60,
+					DomainVerificationResolverAddr:    "8.8.8.8:53",
+				},
+			},
+			IdentityFederation: IdentityFederationConfig{
+				CloudFormationTemplateURL:  cloudaws.DefaultCloudFormationTemplateURL,
+				TerraformModuleSource:      cloudaws.DefaultTerraformModuleSource,
+				GCPTerraformModuleSource:   cloudgcp.DefaultTerraformModuleSource,
+				AzureTerraformModuleSource: cloudazure.DefaultTerraformModuleSource,
+			},
+			ITAM: ITAMConfig{
+				DeviceEnrollmentTokenValidity: 604800,
+			},
+			CompliancePortal: CompliancePortalConfig{
+				HTTPAddr:   ":80",
+				HTTPSAddr:  ":443",
+				BaseDomain: "probopage.localhost",
+				TLSMode:    CompliancePortalTLSModeDirect,
+			},
+			AWS: AWSConfig{
+				Region: "us-east-1",
+				Bucket: "probod",
+			},
+			Notifications: NotificationsConfig{
+				Mailer: MailerConfig{
+					MailerInterval: 60,
+					SenderEmail:    "no-reply@portal.getprobo.com",
+					SenderName:     "Probo",
+					SMTP: SMTPConfig{
+						Addr: "localhost:1025",
+					},
+				},
+				Slack: SlackConfig{
+					SenderInterval: 60,
+				},
+				Webhook: WebhookConfig{
+					SenderInterval: 5,
+					RequestTimeout: 15,
+					CacheTTL:       86400,
+					StaleAfter:     300,
+					RetryBase:      30,
+					RetryMax:       14400,
+					MaxConcurrency: 5,
+				},
+				Document: DocumentNotificationConfig{
+					Interval:         300,   // 5 minutes
+					DebounceDelay:    900,   // 15 minutes
+					ReminderInterval: 86400, // 1 day base cadence (1x, 2x, 3x; weekend reminders → Monday)
+				},
+			},
+			CustomDomains: CustomDomainsConfig{
+				RenewalInterval:   3600,
+				ProvisionInterval: 30,
+				ResolverAddr:      "8.8.8.8:53",
+				ACME: ACMEConfig{
+					Directory: "https://acme-v02.api.letsencrypt.org/directory",
+					Email:     "admin@probo.com",
+					KeyType:   "EC256",
+				},
+			},
+			SCIMBridge: SCIMBridgeConfig{
+				SyncInterval: 60, // 15 minutes
+				PollInterval: 30, // 30 seconds
+			},
+			ESign: ESignConfig{
+				TSAURL: "http://timestamp.digicert.com",
+			},
+			Branding: true,
+			CookieBanner: CookieBannerConfig{
+				TCFCMPID: cookiebanner.DefaultTCFCmpID,
+			},
+			EvidenceDescriber: EvidenceDescriberConfig{
+				Interval:       10,
+				StaleAfter:     300,
+				MaxConcurrency: 10,
+			},
+			ThirdPartyVetting: ThirdPartyVettingWorkerConfig{
+				Interval:       10,
+				StaleAfter:     1500,
+				MaxConcurrency: 1,
+			},
+			CommonThirdPartyEnrichmentWorker: CommonThirdPartyEnrichmentWorkerConfig{
+				Interval:            10,
+				MaxConcurrency:      1,
+				StaleAfter:          900,
+				AgentTimeout:        90,
+				AgentMaxTurns:       12,
+				ConfidenceThreshold: 0.7,
+				MaxAttempts:         3,
+			},
+		},
+	}
+}
+
+func (impl *Implm) GetConfiguration() any {
+	return &impl.cfg
+}
+
+func (impl *Implm) Run(
+	parentCtx context.Context,
+	l *log.Logger,
+	r prometheus.Registerer,
+	tp trace.TracerProvider,
+) error {
+	tracer := tp.Tracer("probod")
+
+	ctx, rootSpan := tracer.Start(parentCtx, "probod.Run")
+	defer rootSpan.End()
+
+	if err := impl.cfg.CompliancePortal.TLSMode.Validate(); err != nil {
+		rootSpan.RecordError(err)
+		return fmt.Errorf("cannot validate compliance portal TLS config: %w", err)
+	}
+
+	// Parse config values that need conversion from strings to complex types
+	baseURL, err := baseurl.Parse(impl.cfg.BaseURL)
+	if err != nil {
+		rootSpan.RecordError(err)
+		return fmt.Errorf("cannot parse base URL: %w", err)
+	}
+
+	var encryptionKey cipher.EncryptionKey
+	if err := encryptionKey.UnmarshalText([]byte(impl.cfg.EncryptionKey)); err != nil {
+		rootSpan.RecordError(err)
+		return fmt.Errorf("cannot parse encryption key: %w", err)
+	}
+
+	wg := sync.WaitGroup{}
+
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(context.Canceled)
+
+	pgClient, err := pg.NewClient(
+		impl.cfg.Pg.Options(
+			pg.WithApplicationName("probod"),
+			pg.WithLogger(l),
+			pg.WithRegisterer(r),
+			pg.WithTracerProvider(tp),
+		)...,
+	)
+	if err != nil {
+		rootSpan.RecordError(err)
+		return fmt.Errorf("cannot create pg client: %w", err)
+	}
+
+	pepper, err := impl.cfg.Auth.GetPepperBytes()
+	if err != nil {
+		rootSpan.RecordError(err)
+		return fmt.Errorf("cannot get pepper bytes: %w", err)
+	}
+
+	_, err = impl.cfg.Auth.GetCookieSecretBytes()
+	if err != nil {
+		rootSpan.RecordError(err)
+		return fmt.Errorf("cannot get cookie secret bytes: %w", err)
+	}
+
+	if err := impl.cfg.Auth.Cookie.Validate(); err != nil {
+		rootSpan.RecordError(err)
+		return fmt.Errorf("cannot validate auth cookie config: %w", err)
+	}
+
+	authCookieMaxAge := int(time.Duration(impl.cfg.Auth.Cookie.Duration) * time.Hour)
+
+	authCookie, err := authSecureCookieConfig(impl.cfg.Auth.Cookie, authCookieMaxAge)
+	if err != nil {
+		rootSpan.RecordError(err)
+		return fmt.Errorf("cannot configure auth cookie: %w", err)
+	}
+
+	awsConfig, err := awsconfig.NewConfig(
+		l,
+		httpclient.DefaultPooledClient(
+			httpclient.WithLogger(l),
+			httpclient.WithTracerProvider(tp),
+			httpclient.WithRegisterer(r),
+		),
+		awsconfig.Options{
+			Region:          impl.cfg.AWS.Region,
+			AccessKeyID:     impl.cfg.AWS.AccessKeyID,
+			SecretAccessKey: impl.cfg.AWS.SecretAccessKey,
+			Endpoint:        impl.cfg.AWS.Endpoint,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("cannot initialize AWS config: %w", err)
+	}
+
+	html2pdfConverter := html2pdf.NewConverter(
+		impl.cfg.ChromeDPAddr,
+		html2pdf.WithLogger(l),
+		html2pdf.WithTracerProvider(tp),
+	)
+
+	s3Client := s3.NewFromConfig(awsConfig, func(o *s3.Options) {
+		o.UsePathStyle = impl.cfg.AWS.UsePathStyle
+	})
+
+	err = migrator.NewMigrator(pgClient, coredata.Migrations, l.Named("migrations")).Run(ctx, "migrations")
+	if err != nil {
+		return fmt.Errorf("cannot migrate database schema: %w", err)
+	}
+
+	geolocService := geoloc.NewService(pgClient)
+
+	populated, err := geolocService.IsPopulated(ctx)
+	if err != nil {
+		l.ErrorCtx(ctx, "cannot check geoloc table", log.Error(err))
+	} else if !populated {
+		l.Warn("IP geolocation table is empty; populate it with an external location importer")
+	}
+
+	hp, err := passwdhash.NewProfile(pepper, uint32(impl.cfg.Auth.Password.Iterations))
+	if err != nil {
+		return fmt.Errorf("cannot create hashing profile: %w", err)
+	}
+
+	redirectURI := baseURL.WithPath(connector.CallbackPath).MustString()
+
+	endpointOverrides := make(provider.EndpointOverrides, len(impl.cfg.ConnectorEndpoints))
+	for p, e := range impl.cfg.ConnectorEndpoints {
+		endpointOverrides[coredata.ConnectorProvider(strings.ToUpper(p))] = provider.Endpoints{
+			Auth:     e.Auth,
+			Token:    e.Token,
+			Probe:    e.Probe,
+			Identity: e.Identity,
+			APIBase:  e.APIBase,
+		}
+	}
+
+	registryOpts := []provider.Option{
+		provider.WithEndpointOverrides(endpointOverrides),
+	}
+	if impl.cfg.IdentityFederation.AWSEndpoint != "" {
+		registryOpts = append(
+			registryOpts,
+			provider.WithAWSAPIEndpoint(impl.cfg.IdentityFederation.AWSEndpoint),
+		)
+	}
+
+	providerRegistry, err := provider.NewBuiltinRegistryWith(registryOpts...)
+	if err != nil {
+		return fmt.Errorf("cannot configure connector providers: %w", err)
+	}
+
+	for p := range endpointOverrides {
+		// Endpoint overrides are the difference between a connector reaching
+		// the real vendor and reaching a sandbox, so record which providers a
+		// deployment has repointed. The provider name is operator config, not
+		// tenant data.
+		l.Warn("connector provider endpoints overridden by configuration", log.String("provider", string(p)))
+	}
+
+	// The Slack notification service and sending worker talk to the workspace
+	// the SLACK connector row was minted against, presenting the token that
+	// row's OAuth handshake produced. They therefore have to follow the SLACK
+	// registration's APIBase rather than pin slack.com, or an override would
+	// send a sandbox-issued token to the real vendor.
+	slackRegistration, ok := providerRegistry.Get(coredata.ConnectorProviderSlack)
+	if !ok {
+		return fmt.Errorf("cannot configure slack notifications: no slack connector provider registered")
+	}
+
+	slackAPIBaseURL := slackRegistration.Endpoints.APIBase
+
+	// Task sync talks to Linear with the token the LINEAR_SYNC connector
+	// row minted, so it follows that registration's APIBase rather than
+	// pin api.linear.app, or an override would send a sandbox-issued token
+	// to the real vendor.
+	linearRegistration, ok := providerRegistry.Get(coredata.ConnectorProviderLinearSync)
+	if !ok {
+		return fmt.Errorf("cannot configure linear task sync: no linear sync connector provider registered")
+	}
+
+	linearAPIBaseURL := linearRegistration.Endpoints.APIBase
+
+	defaultConnectorRegistry := connector.NewConnectorRegistry()
+
+	for _, connectorCfg := range impl.cfg.Connectors {
+		// ManagedAPIKey (Model B) connectors carry a Probo-held API key
+		// instead of an OAuth2 client; register it on the provider registry
+		// and skip the OAuth-only connector registry. Fail loudly on a
+		// provider that is not a managed-api-key connector (e.g. a typo)
+		// rather than silently swallowing the key, mirroring how the OAuth2
+		// path surfaces misconfiguration at startup.
+		if connectorCfg.Protocol == connector.ProtocolAPIKey {
+			p := coredata.ConnectorProvider(connectorCfg.Provider)
+
+			reg, ok := providerRegistry.Get(p)
+			if !ok || !reg.IsManagedAPIKey() {
+				return fmt.Errorf("cannot configure api_key connector %q: not a managed-api-key provider", connectorCfg.Provider)
+			}
+
+			providerRegistry.SetManagedAPIKey(p, connectorCfg.APIKey)
+			providerRegistry.SetManagedResourceID(p, connectorCfg.ResourceID)
+
+			continue
+		}
+
+		if gitHubApp, ok := connectorCfg.Config.(*connector.GitHubAppConnector); ok {
+			if gitHubApp.AppID == "" ||
+				gitHubApp.ClientID == "" ||
+				gitHubApp.ClientSecret == "" ||
+				gitHubApp.Slug == "" ||
+				gitHubApp.PrivateKey == "" {
+				return fmt.Errorf("cannot configure github app connector: app ID, client ID, client secret, slug, and private key are required")
+			}
+
+			if err := gitHubApp.Validate(); err != nil {
+				return fmt.Errorf("cannot configure github app connector: %w", err)
+			}
+
+			reg, ok := providerRegistry.Get(coredata.ConnectorProviderGitHub)
+			if !ok {
+				return fmt.Errorf("cannot configure github app connector: github provider is not registered")
+			}
+
+			authURL, err := url.Parse(reg.Endpoints.Auth)
+			if err != nil || authURL.Scheme == "" || authURL.Host == "" {
+				return fmt.Errorf("cannot configure github app connector: invalid github authorization URL")
+			}
+
+			gitHubApp.InstallBase = (&url.URL{
+				Scheme: authURL.Scheme,
+				Host:   authURL.Host,
+				Path:   "/apps",
+			}).String()
+			gitHubApp.TokenURL = reg.Endpoints.Token
+			gitHubApp.APIBase = reg.Endpoints.APIBase
+			gitHubApp.RedirectURI = baseURL.WithPath(connector.GitHubAppCallbackPath).MustString()
+
+			if err := defaultConnectorRegistry.RegisterProtocol(
+				connectorCfg.Provider,
+				connector.ProtocolGitHubApp,
+				gitHubApp,
+			); err != nil {
+				return fmt.Errorf("cannot register github app connector: %w", err)
+			}
+
+			continue
+		}
+
+		if oauth2c, ok := connectorCfg.Config.(*connector.OAuth2Connector); ok {
+			if err := providerRegistry.ApplyOAuth2Defaults(connectorCfg.Provider, redirectURI, oauth2c); err != nil {
+				return fmt.Errorf("cannot apply oauth2 defaults: %w", err)
+			}
+		}
+
+		if err := defaultConnectorRegistry.Register(connectorCfg.Provider, connectorCfg.Config); err != nil {
+			return fmt.Errorf("cannot register connector: %w", err)
+		}
+	}
+
+	proboAgentCfg, proboLLMClient, err := impl.resolveAgentClient("probo", impl.cfg.Agents.Probo, l, tp, r)
+	if err != nil {
+		return err
+	}
+
+	evidenceDescriberAgentCfg, evidenceDescriberLLMClient, err := impl.resolveAgentClient("evidence-describer", impl.cfg.Agents.EvidenceDescriber, l, tp, r)
+	if err != nil {
+		return err
+	}
+
+	thirdPartyVetter, err := impl.buildThirdPartyVetter(l, tp, r)
+	if err != nil {
+		return err
+	}
+
+	trackerMappingCfg, trackerEnrichmentCfg, err := impl.buildTrackerAgents(l, tp, r)
+	if err != nil {
+		return err
+	}
+
+	fileManagerService := filemanager.NewService(pgClient, baseURL, s3Client, l.Named("filemanager"))
+
+	commonThirdPartyEnrichmentCfg, err := impl.buildCommonThirdPartyEnrichmentConfig(l, tp, r, fileManagerService)
+	if err != nil {
+		return err
+	}
+
+	var (
+		samlCert *x509.Certificate
+		samlKey  *rsa.PrivateKey
+	)
+
+	if impl.cfg.Auth.SAML.Certificate != "" && !impl.cfg.Auth.SAML.PrivateKey.IsZero() {
+		// Decode certificate
+		certBlock, _ := pem.Decode([]byte(impl.cfg.Auth.SAML.Certificate))
+		if certBlock == nil {
+			return fmt.Errorf("cannot decode SAML certificate PEM block")
+		}
+
+		var err error
+
+		samlCert, err = x509.ParseCertificate(certBlock.Bytes)
+		if err != nil {
+			return fmt.Errorf("cannot parse SAML certificate: %w", err)
+		}
+
+		samlKey = impl.cfg.Auth.SAML.PrivateKey.PrivateKey()
+	}
+
+	if len(impl.cfg.Auth.OAuth2Server.SigningKeys) == 0 {
+		return fmt.Errorf("cannot configure OAuth2 server: at least one signing key is required")
+	}
+
+	var (
+		oauth2SigningKeys   []jose.SigningKey
+		activeSigningKeyPEM string
+	)
+
+	for _, keyCfg := range impl.cfg.Auth.OAuth2Server.SigningKeys {
+		if keyCfg.Active {
+			activeSigningKeyPEM = keyCfg.PrivateKey.PEM()
+		}
+
+		oauth2SigningKeys = append(
+			oauth2SigningKeys,
+			newSigningKey(keyCfg.PrivateKey, keyCfg.KID, keyCfg.Active),
+		)
+	}
+
+	oauth2KeyRing, err := jose.NewKeyRing(oauth2SigningKeys)
+	if err != nil {
+		return fmt.Errorf("cannot configure OAuth2 server: %w", err)
+	}
+
+	identityFederationIssuer, err := impl.buildIdentityFederationIssuer(baseURL, l)
+	if err != nil {
+		return err
+	}
+
+	// Auto-register public-client (CIMD) connectors, which need no operator
+	// credentials: the client_id is this deployment's hosted CIMD metadata
+	// URL and the OAuth2 state token is signed with a key derived from the
+	// active OAuth2 server signing key. Providers an operator configured
+	// explicitly (already registered from impl.cfg.Connectors above) are
+	// left untouched.
+	connectorStateKey := connector.DeriveConnectorStateKey(activeSigningKeyPEM)
+	installStateKey := connector.DeriveInstallStateKey(activeSigningKeyPEM)
+	cimdClientID := baseURL.WithPath(connector.CIMDMetadataPath).MustString()
+
+	for _, reg := range providerRegistry.PublicClients() {
+		if _, err := defaultConnectorRegistry.Get(string(reg.Provider)); err == nil {
+			continue
+		}
+
+		oauth2c := &connector.OAuth2Connector{
+			ClientID:        cimdClientID,
+			StateSigningKey: connectorStateKey,
+		}
+
+		if err := providerRegistry.ApplyOAuth2Defaults(string(reg.Provider), redirectURI, oauth2c); err != nil {
+			return fmt.Errorf("cannot apply oauth2 defaults for public client %q: %w", reg.Provider, err)
+		}
+
+		if err := defaultConnectorRegistry.Register(string(reg.Provider), oauth2c); err != nil {
+			return fmt.Errorf("cannot register public client connector %q: %w", reg.Provider, err)
+		}
+	}
+
+	oauth2ScopeRegistry := oauth2scope.NewRegistry().
+		Register(iam.IAMOAuth2ScopeMappings).
+		Register(probo.OAuth2ScopeMappings).
+		Register(management.OAuth2ScopeMappings).
+		Register(agentexecution.OAuth2ScopeMappings).
+		Register(accessreview.OAuth2ScopeMappings).
+		Register(resourcealias.OAuth2ScopeMappings).
+		Register(itam.OAuth2ScopeMappings).
+		Register(riskmanagement.OAuth2ScopeMappings).
+		Register(task.OAuth2ScopeMappings)
+
+	var acmeService *certmanager.ACMEService
+
+	if impl.cfg.CompliancePortal.TLSMode.IsExternal() {
+		l.Info("custom domains and ACME are disabled in external compliance portal TLS mode")
+	} else {
+		var accountKey crypto.Signer
+		if !impl.cfg.CustomDomains.ACME.AccountKey.IsZero() {
+			accountKey = impl.cfg.CustomDomains.ACME.AccountKey.Signer()
+
+			l.Info("using configured ACME account key")
+		}
+
+		var rootCAs *x509.CertPool
+		if impl.cfg.CustomDomains.ACME.RootCA != "" {
+			rootCAs = x509.NewCertPool()
+			if !rootCAs.AppendCertsFromPEM([]byte(impl.cfg.CustomDomains.ACME.RootCA)) {
+				return fmt.Errorf("cannot parse ACME root CA certificate")
+			}
+		}
+
+		acmeService, err = certmanager.NewACMEService(
+			impl.cfg.CustomDomains.ACME.Email,
+			keys.Type(impl.cfg.CustomDomains.ACME.KeyType),
+			impl.cfg.CustomDomains.ACME.Directory,
+			accountKey,
+			rootCAs,
+			l,
+			r,
+		)
+		if err != nil {
+			return fmt.Errorf("cannot initialize ACME service: %w", err)
+		}
+	}
+
+	customDomainRenewalInterval := time.Duration(impl.cfg.CustomDomains.RenewalInterval) * time.Second
+	if customDomainRenewalInterval == 0 {
+		customDomainRenewalInterval = time.Hour
+	}
+
+	customDomainProvisionInterval := time.Duration(impl.cfg.CustomDomains.ProvisionInterval) * time.Second
+	if customDomainProvisionInterval == 0 {
+		customDomainProvisionInterval = 30 * time.Second
+	}
+
+	certManagerService := certmanager.NewService(
+		pgClient,
+		acmeService,
+		encryptionKey,
+		certmanager.Config{
+			CnameTarget:       impl.cfg.CustomDomains.CnameTarget,
+			CAAIssuerDomain:   impl.cfg.CustomDomains.CAAIssuerDomain,
+			ResolverAddr:      impl.cfg.CustomDomains.ResolverAddr,
+			ManagedBaseDomain: impl.cfg.CompliancePortal.BaseDomain,
+			RenewalInterval:   customDomainRenewalInterval,
+			ProvisionInterval: customDomainProvisionInterval,
+		},
+		l.Named("certmanager"),
+	)
+
+	iamService, err := iam.NewService(
+		ctx,
+		pgClient,
+		fileManagerService,
+		hp,
+		iam.Config{
+			DisableSignup:                  impl.cfg.Auth.DisableSignup,
+			InvitationTokenValidity:        time.Duration(impl.cfg.Auth.InvitationConfirmationTokenValidity) * time.Second,
+			PasswordResetTokenValidity:     time.Duration(impl.cfg.Auth.PasswordResetTokenValidity) * time.Second,
+			MagicLinkTokenValidity:         time.Duration(impl.cfg.Auth.MagicLinkTokenValidity) * time.Second,
+			EmailConfirmationTokenValidity: time.Duration(impl.cfg.Auth.EmailConfirmationTokenValidity) * time.Second,
+			SessionDuration:                time.Duration(impl.cfg.Auth.Cookie.Duration) * time.Hour,
+			Bucket:                         impl.cfg.AWS.Bucket,
+			TokenSecret:                    impl.cfg.Auth.Cookie.Secret,
+			BaseURL:                        baseURL,
+			CompliancePortalBaseDomain:     impl.cfg.CompliancePortal.BaseDomain,
+			EncryptionKey:                  encryptionKey,
+			Certificate:                    samlCert,
+			PrivateKey:                     samlKey,
+			Logger:                         l.Named("iam"),
+			TracerProvider:                 tp,
+			Registerer:                     r,
+			ConnectorRegistry:              defaultConnectorRegistry,
+			DomainVerificationInterval:     impl.cfg.Auth.SAML.DomainVerificationInterval(),
+			DomainVerificationResolverAddr: impl.cfg.Auth.SAML.DomainVerificationResolverAddr,
+			SCIMBridgeSyncInterval:         time.Duration(impl.cfg.SCIMBridge.SyncInterval) * time.Second,
+			SCIMBridgePollInterval:         time.Duration(impl.cfg.SCIMBridge.PollInterval) * time.Second,
+			GoogleOIDC: oidc.ProviderConfig{
+				ClientID:     impl.cfg.Auth.Google.ClientID,
+				ClientSecret: impl.cfg.Auth.Google.ClientSecret,
+				Enabled:      impl.cfg.Auth.Google.Enabled,
+			},
+			MicrosoftOIDC: oidc.ProviderConfig{
+				ClientID:     impl.cfg.Auth.Microsoft.ClientID,
+				ClientSecret: impl.cfg.Auth.Microsoft.ClientSecret,
+				Enabled:      impl.cfg.Auth.Microsoft.Enabled,
+			},
+			OAuth2ServerKeyRing: oauth2KeyRing,
+			OAuth2ServerOptions: oauth2ServerOptions(impl.cfg.Auth.OAuth2Server),
+			OAuth2ScopeRegistry: oauth2ScopeRegistry,
+			CertManager:         certManagerService,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("cannot create iam service: %w", err)
+	}
+
+	slackService := slack.NewService(
+		pgClient,
+		impl.cfg.GetSlackSigningSecret(),
+		slackAPIBaseURL,
+		l.Named("slack"),
+	)
+
+	esignService := esign.NewService(
+		pgClient,
+		fileManagerService,
+		html2pdfConverter,
+		impl.cfg.ESign.TSAURL,
+		impl.cfg.AWS.Bucket,
+		l.Named("esign"),
+	)
+
+	resourceAliasService := resourcealias.NewService(pgClient)
+	botService := bot.NewService(
+		bot.ServiceConfig{
+			Disabled: !impl.cfg.Slackbot.Enabled,
+		},
+	)
+
+	managementService := management.NewService(
+		pgClient,
+		s3Client,
+		impl.cfg.AWS.Bucket,
+		baseURL.String(),
+		impl.cfg.CompliancePortal.BaseDomain,
+		fileManagerService,
+		certManagerService,
+		botService,
+		esignService,
+		l.Named("compliance-portal-management"),
+	)
+
+	mailmanService := mailman.NewService(
+		pgClient,
+		fileManagerService,
+		impl.cfg.Auth.Cookie.Secret,
+		baseURL,
+		managementService,
+		impl.cfg.AWS.Bucket,
+		encryptionKey,
+		l,
+	)
+
+	cookieBannerService := cookiebanner.NewService(
+		pgClient,
+		impl.cfg.Branding,
+		impl.cfg.CookieBanner.TCFCMPID,
+	)
+
+	proboService, err := probo.NewService(
+		ctx,
+		encryptionKey,
+		pgClient,
+		s3Client,
+		impl.cfg.AWS.Bucket,
+		baseURL.String(),
+		impl.cfg.Auth.Cookie.Secret,
+		proboLLMClient,
+		probo.LLMConfig{
+			Model:       proboAgentCfg.ModelName,
+			Temperature: ref.UnrefOrZero(proboAgentCfg.Temperature),
+			MaxTokens:   ref.UnrefOrZero(proboAgentCfg.MaxTokens),
+		},
+		html2pdfConverter,
+		fileManagerService,
+		l.Named("probo"),
+		iamService,
+		esignService,
+		defaultConnectorRegistry,
+		providerRegistry,
+		time.Duration(impl.cfg.Auth.InvitationConfirmationTokenValidity)*time.Second,
+	)
+	if err != nil {
+		return fmt.Errorf("cannot create probo service: %w", err)
+	}
+
+	visitorService := visitor.NewService(
+		pgClient,
+		s3Client,
+		impl.cfg.AWS.Bucket,
+		baseURL.String(),
+		esignService,
+		html2pdfConverter,
+		fileManagerService,
+		l,
+		botService,
+		resourceAliasService,
+		managementService,
+	)
+
+	staticCIMDAllow := oauth2.CIMDAllowFromClientIDs(impl.cfg.Auth.OAuth2Server.CIMDAllowedClientIDs)
+
+	iamService.OAuth2ServerService.SetCIMDAllow(
+		func(ctx context.Context, clientIDURL string) (oauth2.CIMDAllowance, error) {
+			host, ok := oauth2.CIMDClientIDHost(clientIDURL)
+			if ok && visitorService.IsVerifiedRedirectHost(ctx, host) {
+				return oauth2.CIMDAllowanceAllowedSkipConsent, nil
+			}
+
+			return staticCIMDAllow(ctx, clientIDURL)
+		},
+	)
+
+	accessReviewService := accessreview.NewService(
+		pgClient,
+		encryptionKey,
+		defaultConnectorRegistry,
+		providerRegistry,
+		l.Named("access-review"),
+		accessreview.WithIdentityFederation(identityFederationIssuer),
+		accessreview.WithRegisterer(r),
+	)
+
+	agentExecutionService := agentexecution.NewService(pgClient)
+
+	iamService.Authorizer.RegisterPolicySet(agentexecution.PolicySet())
+	iamService.Authorizer.RegisterPolicySet(accessreview.PolicySet())
+	iamService.Authorizer.RegisterPolicySet(resourcealias.PolicySet())
+	iamService.Authorizer.RegisterPolicySet(management.PolicySet())
+	iamService.Authorizer.RegisterPolicySet(riskmanagement.PolicySet())
+	iamService.Authorizer.RegisterPolicySet(task.PolicySet())
+
+	thirdPartyService := thirdparty.NewService(pgClient, fileManagerService, thirdPartyVetter)
+	riskManagementService := riskmanagement.NewService(pgClient)
+
+	taskService := task.NewService(
+		pgClient,
+		encryptionKey,
+		defaultConnectorRegistry,
+		baseURL.String(),
+		linearAPIBaseURL,
+		l.Named("task"),
+	)
+
+	itamService := itam.NewService(
+		pgClient,
+		iamService,
+		itam.ServiceConfig{
+			EnrollmentTokenValidity: time.Duration(impl.cfg.ITAM.DeviceEnrollmentTokenValidity) * time.Second,
+		},
+		l.Named("itam"),
+	)
+
+	fileStorageOrigin, err := awsconfig.CSPFileStorageOrigin(
+		impl.cfg.AWS.Endpoint,
+		impl.cfg.AWS.Region,
+		impl.cfg.AWS.Bucket,
+		impl.cfg.AWS.UsePathStyle,
+	)
+	if err != nil {
+		return fmt.Errorf("cannot build file storage CSP origin: %w", err)
+	}
+
+	probotIdentityBindings := identitybinding.NewService(pgClient, baseURL)
+	slackbotInstallations := impl.buildSlackbotInstallationService(
+		pgClient,
+		encryptionKey,
+		slackRegistration.Endpoints,
+		l,
+	)
+	slackBindPrompts := slackchannel.NewBindPromptService(
+		pgClient,
+		encryptionKey,
+		l.Named("slackbot.bind-prompts"),
+	)
+	probotIdentityBindings.SetBindingConfirmedHandler(slackBindPrompts)
+
+	slackbotNotifications := slackchannel.NewNotificationService(pgClient)
+	slackInteractiveInbox := slackchannel.NewInteractiveCommandInbox(
+		pgClient,
+		encryptionKey,
+	)
+	complianceRenderer := portal.NewRenderer(baseURL.String())
+	probotCapabilities := probot.NewCapabilityRegistry()
+
+	slackMessages := slackchannel.NewMessageService(
+		pgClient,
+		slackbotInstallations,
+		slackbotNotifications,
+		slackService,
+		l.Named("slack-messages"),
+	)
+
+	complianceMessages := compliancecapability.NewService(
+		pgClient,
+		complianceRenderer,
+		slackMessages,
+		baseURL.String(),
+	)
+	if err := probotCapabilities.Register(
+		compliancecapability.NewCapability(
+			complianceMessages,
+			visitorService,
+			iamService.Authorizer,
+		),
+	); err != nil {
+		return fmt.Errorf("cannot register compliance Probot capability: %w", err)
+	}
+
+	slackbot, probotAgent, err := impl.buildSlackbot(
+		pgClient,
+		probotIdentityBindings,
+		slackbotInstallations,
+		slackBindPrompts,
+		l,
+		tp,
+		r,
+	)
+	if err != nil {
+		return fmt.Errorf("cannot build slackbot: %w", err)
+	}
+
+	probotProfiles := probot.NewAgentProfileRegistry()
+	probotAdapters := probot.NewExecutionAdapterRegistry()
+
+	if probotAgent != nil {
+		if err := probotProfiles.Register("probot", probotAgent); err != nil {
+			return fmt.Errorf("cannot register Probot agent profile: %w", err)
+		}
+
+		if err := probotAdapters.Register(
+			slackchannel.NewExecutionAdapter(
+				pgClient,
+				slackbotInstallations,
+				probotIdentityBindings,
+				probotProfiles,
+				probotCapabilities,
+				slackchannel.NewDeliveryService(pgClient),
+				l.Named("slackbot.execution"),
+			),
+		); err != nil {
+			return fmt.Errorf("cannot register Slack execution adapter: %w", err)
+		}
+	}
+
+	serverHandler, err := server.NewServer(
+		server.Config{
+			AllowedOrigins:          impl.cfg.Api.Cors.AllowedOrigins,
+			ExtraHeaderFields:       impl.cfg.Api.ExtraHeaderFields,
+			Probo:                   proboService,
+			ResourceAlias:           resourceAliasService,
+			File:                    fileManagerService,
+			IAM:                     iamService,
+			Visitor:                 visitorService,
+			ESign:                   esignService,
+			Management:              managementService,
+			CertManager:             certManagerService,
+			AccessReview:            accessReviewService,
+			AgentExecution:          agentExecutionService,
+			Mailman:                 mailmanService,
+			CookieBanner:            cookieBannerService,
+			Geoloc:                  geolocService,
+			ThirdParty:              thirdPartyService,
+			RiskManagement:          riskManagementService,
+			ITAM:                    itamService,
+			Task:                    taskService,
+			Slack:                   slackService,
+			BotDeliveryDestinations: slackMessages,
+			ComplianceMessages:      complianceMessages,
+			Slackbot:                slackbot,
+			SlackInteractiveInbox:   slackInteractiveInbox,
+			ProbotIdentityBindings:  probotIdentityBindings,
+			SlackbotInstallations:   slackbotInstallations,
+			ProbotCapabilities:      probotCapabilities,
+			ConnectorRegistry:       defaultConnectorRegistry,
+			ProviderRegistry:        providerRegistry,
+			BaseURL:                 baseURL,
+			FileStorageOrigin:       fileStorageOrigin,
+			GraphQLLimits: gqlutils.Limits{
+				ParserTokenLimit:  impl.cfg.Api.GraphQL.ParserTokenLimit,
+				ComplexityLimit:   impl.cfg.Api.GraphQL.ComplexityLimit,
+				QueryCacheSize:    impl.cfg.Api.GraphQL.QueryCacheSize,
+				DisableSuggestion: impl.cfg.Api.GraphQL.DisableSuggestion,
+			},
+			CustomDomainCname:        impl.cfg.CustomDomains.CnameTarget,
+			TokenSecret:              impl.cfg.Auth.Cookie.Secret,
+			InstallStateKey:          installStateKey,
+			Logger:                   l.Named("http.server"),
+			Cookie:                   authCookie,
+			IdentityFederationIssuer: identityFederationIssuer,
+			AWSConnectorInstall: cloudaws.ConnectorInstallConfig{
+				CloudFormationTemplateURL: impl.cfg.IdentityFederation.CloudFormationTemplateURL,
+				TerraformModuleSource:     impl.cfg.IdentityFederation.TerraformModuleSource,
+			},
+			GCPConnectorInstall: cloudgcp.ConnectorInstallConfig{
+				TerraformModuleSource: impl.cfg.IdentityFederation.GCPTerraformModuleSource,
+			},
+			AzureConnectorInstall: cloudazure.ConnectorInstallConfig{
+				TerraformModuleSource: impl.cfg.IdentityFederation.AzureTerraformModuleSource,
+			},
+			LinearWebhookSecret: impl.cfg.GetLinearWebhookSecret(),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("cannot create server: %w", err)
+	}
+
+	compliancePortalHandler, err := complianceportal_v1.NewMux(
+		complianceportal_v1.MuxConfig{
+			BaseURL:                 baseURL,
+			FileStorageOrigin:       fileStorageOrigin,
+			ExtraHeaderFields:       impl.cfg.Api.ExtraHeaderFields,
+			AllowedOrigins:          impl.cfg.Api.Cors.AllowedOrigins,
+			Logger:                  l.Named("compliance-portal"),
+			IAM:                     iamService,
+			Visitor:                 visitorService,
+			ResourceAlias:           resourceAliasService,
+			File:                    fileManagerService,
+			ESign:                   esignService,
+			Mailman:                 mailmanService,
+			Cookie:                  authCookie,
+			TokenSecret:             impl.cfg.Auth.Cookie.Secret,
+			ExternallyTerminatedTLS: impl.cfg.CompliancePortal.TLSMode.IsExternal(),
+			GraphQLLimits: gqlutils.Limits{
+				ParserTokenLimit:  impl.cfg.Api.GraphQL.ParserTokenLimit,
+				ComplexityLimit:   impl.cfg.Api.GraphQL.ComplexityLimit,
+				QueryCacheSize:    impl.cfg.Api.GraphQL.QueryCacheSize,
+				DisableSuggestion: impl.cfg.Api.GraphQL.DisableSuggestion,
+			},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("cannot create compliance portal handler: %w", err)
+	}
+
+	apiServerCtx, stopApiServer := context.WithCancel(context.Background())
+	defer stopApiServer()
+
+	wg.Go(
+		func() {
+			if err := impl.runApiServer(apiServerCtx, l, r, tp, serverHandler); err != nil {
+				cancel(fmt.Errorf("api server crashed: %w", err))
+			}
+		},
+	)
+
+	mailerCtx, stopMailer := context.WithCancel(context.Background())
+	sendingWorker := mailer.NewSendingWorker(
+		pgClient,
+		fileManagerService,
+		impl.cfg.Notifications.Mailer.SenderName,
+		impl.cfg.Notifications.Mailer.SenderEmail,
+		mailer.SMTPConfig{
+			Addr:        impl.cfg.Notifications.Mailer.SMTP.Addr,
+			User:        impl.cfg.Notifications.Mailer.SMTP.User,
+			Password:    impl.cfg.Notifications.Mailer.SMTP.Password,
+			TLSRequired: impl.cfg.Notifications.Mailer.SMTP.TLSRequired,
+			HelloName:   impl.cfg.Notifications.Mailer.SMTP.HelloName,
+		},
+		l.Named("sending-worker"),
+		[]mailer.SendingWorkerOption{
+			mailer.WithSendingWorkerSMTPTimeout(time.Second * 10),
+		},
+		worker.WithInterval(time.Duration(impl.cfg.Notifications.Mailer.MailerInterval)*time.Second),
+		worker.WithMaxConcurrency(20),
+	)
+
+	wg.Go(
+		func() {
+			if err := sendingWorker.Run(mailerCtx); err != nil {
+				cancel(fmt.Errorf("sending worker crashed: %w", err))
+			}
+		},
+	)
+
+	slackSenderCtx, stopSlackSender := context.WithCancel(context.Background())
+	slackSendingWorker := slack.NewSendingWorker(
+		pgClient,
+		l.Named("slack-sending-worker"),
+		encryptionKey,
+		slackAPIBaseURL,
+		nil,
+		worker.WithInterval(time.Duration(impl.cfg.Notifications.Slack.SenderInterval)*time.Second),
+		worker.WithMaxConcurrency(1),
+	)
+
+	wg.Go(
+		func() {
+			if err := slackSendingWorker.Run(slackSenderCtx); err != nil {
+				cancel(fmt.Errorf("slack sending worker crashed: %w", err))
+			}
+		},
+	)
+
+	botMessageWorker := probot.NewMessageWorker(
+		pgClient,
+		probotCapabilities,
+		slackMessages,
+		l.Named("probot-message-worker"),
+		worker.WithInterval(time.Second),
+		worker.WithMaxConcurrency(4),
+		worker.WithRegisterer(r),
+		worker.WithTracerProvider(tp),
+	)
+	botMessageWorkerCtx, stopBotMessageWorker := context.WithCancel(context.WithoutCancel(ctx))
+
+	wg.Go(
+		func() {
+			if err := botMessageWorker.Run(botMessageWorkerCtx); err != nil {
+				cancel(fmt.Errorf("probot message worker crashed: %w", err))
+			}
+		},
+	)
+
+	agentExecutionWorker := agentexecution.NewWorker(
+		pgClient,
+		probotProfiles,
+		l.Named("agent-execution-worker"),
+		agentexecution.WithWorkerInterval(time.Second),
+		agentexecution.WithExecutionPreparer(probotAdapters),
+		agentexecution.WithWorkerRegisterer(r),
+		agentexecution.WithWorkerTracerProvider(tp),
+	)
+	agentExecutionWorkerCtx, stopAgentExecutionWorker := context.WithCancel(context.WithoutCancel(ctx))
+
+	wg.Go(
+		func() {
+			if err := agentExecutionWorker.Run(agentExecutionWorkerCtx); err != nil {
+				cancel(fmt.Errorf("agent execution worker crashed: %w", err))
+			}
+		},
+	)
+
+	stopSlackbotEventWorker := func() {}
+	stopSlackbotNotificationWorker := func() {}
+	stopSlackInteractiveCommandWorker := func() {}
+	stopSlackDeliveryWorker := func() {}
+
+	if impl.cfg.Slackbot.Enabled &&
+		slackbot != nil &&
+		slackbotInstallations != nil &&
+		slackMessages != nil {
+		slackbotEventWorker := slackchannel.NewEventWorker(
+			pgClient,
+			slackbot,
+			l.Named("slackbot-event-worker"),
+			worker.WithInterval(time.Second),
+			worker.WithMaxConcurrency(4),
+			worker.WithRegisterer(r),
+			worker.WithTracerProvider(tp),
+		)
+		slackbotEventWorkerCtx, stopEventWorker := context.WithCancel(context.WithoutCancel(ctx))
+		stopSlackbotEventWorker = stopEventWorker
+
+		wg.Go(
+			func() {
+				if err := slackbotEventWorker.Run(slackbotEventWorkerCtx); err != nil {
+					cancel(fmt.Errorf("slackbot event worker crashed: %w", err))
+				}
+			},
+		)
+
+		slackbotNotificationWorker := slackchannel.NewNotificationWorker(
+			pgClient,
+			slackbotInstallations,
+			slackMessages,
+			l.Named("slackbot-notification-worker"),
+			worker.WithInterval(time.Second),
+			worker.WithMaxConcurrency(4),
+			worker.WithRegisterer(r),
+			worker.WithTracerProvider(tp),
+		)
+		slackbotNotificationWorkerCtx, stopNotificationWorker := context.WithCancel(context.WithoutCancel(ctx))
+		stopSlackbotNotificationWorker = stopNotificationWorker
+
+		wg.Go(
+			func() {
+				if err := slackbotNotificationWorker.Run(slackbotNotificationWorkerCtx); err != nil {
+					cancel(fmt.Errorf("slackbot notification worker crashed: %w", err))
+				}
+			},
+		)
+
+		slackDeliveryWorker := slackchannel.NewDeliveryWorker(
+			pgClient,
+			slackbotInstallations,
+			l.Named("slack-delivery-operation-worker"),
+			worker.WithInterval(time.Second),
+			worker.WithRegisterer(r),
+			worker.WithTracerProvider(tp),
+		)
+		slackDeliveryWorkerCtx, stopDeliveryWorker := context.WithCancel(context.WithoutCancel(ctx))
+		stopSlackDeliveryWorker = stopDeliveryWorker
+
+		wg.Go(
+			func() {
+				if err := slackDeliveryWorker.Run(slackDeliveryWorkerCtx); err != nil {
+					cancel(fmt.Errorf("slack delivery operation worker crashed: %w", err))
+				}
+			},
+		)
+
+		slackInteractiveCommandWorker := slackchannel.NewInteractiveCommandWorker(
+			pgClient,
+			encryptionKey,
+			slackbotInstallations,
+			probotIdentityBindings,
+			slackMessages,
+			probotCapabilities,
+			l.Named("slackbot-interactive-command-worker"),
+			worker.WithInterval(time.Second),
+			worker.WithMaxConcurrency(4),
+			worker.WithRegisterer(r),
+			worker.WithTracerProvider(tp),
+		)
+		slackInteractiveCommandWorkerCtx, stopInteractiveCommandWorker := context.WithCancel(
+			context.WithoutCancel(ctx),
+		)
+		stopSlackInteractiveCommandWorker = stopInteractiveCommandWorker
+
+		wg.Go(
+			func() {
+				if err := slackInteractiveCommandWorker.Run(slackInteractiveCommandWorkerCtx); err != nil {
+					cancel(fmt.Errorf("slack interactive command worker crashed: %w", err))
+				}
+			},
+		)
+	}
+
+	probotRetentionWorker := probot.NewRetentionWorker(
+		pgClient,
+		l.Named("probot-reliability-retention-worker"),
+		worker.WithRegisterer(r),
+		worker.WithTracerProvider(tp),
+	)
+	probotRetentionWorkerCtx, stopProbotRetentionWorker := context.WithCancel(
+		context.WithoutCancel(ctx),
+	)
+
+	wg.Go(
+		func() {
+			if err := probotRetentionWorker.Run(probotRetentionWorkerCtx); err != nil {
+				cancel(fmt.Errorf("probot reliability retention worker crashed: %w", err))
+			}
+		},
+	)
+
+	webhookWorkerCtx, stopWebhookWorker := context.WithCancel(context.Background())
+	webhookWorker := webhook.NewWebhookWorker(pgClient, l.Named("webhook-sender"), webhook.Config{
+		Interval:       time.Duration(impl.cfg.Notifications.Webhook.SenderInterval) * time.Second,
+		Timeout:        time.Duration(impl.cfg.Notifications.Webhook.RequestTimeout) * time.Second,
+		CacheTTL:       time.Duration(impl.cfg.Notifications.Webhook.CacheTTL) * time.Second,
+		StaleAfter:     time.Duration(impl.cfg.Notifications.Webhook.StaleAfter) * time.Second,
+		RetryBase:      time.Duration(impl.cfg.Notifications.Webhook.RetryBase) * time.Second,
+		RetryMax:       time.Duration(impl.cfg.Notifications.Webhook.RetryMax) * time.Second,
+		MaxConcurrency: impl.cfg.Notifications.Webhook.MaxConcurrency,
+		EncryptionKey:  encryptionKey,
+		Host:           baseURL.String(),
+	},
+		worker.WithRegisterer(r),
+		worker.WithTracerProvider(tp),
+	)
+
+	wg.Go(
+		func() {
+			if err := webhookWorker.Run(webhookWorkerCtx); err != nil {
+				cancel(fmt.Errorf("webhook worker crashed: %w", err))
+			}
+		},
+	)
+
+	exportJobExporterCtx, stopExportJobExporter := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := impl.runExportJob(exportJobExporterCtx, proboService, l.Named("export-job-exporter")); err != nil {
+				cancel(fmt.Errorf("export job exporter crashed: %w", err))
+			}
+		},
+	)
+
+	taskSyncOutboundWorker := tasksync.NewOutboundWorker(
+		taskService.Sync,
+		l.Named("task-sync-outbound"),
+		worker.WithInterval(time.Second),
+		worker.WithRegisterer(r),
+		worker.WithTracerProvider(tp),
+	)
+	taskSyncOutboundWorkerCtx, stopTaskSyncOutboundWorker := context.WithCancel(
+		context.WithoutCancel(ctx),
+	)
+
+	wg.Go(
+		func() {
+			if err := taskSyncOutboundWorker.Run(taskSyncOutboundWorkerCtx); err != nil {
+				cancel(fmt.Errorf("task sync outbound worker crashed: %w", err))
+			}
+		},
+	)
+
+	linearWebhookWorker := tasksync.NewWebhookWorker(
+		taskService.Sync,
+		l.Named("linear-webhook"),
+		worker.WithInterval(time.Second),
+		worker.WithRegisterer(r),
+		worker.WithTracerProvider(tp),
+	)
+	linearWebhookWorkerCtx, stopLinearWebhookWorker := context.WithCancel(
+		context.WithoutCancel(ctx),
+	)
+
+	linearWebhookRetentionWorker := tasksync.NewRetentionWorker(
+		pgClient,
+		l.Named("task-sync-reliability-retention-worker"),
+		worker.WithRegisterer(r),
+		worker.WithTracerProvider(tp),
+	)
+	linearWebhookRetentionWorkerCtx, stopLinearWebhookRetentionWorker := context.WithCancel(
+		context.WithoutCancel(ctx),
+	)
+
+	wg.Go(
+		func() {
+			if err := linearWebhookWorker.Run(linearWebhookWorkerCtx); err != nil {
+				cancel(fmt.Errorf("linear webhook worker crashed: %w", err))
+			}
+		},
+	)
+
+	wg.Go(
+		func() {
+			if err := linearWebhookRetentionWorker.Run(linearWebhookRetentionWorkerCtx); err != nil {
+				cancel(fmt.Errorf("task sync retention worker crashed: %w", err))
+			}
+		},
+	)
+
+	documentPDFWorker := probo.NewDocumentPDFWorker(
+		proboService,
+		l.Named("document-pdf-worker"),
+		worker.WithInterval(30*time.Second),
+		worker.WithRegisterer(r),
+		worker.WithTracerProvider(tp),
+	)
+	documentPDFWorkerCtx, stopDocumentPDFWorker := context.WithCancel(
+		context.WithoutCancel(ctx),
+	)
+
+	wg.Go(
+		func() {
+			if err := documentPDFWorker.Run(documentPDFWorkerCtx); err != nil {
+				cancel(fmt.Errorf("document pdf worker crashed: %w", err))
+			}
+		},
+	)
+
+	documentApprovalQuorumPDFWorker := probo.NewDocumentApprovalQuorumPDFWorker(
+		proboService,
+		l.Named("document-approval-quorum-pdf-worker"),
+		worker.WithInterval(30*time.Second),
+		worker.WithRegisterer(r),
+		worker.WithTracerProvider(tp),
+	)
+	documentApprovalQuorumPDFWorkerCtx, stopDocumentApprovalQuorumPDFWorker := context.WithCancel(
+		context.WithoutCancel(ctx),
+	)
+
+	wg.Go(
+		func() {
+			if err := documentApprovalQuorumPDFWorker.Run(documentApprovalQuorumPDFWorkerCtx); err != nil {
+				cancel(fmt.Errorf("document approval quorum pdf worker crashed: %w", err))
+			}
+		},
+	)
+
+	documentNotificationInterval := time.Duration(impl.cfg.Notifications.Document.Interval) * time.Second
+	if documentNotificationInterval <= 0 {
+		documentNotificationInterval = 5 * time.Minute
+	}
+
+	documentNotificationDebounce := time.Duration(impl.cfg.Notifications.Document.DebounceDelay) * time.Second
+	if documentNotificationDebounce <= 0 {
+		documentNotificationDebounce = 15 * time.Minute
+	}
+
+	documentNotificationReminder := time.Duration(impl.cfg.Notifications.Document.ReminderInterval) * time.Second
+	if documentNotificationReminder <= 0 {
+		documentNotificationReminder = 24 * time.Hour
+	}
+
+	documentNotificationWorker := probo.NewDocumentNotificationWorker(
+		proboService,
+		l.Named("document-notification-worker"),
+		probo.DocumentNotificationWorkerConfig{
+			DebounceDelay:    documentNotificationDebounce,
+			ReminderInterval: documentNotificationReminder,
+		},
+		worker.WithInterval(documentNotificationInterval),
+	)
+	documentNotificationCtx, stopDocumentNotification := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := documentNotificationWorker.Run(documentNotificationCtx); err != nil {
+				cancel(fmt.Errorf("document notification worker crashed: %w", err))
+			}
+		},
+	)
+
+	accessReviewWorkerCtx, stopAccessReviewWorker := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := accessReviewService.Run(accessReviewWorkerCtx); err != nil {
+				cancel(fmt.Errorf("access review source fetcher crashed: %w", err))
+			}
+		},
+	)
+
+	iamServiceCtx, stopIAMService := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := iamService.Run(iamServiceCtx); err != nil {
+				cancel(fmt.Errorf("iam service crashed: %w", err))
+			}
+		},
+	)
+
+	itamGC := itam.NewGarbageCollector(pgClient, l.Named("itam"))
+	itamGCCtx, stopITAMGC := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := itamGC.Run(itamGCCtx); err != nil {
+				cancel(fmt.Errorf("itam garbage collector crashed: %w", err))
+			}
+		},
+	)
+
+	esignServiceCtx, stopESignService := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := esignService.Run(esignServiceCtx, visitorService.GetEmailPresenterConfigForSignature); err != nil {
+				cancel(fmt.Errorf("esign service crashed: %w", err))
+			}
+		},
+	)
+
+	stopCertManagerService := func() {}
+
+	if !impl.cfg.CompliancePortal.TLSMode.IsExternal() {
+		certManagerServiceCtx, stop := context.WithCancel(context.Background())
+		stopCertManagerService = stop
+
+		wg.Go(
+			func() {
+				if err := certManagerService.Run(certManagerServiceCtx); err != nil {
+					cancel(fmt.Errorf("certificate manager service crashed: %w", err))
+				}
+			},
+		)
+	}
+
+	trackerPatternAnalysisWorker := cookiebanner.NewPatternAnalysisWorker(cookieBannerService, pgClient, l)
+	trackerPatternAnalysisWorkerCtx, stopTrackerPatternAnalysisWorker := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := trackerPatternAnalysisWorker.Run(trackerPatternAnalysisWorkerCtx); err != nil {
+				cancel(fmt.Errorf("tracker pattern analysis worker crashed: %w", err))
+			}
+		},
+	)
+
+	trackerPolicyWorker := probo.NewTrackerPolicyWorker(proboService.GeneratedDocuments, pgClient, l)
+	trackerPolicyWorkerCtx, stopTrackerPolicyWorker := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := trackerPolicyWorker.Run(trackerPolicyWorkerCtx); err != nil {
+				cancel(fmt.Errorf("tracker policy worker crashed: %w", err))
+			}
+		},
+	)
+
+	trackerMappingWorker := cookiebanner.NewTrackerMappingWorker(
+		pgClient,
+		l,
+		trackerMappingCfg,
+		time.Duration(impl.cfg.TrackerMappingWorker.StaleAfter)*time.Second,
+		worker.WithInterval(time.Duration(impl.cfg.TrackerMappingWorker.Interval)*time.Second),
+		worker.WithMaxConcurrency(impl.cfg.TrackerMappingWorker.MaxConcurrency),
+	)
+	trackerMappingWorkerCtx, stopTrackerMappingWorker := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := trackerMappingWorker.Run(trackerMappingWorkerCtx); err != nil {
+				cancel(fmt.Errorf("tracker mapping worker crashed: %w", err))
+			}
+		},
+	)
+
+	// The common-pattern enrichment worker needs an LLM client (it
+	// researches descriptions via the agent), so it is only started when
+	// the tracker agents are configured.
+	stopCommonPatternEnrichmentWorker := func() {}
+
+	if trackerEnrichmentCfg.LLMClient != nil {
+		commonPatternEnrichmentWorker := cookiebanner.NewCommonPatternEnrichmentWorker(
+			pgClient,
+			l,
+			trackerEnrichmentCfg,
+			trackerMappingCfg,
+			time.Duration(impl.cfg.CommonPatternEnrichmentWorker.StaleAfter)*time.Second,
+			0,
+			worker.WithInterval(time.Duration(impl.cfg.CommonPatternEnrichmentWorker.Interval)*time.Second),
+			worker.WithMaxConcurrency(impl.cfg.CommonPatternEnrichmentWorker.MaxConcurrency),
+		)
+
+		var commonPatternEnrichmentWorkerCtx context.Context
+
+		commonPatternEnrichmentWorkerCtx, stopCommonPatternEnrichmentWorker = context.WithCancel(context.Background())
+
+		wg.Go(
+			func() {
+				if err := commonPatternEnrichmentWorker.Run(commonPatternEnrichmentWorkerCtx); err != nil {
+					cancel(fmt.Errorf("common pattern enrichment worker crashed: %w", err))
+				}
+			},
+		)
+	}
+
+	// The common-third-party enrichment worker fills catalog metadata
+	// (URLs, address, certifications, logo) via two agents plus a
+	// deterministic logo step. It needs an LLM client, so it is only
+	// started when its agent config is present.
+	stopCommonThirdPartyEnrichmentWorker := func() {}
+
+	if commonThirdPartyEnrichmentCfg.LLMClient != nil {
+		commonThirdPartyEnrichmentWorker := thirdparty.NewCommonThirdPartyEnrichmentWorker(
+			pgClient,
+			l.Named("common-third-party-enrichment-worker"),
+			commonThirdPartyEnrichmentCfg,
+			worker.WithInterval(time.Duration(impl.cfg.CommonThirdPartyEnrichmentWorker.Interval)*time.Second),
+			worker.WithMaxConcurrency(impl.cfg.CommonThirdPartyEnrichmentWorker.MaxConcurrency),
+		)
+
+		var commonThirdPartyEnrichmentWorkerCtx context.Context
+
+		commonThirdPartyEnrichmentWorkerCtx, stopCommonThirdPartyEnrichmentWorker = context.WithCancel(context.Background())
+
+		wg.Go(
+			func() {
+				if err := commonThirdPartyEnrichmentWorker.Run(commonThirdPartyEnrichmentWorkerCtx); err != nil {
+					cancel(fmt.Errorf("common third party enrichment worker crashed: %w", err))
+				}
+			},
+		)
+	}
+
+	mailingListWorker := mailman.NewMailingListWorker(mailmanService, pgClient, l.Named("mailing-list-worker"))
+	mailingListWorkerCtx, stopMailingListWorker := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := mailingListWorker.Run(mailingListWorkerCtx); err != nil {
+				cancel(fmt.Errorf("mailing list worker crashed: %w", err))
+			}
+		},
+	)
+
+	evidenceDescriber := evidencedescriber.New(
+		evidenceDescriberLLMClient,
+		evidencedescriber.Config{
+			Model:     evidenceDescriberAgentCfg.ModelName,
+			Temp:      ref.UnrefOrZero(evidenceDescriberAgentCfg.Temperature),
+			MaxTokens: ref.UnrefOrZero(evidenceDescriberAgentCfg.MaxTokens),
+		},
+	)
+	evidenceDescriptionWorker := probo.NewEvidenceDescriptionWorker(
+		pgClient,
+		fileManagerService,
+		evidenceDescriber,
+		l.Named("evidence-description-worker"),
+		probo.EvidenceDescriptionWorkerConfig{
+			StaleAfter: time.Duration(impl.cfg.EvidenceDescriber.StaleAfter) * time.Second,
+		},
+		worker.WithInterval(time.Duration(impl.cfg.EvidenceDescriber.Interval)*time.Second),
+		worker.WithMaxConcurrency(impl.cfg.EvidenceDescriber.MaxConcurrency),
+	)
+	evidenceDescriptionWorkerCtx, stopEvidenceDescriptionWorker := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := evidenceDescriptionWorker.Run(evidenceDescriptionWorkerCtx); err != nil {
+				cancel(fmt.Errorf("evidence description worker crashed: %w", err))
+			}
+		},
+	)
+
+	vettingWorker := thirdparty.NewVettingWorker(
+		pgClient,
+		thirdPartyVetter,
+		l.Named("vetting-worker"),
+		thirdparty.VettingWorkerConfig{
+			StaleAfter: time.Duration(impl.cfg.ThirdPartyVetting.StaleAfter) * time.Second,
+		},
+		worker.WithInterval(time.Duration(impl.cfg.ThirdPartyVetting.Interval)*time.Second),
+		worker.WithMaxConcurrency(impl.cfg.ThirdPartyVetting.MaxConcurrency),
+	)
+	vettingWorkerCtx, stopVettingWorker := context.WithCancel(context.Background())
+
+	wg.Go(
+		func() {
+			if err := vettingWorker.Run(vettingWorkerCtx); err != nil {
+				cancel(fmt.Errorf("vetting worker crashed: %w", err))
+			}
+		},
+	)
+
+	compliancePortalServerCtx, stopCompliancePortalServer := context.WithCancel(context.Background())
+	defer stopCompliancePortalServer()
+
+	wg.Go(
+		func() {
+			if err := impl.runCompliancePortalServer(
+				compliancePortalServerCtx,
+				l,
+				r,
+				tp,
+				pgClient,
+				compliancePortalHandler,
+				visitorService,
+				encryptionKey,
+			); err != nil {
+				cancel(fmt.Errorf("compliance portal server crashed: %w", err))
+			}
+		},
+	)
+
+	<-ctx.Done()
+
+	stopApiServer()
+	stopCompliancePortalServer()
+	stopWebhookWorker()
+	stopESignService()
+	stopCertManagerService()
+	stopTrackerPatternAnalysisWorker()
+	stopTrackerPolicyWorker()
+	stopTrackerMappingWorker()
+	stopCommonPatternEnrichmentWorker()
+	stopCommonThirdPartyEnrichmentWorker()
+	stopMailingListWorker()
+	stopVettingWorker()
+	stopEvidenceDescriptionWorker()
+	stopTaskSyncOutboundWorker()
+	stopLinearWebhookWorker()
+	stopLinearWebhookRetentionWorker()
+	stopDocumentPDFWorker()
+	stopDocumentApprovalQuorumPDFWorker()
+	stopDocumentNotification()
+	stopExportJobExporter()
+	stopAccessReviewWorker()
+	stopIAMService()
+	stopITAMGC()
+	stopMailer()
+	stopSlackSender()
+	stopAgentExecutionWorker()
+	stopBotMessageWorker()
+	stopSlackbotEventWorker()
+	stopSlackbotNotificationWorker()
+	stopSlackInteractiveCommandWorker()
+	stopSlackDeliveryWorker()
+	stopProbotRetentionWorker()
+
+	wg.Wait()
+
+	pgClient.Close()
+
+	return context.Cause(ctx)
+}
+
+func (impl *Implm) runExportJob(
+	ctx context.Context,
+	proboService *probo.Service,
+	l *log.Logger,
+) error {
+	return probo.NewExportJobWorker(
+		proboService,
+		l,
+		probo.ExportJobWorkerConfig{},
+		worker.WithMaxConcurrency(3),
+	).Run(ctx)
+}
+
+func (impl *Implm) runApiServer(
+	ctx context.Context,
+	l *log.Logger,
+	r prometheus.Registerer,
+	tp trace.TracerProvider,
+	handler http.Handler,
+) error {
+	tracer := tp.Tracer("go.probo.inc/probo/pkg/probod")
+
+	ctx, span := tracer.Start(ctx, "probod.runApiServer")
+	defer span.End()
+
+	trustedProxyMiddleware, err := trustedproxy.NewMiddleware(impl.cfg.Api.ProxyProtocol.TrustedProxies)
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("cannot build trusted proxy middleware: %w", err)
+	}
+
+	handler = trustedProxyMiddleware(handler)
+
+	apiServer := httpserver.NewServer(
+		impl.cfg.Api.Addr,
+		handler,
+		httpserver.WithLogger(l),
+		httpserver.WithRegisterer(r),
+		httpserver.WithTracerProvider(tp),
+	)
+
+	l.Info("starting api server", log.String("addr", apiServer.Addr))
+	span.AddEvent("API server starting")
+
+	listener, err := net.Listen("tcp", apiServer.Addr)
+	if err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("cannot listen on %q: %w", apiServer.Addr, err)
+	}
+
+	if len(impl.cfg.Api.ProxyProtocol.TrustedProxies) > 0 {
+		policy, err := proxyproto.PolicyFromRanges(
+			impl.cfg.Api.ProxyProtocol.TrustedProxies,
+			proxyproto.USE,
+			proxyproto.REJECT,
+		)
+		if err != nil {
+			span.RecordError(err)
+			return fmt.Errorf("cannot build proxy protocol policy: %w", err)
+		}
+
+		listener = &proxyproto.Listener{
+			Listener:          listener,
+			ReadHeaderTimeout: 10 * time.Second,
+			ConnPolicy:        policy,
+		}
+
+		l.Info("using proxy protocol", log.Any("trusted-proxies", impl.cfg.Api.ProxyProtocol.TrustedProxies))
+	}
+
+	defer func() { _ = listener.Close() }()
+
+	serverErrCh := make(chan error, 1)
+
+	go func() {
+		err := apiServer.Serve(listener)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErrCh <- fmt.Errorf("cannot server http request: %w", err)
+		}
+
+		close(serverErrCh)
+	}()
+
+	l.Info("api server started")
+	span.AddEvent("API server started")
+
+	select {
+	case err := <-serverErrCh:
+		if err != nil {
+			span.RecordError(err)
+		}
+
+		return err
+	case <-ctx.Done():
+	}
+
+	l.InfoCtx(ctx, "shutting down api server")
+	span.AddEvent("API server shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	if err := apiServer.Shutdown(shutdownCtx); err != nil {
+		span.RecordError(err)
+		return fmt.Errorf("cannot shutdown api server: %w", err)
+	}
+
+	span.AddEvent("API server shutdown complete")
+
+	return ctx.Err()
+}
+
+func newCompliancePortalHTTPRedirectHandler(visitorService *visitor.Service, l *log.Logger) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// Only redirect HTTP requests (no TLS)
+		if r.TLS != nil {
+			httpserver.RenderError(w, http.StatusNotFound, errors.New("not found"))
+			return
+		}
+
+		domain := r.Host
+		if domain == "" {
+			httpserver.RenderError(w, http.StatusNotFound, errors.New("not found"))
+			return
+		}
+
+		// Check if this domain is a compliance portal custom domain
+		if _, err := visitorService.GetPortalByDomainName(ctx, domain); err != nil {
+			if errors.Is(err, visitor.ErrPageNotFound) || errors.Is(err, coredata.ErrResourceNotFound) {
+				// Not a compliance portal domain, return 404
+				httpserver.RenderError(w, http.StatusNotFound, errors.New("not found"))
+				return
+			}
+
+			httpserver.RenderError(w, http.StatusInternalServerError, errors.New("internal server error"))
+
+			return
+		}
+
+		// This is a compliance portal domain, redirect to HTTPS
+		base, err := baseurl.Parse("https://" + domain)
+		if err != nil {
+			httpserver.RenderError(w, http.StatusNotFound, errors.New("not found"))
+			return
+		}
+
+		httpsURL := base.WithPath(r.URL.Path).WithQueryValues(r.URL.Query()).MustString()
+		l.InfoCtx(
+			ctx,
+			"HTTP request to compliance portal custom domain, redirecting to HTTPS",
+			log.String("domain", domain),
+			log.String("path", r.URL.Path),
+			log.String("to", httpsURL),
+		)
+		http.Redirect(w, r, httpsURL, http.StatusMovedPermanently)
+	})
+}
+
+func (impl *Implm) runCompliancePortalServer(
+	ctx context.Context,
+	l *log.Logger,
+	r prometheus.Registerer,
+	tp trace.TracerProvider,
+	pgClient *pg.Client,
+	trustRouter http.Handler,
+	visitorService *visitor.Service,
+	encryptionKey cipher.EncryptionKey,
+) error {
+	tracer := tp.Tracer("go.probo.inc/probo/pkg/probod")
+
+	ctx, span := tracer.Start(ctx, "probod.runCompliancePortalServer")
+	defer span.End()
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	l.Info("starting compliance portal services")
+	span.AddEvent("Trust center services starting")
+
+	if impl.cfg.CompliancePortal.TLSMode.IsExternal() {
+		externalServer := httpserver.NewServer(
+			impl.cfg.CompliancePortal.HTTPAddr,
+			trustRouter,
+			httpserver.WithLogger(l),
+			httpserver.WithRegisterer(r),
+			httpserver.WithTracerProvider(tp),
+		)
+		externalServer.ReadTimeout = 30 * time.Second
+		externalServer.WriteTimeout = 30 * time.Second
+
+		g.Go(
+			func() error {
+				l.InfoCtx(
+					ctx,
+					"starting externally terminated compliance portal server",
+					log.String("addr", externalServer.Addr),
+				)
+				span.AddEvent("Externally terminated compliance portal server starting")
+
+				listener, err := net.Listen("tcp", externalServer.Addr)
+				if err != nil {
+					return fmt.Errorf("cannot listen on %q: %w", externalServer.Addr, err)
+				}
+
+				defer func() { _ = listener.Close() }()
+
+				if len(impl.cfg.CompliancePortal.ProxyProtocol.TrustedProxies) > 0 {
+					policy, err := proxyproto.PolicyFromRanges(
+						impl.cfg.CompliancePortal.ProxyProtocol.TrustedProxies,
+						proxyproto.USE,
+						proxyproto.REJECT,
+					)
+					if err != nil {
+						return fmt.Errorf("cannot build proxy protocol policy: %w", err)
+					}
+
+					listener = &proxyproto.Listener{
+						Listener:          listener,
+						ReadHeaderTimeout: 10 * time.Second,
+						ConnPolicy:        policy,
+					}
+
+					l.Info(
+						"using proxy protocol for externally terminated compliance portal server",
+						log.Any("trusted-proxies", impl.cfg.CompliancePortal.ProxyProtocol.TrustedProxies),
+					)
+				}
+
+				if err := externalServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+					return fmt.Errorf("cannot serve externally terminated compliance portal requests: %w", err)
+				}
+
+				return nil
+			},
+		)
+
+		l.Info("externally terminated compliance portal server started")
+		span.AddEvent("Externally terminated compliance portal server started")
+
+		go func() {
+			<-ctx.Done()
+
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			l.InfoCtx(ctx, "shutting down externally terminated compliance portal server...")
+			span.AddEvent("Externally terminated compliance portal server shutting down")
+
+			if err := externalServer.Shutdown(shutdownCtx); err != nil {
+				span.RecordError(err)
+				l.ErrorCtx(ctx, "cannot shutdown externally terminated compliance portal server", log.Error(err))
+			}
+
+			span.AddEvent("Externally terminated compliance portal server shutdown complete")
+		}()
+
+		if err := g.Wait(); err != nil {
+			span.RecordError(err)
+			return err
+		}
+
+		return ctx.Err()
+	}
+
+	certSelector := certmanager.NewSelector(pgClient, encryptionKey)
+
+	warmer := certmanager.NewCacheStore(pgClient, encryptionKey, l)
+	if err := warmer.WarmCache(ctx); err != nil {
+		span.RecordError(err)
+		l.ErrorCtx(ctx, "cannot warm certificate cache", log.Error(err))
+	}
+
+	httpACMEHandler := certmanager.NewACMEChallengeHandler(
+		pgClient,
+		l.Named("http_acme_handler"),
+	)
+
+	httpRedirectHandler := newCompliancePortalHTTPRedirectHandler(visitorService, l.Named("http_redirect"))
+
+	httpServer := httpserver.NewServer(
+		impl.cfg.CompliancePortal.HTTPAddr,
+		httpACMEHandler.Handle(httpRedirectHandler),
+		httpserver.WithLogger(l),
+		httpserver.WithRegisterer(r),
+		httpserver.WithTracerProvider(tp),
+	)
+
+	g.Go(
+		func() error {
+			l.InfoCtx(ctx, "starting HTTP server for ACME challenges", log.String("addr", httpServer.Addr))
+			span.AddEvent("HTTP server starting")
+
+			listener, err := net.Listen("tcp", httpServer.Addr)
+			if err != nil {
+				return fmt.Errorf("cannot listen on %q: %w", httpServer.Addr, err)
+			}
+
+			defer func() { _ = listener.Close() }()
+
+			if len(impl.cfg.CompliancePortal.ProxyProtocol.TrustedProxies) > 0 {
+				policy, err := proxyproto.PolicyFromRanges(
+					impl.cfg.CompliancePortal.ProxyProtocol.TrustedProxies,
+					proxyproto.USE,
+					proxyproto.REJECT,
+				)
+				if err != nil {
+					return fmt.Errorf("cannot build proxy protocol policy: %w", err)
+				}
+
+				listener = &proxyproto.Listener{
+					Listener:          listener,
+					ReadHeaderTimeout: 10 * time.Second,
+					ConnPolicy:        policy,
+				}
+
+				l.Info("using proxy protocol for compliance portal HTTP server", log.Any("trusted-proxies", impl.cfg.CompliancePortal.ProxyProtocol.TrustedProxies))
+			}
+
+			if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("cannot serve http requests: %w", err)
+			}
+
+			return nil
+		},
+	)
+
+	acmeHandler := certmanager.NewACMEChallengeHandler(
+		pgClient,
+		l.Named("acme_handler"),
+	)
+
+	handler := acmeHandler.Handle(trustRouter)
+
+	ignoreTLSHandshakeErrors := func(level log.Level, msg string, attrs []log.Attr) bool {
+		return strings.Contains(msg, "tls: no certificates configured") ||
+			strings.Contains(msg, "client sent an HTTP request to an HTTPS server") ||
+			strings.Contains(msg, "tls: client offered only unsupported versions") ||
+			strings.Contains(msg, "EOF") ||
+			strings.Contains(msg, " i/o timeout") ||
+			strings.Contains(msg, "tls: first record does not look like a TLS handshake") ||
+			strings.Contains(msg, "tls: client requested unsupported application protocols") ||
+			strings.Contains(msg, "read: connection reset by peer") ||
+			strings.Contains(msg, "tls: unsupported SSLv2 handshake received") ||
+			strings.Contains(msg, "tls: no cipher suite supported by both client and server") ||
+			strings.Contains(msg, "tls: received record with version")
+	}
+	httpServerLogger := l.Named("", log.SkipMatch(ignoreTLSHandshakeErrors))
+	httpsServer := httpserver.NewServer(
+		impl.cfg.CompliancePortal.HTTPSAddr,
+		handler,
+		httpserver.WithLogger(httpServerLogger),
+		httpserver.WithRegisterer(r),
+		httpserver.WithTracerProvider(tp),
+	)
+
+	httpsServer.TLSConfig = &tls.Config{
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			cert, err := certSelector.GetCertificate(hello)
+			// Silently reject connections without SNI (load balancers, health checks, scanners)
+			if err != nil {
+				if _, ok := errors.AsType[*certmanager.NoSNIError](err); ok {
+					return nil, nil
+				}
+
+				if errors.Is(err, coredata.ErrResourceNotFound) {
+					return nil, nil
+				}
+			}
+
+			return cert, err
+		},
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		},
+	}
+	httpsServer.ReadTimeout = 30 * time.Second
+	httpsServer.WriteTimeout = 30 * time.Second
+
+	g.Go(
+		func() error {
+			l.InfoCtx(ctx, "starting compliance portal https server", log.String("addr", httpsServer.Addr))
+			span.AddEvent("HTTPS server starting")
+
+			listener, err := net.Listen("tcp", httpsServer.Addr)
+			if err != nil {
+				return fmt.Errorf("cannot listen on %q: %w", httpsServer.Addr, err)
+			}
+
+			defer func() { _ = listener.Close() }()
+
+			if len(impl.cfg.CompliancePortal.ProxyProtocol.TrustedProxies) > 0 {
+				policy, err := proxyproto.PolicyFromRanges(
+					impl.cfg.CompliancePortal.ProxyProtocol.TrustedProxies,
+					proxyproto.USE,
+					proxyproto.REJECT,
+				)
+				if err != nil {
+					return fmt.Errorf("cannot build proxy protocol policy: %w", err)
+				}
+
+				listener = &proxyproto.Listener{
+					Listener:          listener,
+					ReadHeaderTimeout: 10 * time.Second,
+					ConnPolicy:        policy,
+				}
+
+				l.Info("using proxy protocol for compliance portal HTTPS server", log.Any("trusted-proxies", impl.cfg.CompliancePortal.ProxyProtocol.TrustedProxies))
+			}
+
+			if err := httpsServer.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("cannot serve https requests: %w", err)
+			}
+
+			return nil
+		},
+	)
+
+	l.Info("compliance portal servers started")
+	span.AddEvent("Trust center servers started")
+
+	go func() {
+		<-ctx.Done()
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		l.InfoCtx(ctx, "shutting down compliance portal servers...")
+		span.AddEvent("Trust center servers shutting down")
+
+		if err := httpsServer.Shutdown(shutdownCtx); err != nil {
+			span.RecordError(err)
+			l.ErrorCtx(ctx, "cannot shutdown HTTPS server", log.Error(err))
+		}
+
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			span.RecordError(err)
+			l.ErrorCtx(ctx, "cannot shutdown HTTP server", log.Error(err))
+		}
+
+		span.AddEvent("Trust center servers shutdown complete")
+	}()
+
+	if err := g.Wait(); err != nil {
+		span.RecordError(err)
+		return err
+	}
+
+	return ctx.Err()
+}
+
+func oauth2ServerOptions(cfg OAuth2ServerConfig) []oauth2.Option {
+	var opts []oauth2.Option
+
+	if cfg.AccessTokenDuration > 0 {
+		opts = append(opts, oauth2.WithAccessTokenDuration(time.Duration(cfg.AccessTokenDuration)*time.Second))
+	}
+
+	if cfg.RefreshTokenDuration > 0 {
+		opts = append(opts, oauth2.WithRefreshTokenDuration(time.Duration(cfg.RefreshTokenDuration)*time.Second))
+	}
+
+	if cfg.AuthorizationCodeDuration > 0 {
+		opts = append(opts, oauth2.WithAuthorizationCodeDuration(time.Duration(cfg.AuthorizationCodeDuration)*time.Second))
+	}
+
+	if cfg.DeviceCodeDuration > 0 {
+		opts = append(opts, oauth2.WithDeviceCodeDuration(time.Duration(cfg.DeviceCodeDuration)*time.Second))
+	}
+
+	return opts
+}
+
+// defaultSigningKeyID names a configured key that carries no explicit kid.
+const defaultSigningKeyID = "default"
+
+// newSigningKey turns one configured key into a key ring entry. The OAuth2
+// server and the identity federation issuer keep separate config sections but
+// accept the same material, so both read their keys through here.
+//
+// The key material is already decoded by the configuration; a key left empty
+// there arrives nil and is rejected by jose.NewKeyRing.
+func newSigningKey(privateKey RSAPrivateKey, kid string, active bool) jose.SigningKey {
+	if kid == "" {
+		kid = defaultSigningKeyID
+	}
+
+	return jose.SigningKey{
+		PrivateKey: privateKey.PrivateKey(),
+		KID:        kid,
+		Active:     active,
+	}
+}
+
+// buildIdentityFederationIssuer returns the outbound OIDC issuer, or nil when the
+// identity federation issuer is disabled. A deployment that never federates into a
+// customer cloud account needs no signing key of its own.
+func (impl *Implm) buildIdentityFederationIssuer(
+	baseURL *baseurl.BaseURL,
+	l *log.Logger,
+) (*identityfederation.Issuer, error) {
+	if !impl.cfg.IdentityFederation.Enabled {
+		return nil, nil
+	}
+
+	if len(impl.cfg.IdentityFederation.SigningKeys) == 0 {
+		return nil, fmt.Errorf("cannot configure identity federation issuer: at least one signing key is required")
+	}
+
+	issuerBaseURL, err := identityfederation.ResolveIssuerBaseURL(impl.cfg.IdentityFederation.IssuerBaseURL, baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("cannot configure identity federation issuer: %w", err)
+	}
+
+	signingKeys := make([]jose.SigningKey, 0, len(impl.cfg.IdentityFederation.SigningKeys))
+
+	for _, keyCfg := range impl.cfg.IdentityFederation.SigningKeys {
+		signingKeys = append(
+			signingKeys,
+			newSigningKey(keyCfg.PrivateKey, keyCfg.KID, keyCfg.Active),
+		)
+	}
+
+	keyRing, err := jose.NewKeyRing(signingKeys)
+	if err != nil {
+		return nil, fmt.Errorf("cannot configure identity federation issuer: %w", err)
+	}
+
+	issuer, err := identityfederation.NewIssuer(issuerBaseURL, keyRing, identityfederation.DefaultTokenTTL)
+	if err != nil {
+		return nil, err
+	}
+
+	// probod cannot verify that the configured apex actually reaches it, so the
+	// effective value is logged for the startup record and covered by a canary.
+	l.Info(
+		"identity federation issuer configured",
+		log.String("issuer_base_url", issuer.BaseURL()),
+	)
+
+	// A derived issuer is not held to the provider rules, so localhost and CI
+	// still start. Warn instead of failing, rather than staying silent.
+	if err := identityfederation.ValidateConfig(issuerBaseURL); err != nil {
+		l.Warn(
+			"identity federation issuer cannot be registered with one or more cloud providers; customers cannot install the connector until it is publicly reachable over https without a port",
+			log.String("issuer_base_url", issuer.BaseURL()),
+			log.Error(err),
+		)
+	}
+
+	return issuer, nil
+}
+
+func authSecureCookieConfig(c CookieConfig, maxAgeSeconds int) (securecookie.Config, error) {
+	sameSite, err := c.HTTPSameSite()
+	if err != nil {
+		return securecookie.Config{}, err
+	}
+
+	return securecookie.Config{
+		Name:     c.Name,
+		Domain:   c.Domain,
+		Path:     "/",
+		MaxAge:   maxAgeSeconds,
+		Secret:   c.Secret,
+		Secure:   c.Secure,
+		HTTPOnly: true,
+		SameSite: sameSite,
+	}, nil
+}

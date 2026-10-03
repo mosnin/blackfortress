@@ -1,0 +1,345 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"go.probo.inc/probo/pkg/connector"
+)
+
+const (
+	// DefaultAWSRoleName is the role name the customer setup template
+	// creates, used when a connector names none.
+	DefaultAWSRoleName = "ProboAudit"
+)
+
+type (
+	SlackConnectorSettings struct {
+		Channel   string `json:"channel,omitempty"`
+		ChannelID string `json:"channel_id,omitempty"`
+	}
+
+	TallyConnectorSettings struct {
+		OrganizationID string `json:"organization_id"`
+	}
+
+	OnePasswordConnectorSettings struct {
+		SCIMBridgeURL string `json:"scim_bridge_url"`
+	}
+
+	SentryConnectorSettings struct {
+		OrganizationSlug string `json:"organization_slug"`
+	}
+
+	SigNozConnectorSettings struct {
+		BaseURL string `json:"base_url"`
+	}
+
+	GrafanaConnectorSettings struct {
+		BaseURL string `json:"base_url"`
+	}
+
+	SupabaseConnectorSettings struct {
+		OrganizationSlug string `json:"organization_slug"`
+	}
+
+	GitHubConnectorSettings struct {
+		Organization string `json:"organization"`
+	}
+
+	OnePasswordUsersAPISettings struct {
+		AccountID string `json:"account_id"`
+		Region    string `json:"region"`
+	}
+
+	GitLabConnectorSettings struct {
+		GroupID string `json:"group_id"`
+	}
+
+	BitbucketConnectorSettings struct {
+		Workspace string `json:"workspace"`
+	}
+
+	HerokuConnectorSettings struct {
+		TeamID string `json:"team_id"`
+	}
+
+	PagerDutyConnectorSettings struct {
+		Subdomain string `json:"subdomain"`
+	}
+
+	AsanaConnectorSettings struct {
+		WorkspaceGID string `json:"workspace_gid"`
+	}
+
+	NetlifyConnectorSettings struct {
+		AccountSlug string `json:"account_slug"`
+	}
+
+	ClickUpConnectorSettings struct {
+		TeamID string `json:"team_id"`
+	}
+
+	// DocuSignConnectorSettings holds the DocuSign account the user picked
+	// after OAuth. A DocuSign user can have access to multiple accounts, so
+	// the post-OAuth picker scopes the access source to one; AccountID is the
+	// selected account's UUID. The driver and name resolver re-resolve the
+	// account's data-center base URI from /oauth/userinfo at fetch time.
+	DocuSignConnectorSettings struct {
+		AccountID string `json:"account_id"`
+	}
+
+	VercelConnectorSettings struct {
+		TeamID string `json:"team_id"`
+	}
+
+	MetabaseConnectorSettings struct {
+		InstanceURL string `json:"instance_url"`
+	}
+
+	// PostHogConnectorSettings carries the data-API base host for the
+	// PostHog provider, which spans cloud and self-hosted deployments. For
+	// API-key connections it is the region-pinned host
+	// (https://us.posthog.com / https://eu.posthog.com) or a self-hosted
+	// instance URL. It is empty for cloud OAuth connections — the driver
+	// then discovers the region (us/eu) by probing, since the
+	// region-agnostic oauth.posthog.com gateway does not serve the data API.
+	PostHogConnectorSettings struct {
+		BaseURL string `json:"base_url"`
+	}
+
+	// DatadogConnectorSettings holds the per-customer Datadog site captured
+	// during the OAuth callback. Region is the site key (e.g. "US3") used for
+	// the AccessReviewSource title; Domain is the API domain (e.g.
+	// "us3.datadoghq.com") the driver and name resolver use to build hosts.
+	DatadogConnectorSettings struct {
+		Region string `json:"region"`
+		Domain string `json:"domain"`
+	}
+
+	// OktaConnectorSettings holds the customer's Okta org domain (the bare
+	// host, e.g. "acme.okta.com") supplied with the API token. It is the
+	// single-tenant identifier the driver and name resolver use to build
+	// the per-org API host (https://<domain>/api/v1/...). Okta has no
+	// central API gateway — every org authenticates against its own
+	// domain — so the host is operator-supplied and validated (see
+	// connector.NormalizeOktaDomain) before it reaches URL construction.
+	OktaConnectorSettings struct {
+		Domain string `json:"domain"`
+	}
+
+	// ZendeskConnectorSettings holds the per-customer Zendesk subdomain
+	// captured at connect time (the customer types it before the OAuth
+	// redirect, and it rides the signed state token to the callback —
+	// Zendesk does not echo it back). Subdomain is the <subdomain> part of
+	// <subdomain>.zendesk.com, used by the driver to build the API host and
+	// by the name resolver for the AccessReviewSource title.
+	ZendeskConnectorSettings struct {
+		Subdomain string `json:"subdomain"`
+	}
+
+	BetterStackConnectorSettings struct {
+		TeamName string `json:"team_name"`
+	}
+
+	QoveryConnectorSettings struct {
+		OrganizationID string `json:"organization_id"`
+	}
+
+	// RenderConnectorSettings stores the Render workspace identifier. The
+	// value is Render's owner ID (e.g. "tea-..." for a team workspace or
+	// "usr-..." for a personal one), surfaced to operators as "Workspace ID"
+	// and used as the {ownerId} path segment on /v1/owners/{ownerId}/...
+	RenderConnectorSettings struct {
+		OwnerID string `json:"owner_id"`
+	}
+
+	NeonConnectorSettings struct {
+		OrganizationID string `json:"organization_id"`
+	}
+
+	// LangfuseConnectorSettings carries the Langfuse API base URL, which
+	// spans the regional cloud hosts (cloud.langfuse.com /
+	// us.cloud.langfuse.com / …) and self-hosted instances. The
+	// organization-scoped API key is bound to a single organization on
+	// that host, so the base URL is the only per-tenant setting.
+	LangfuseConnectorSettings struct {
+		BaseURL string `json:"base_url"`
+	}
+
+	// ScalewayConnectorSettings stores the Scaleway Organization ID. A secret
+	// key is bound to one Organization, but GET /iam/v1alpha1/users requires
+	// the organization_id explicitly, so it is captured up front.
+	ScalewayConnectorSettings struct {
+		OrganizationID string `json:"organization_id"`
+	}
+
+	// CrispConnectorSettings stores the Crisp Website ID. A plugin token can
+	// be connected to several websites, so the reviewed website is captured up
+	// front as the {website_id} path segment on /v1/website/{website_id}/...
+	CrispConnectorSettings struct {
+		WebsiteID string `json:"website_id"`
+	}
+
+	// SegmentConnectorSettings stores the Twilio Segment Public API base URL.
+	// A Public API token is bound to one workspace, but the workspace's region
+	// is not discoverable from the token and selects the API host
+	// (api.segmentapis.com for US, eu1.api.segmentapis.com for EU). The region
+	// the customer picks is resolved to this base URL up front, so the driver
+	// and probe read a single host with no region logic.
+	SegmentConnectorSettings struct {
+		BaseURL string `json:"base_url"`
+	}
+
+	// GoogleAnalyticsConnectorSettings stores the selected GA4 account ID
+	// (the numeric portion of the `accounts/{account}` resource name). A
+	// Google OAuth token can reach many GA4 accounts, so the reviewed account
+	// is picked after authorization; the driver then lists the account's
+	// access bindings plus the bindings of every property beneath it.
+	GoogleAnalyticsConnectorSettings struct {
+		AccountID string `json:"account_id"`
+	}
+
+	// CloudflareConnectorSettings stores the Cloudflare account the user
+	// picked after connecting. An API token can reach many accounts, so the
+	// post-connect picker scopes the access source to one; AccountID is the
+	// selected account's UUID used as the {account_id} path segment on
+	// /accounts/{account_id}/members.
+	CloudflareConnectorSettings struct {
+		AccountID string `json:"account_id"`
+	}
+
+	// AuthentikConnectorSettings holds the base URL of the customer's
+	// authentik instance. Self-hosted, so there is no shared API host: the
+	// driver, name resolver and probe all join onto this origin.
+	AuthentikConnectorSettings struct {
+		BaseURL string `json:"base_url"`
+	}
+
+	// NewRelicConnectorSettings holds the New Relic data region the user key
+	// belongs to. NerdGraph runs one endpoint per region and answers a key
+	// from the other region with 403 "not authorized for account region", so
+	// the region is not discoverable from the credential — the customer names
+	// it and the driver, name resolver and probe all resolve their host from
+	// it.
+	NewRelicConnectorSettings struct {
+		Region string `json:"region"`
+	}
+
+	// RetoolConnectorSettings optionally holds the base URL of a self-hosted
+	// Retool instance. It is empty for Retool Cloud, whose API token already
+	// routes to its own organization through the shared api.retool.com
+	// gateway, so a cloud customer has no URL to supply.
+	RetoolConnectorSettings struct {
+		BaseURL string `json:"base_url"`
+	}
+
+	// TwingateConnectorSettings holds the customer's Twingate network name,
+	// the label in {network}.twingate.com. Twingate is cloud-only and gives
+	// every tenant its own host, so the network is the whole of what
+	// identifies the tenant.
+	TwingateConnectorSettings struct {
+		Network string `json:"network"`
+	}
+
+	// AWSConnectorSettings names the IAM role Probo assumes. Every field is
+	// public knowledge — the account owns the trust, and the connection
+	// itself holds no credential — so unlike the connection blob these stay
+	// in plain settings JSONB.
+	AWSConnectorSettings struct {
+		// RoleARN is the IAM role the customer created for Probo. The account
+		// is the one that ARN names; it is not stored separately.
+		RoleARN string `json:"role_arn"`
+		// MemberRoleName is the IAM role assumed in each member account of an
+		// organization install. Empty on a standalone connector.
+		MemberRoleName string `json:"member_role_name,omitempty"`
+	}
+
+	// GCPConnectorSettings names the workload identity provider and the
+	// service account Probo impersonates. Every field is public knowledge —
+	// the project owns the trust, and the connection itself holds no
+	// credential — so unlike the connection blob these stay in plain
+	// settings JSONB.
+	GCPConnectorSettings struct {
+		WorkloadIdentityProvider string `json:"workload_identity_provider"`
+		ServiceAccountEmail      string `json:"service_account_email"`
+		// Parent is the Cloud Asset scope of an organization install
+		// (`organizations/{number}` or `folders/{number}`). Empty on a
+		// standalone connector.
+		Parent string `json:"parent,omitempty"`
+	}
+
+	// AzureConnectorSettings names the Entra application Probo federates
+	// with and the subscription it reviews. Every field is public knowledge —
+	// the tenant owns the trust, and the connection itself holds no
+	// credential — so unlike the connection blob these stay in plain
+	// settings JSONB.
+	AzureConnectorSettings struct {
+		TenantID       string `json:"tenant_id"`
+		ClientID       string `json:"client_id"`
+		SubscriptionID string `json:"subscription_id"`
+		Environment    string `json:"environment"`
+	}
+)
+
+// GrantType returns the OAuth2 grant type recorded on the connector's
+// Connection, or the empty string when the connector is not an OAuth2
+// connector. Driver factories that dispatch on grant type (1Password)
+// read this instead of inspecting the typed Connection directly.
+func (c *Connector) GrantType() string {
+	if oauth2Conn, ok := c.Connection.(*connector.OAuth2Connection); ok {
+		return string(oauth2Conn.GrantType)
+	}
+
+	return ""
+}
+
+// SetSettings marshals a typed settings struct into the connector's RawSettings.
+func (c *Connector) SetSettings(v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("cannot marshal connector settings: %w", err)
+	}
+
+	c.RawSettings = data
+
+	return nil
+}
+
+// ConnectorSettings unmarshals the connector's RawSettings into the
+// requested settings struct. Empty or null RawSettings yields the zero
+// value with no error. Use as:
+//
+//	settings, err := coredata.ConnectorSettings[coredata.GitHubConnectorSettings](dbConnector)
+func ConnectorSettings[T any](c *Connector) (T, error) {
+	var s T
+	if len(c.RawSettings) == 0 || string(c.RawSettings) == "null" {
+		return s, nil
+	}
+
+	if err := json.Unmarshal(c.RawSettings, &s); err != nil {
+		return s, fmt.Errorf("cannot unmarshal connector settings: %w", err)
+	}
+
+	return s, nil
+}

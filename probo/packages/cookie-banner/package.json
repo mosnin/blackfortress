@@ -1,0 +1,64 @@
+{
+  "name": "@probo/cookie-banner",
+  "version": "0.19.0",
+  "description": "Probo cookie consent banner SDK",
+  "type": "module",
+  "main": "dist/cookie-banner.mjs",
+  "module": "dist/cookie-banner.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/cookie-banner.mjs",
+      "default": "./dist/cookie-banner.iife.js"
+    },
+    "./headless": {
+      "types": "./dist/headless/index.d.ts",
+      "import": "./dist/cookie-banner-headless.mjs",
+      "default": "./dist/cookie-banner-headless.mjs"
+    },
+    "./consent": {
+      "types": "./dist/consent.d.ts",
+      "import": "./dist/cookie-banner-consent.mjs",
+      "default": "./dist/cookie-banner-consent.mjs"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs && tsc --emitDeclarationOnly",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "author": {
+    "name": "Probo Inc",
+    "email": "hello@probo.com"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "cookie-banner",
+    "cookie-consent",
+    "gdpr",
+    "privacy",
+    "probo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getprobo/probo.git",
+    "directory": "packages/cookie-banner"
+  },
+  "bugs": {
+    "url": "https://github.com/getprobo/probo/issues"
+  },
+  "homepage": "https://github.com/getprobo/probo#README",
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "6.0.2",
+    "vitest": "^4.1.11"
+  }
+}

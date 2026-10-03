@@ -1,0 +1,148 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package drivers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+type CursorDriver struct {
+	httpClient *http.Client
+	baseURL    string
+}
+
+var _ Driver = (*CursorDriver)(nil)
+
+// cursorMembersPath lists every member of the team the admin API key
+// belongs to. Cursor's Admin API authenticates with the key as the HTTP
+// Basic auth username (handled by the connection transport) and exposes
+// no pagination on this endpoint, so a single GET returns the full team.
+const cursorMembersPath = "/teams/members"
+
+type cursorMembersResponse struct {
+	TeamMembers []struct {
+		// ID is the stable Cursor member identifier. The Admin API
+		// returns it as a JSON string (despite the docs labelling it a
+		// number), so it is decoded as a string and used verbatim.
+		ID        string `json:"id"`
+		Email     string `json:"email"`
+		Name      string `json:"name"`
+		Role      string `json:"role"`
+		IsRemoved bool   `json:"isRemoved"`
+	} `json:"teamMembers"`
+}
+
+func NewCursorDriver(httpClient *http.Client, baseURL string) *CursorDriver {
+	return &CursorDriver{
+		httpClient: httpClient,
+		baseURL:    baseURL,
+	}
+}
+
+func (d *CursorDriver) ListAccounts(ctx context.Context) ([]AccountRecord, error) {
+	endpoint, err := url.JoinPath(d.baseURL, cursorMembersPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build cursor members URL: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create cursor members request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	httpResp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot execute cursor members request: %w", err)
+	}
+
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("cannot fetch cursor members: unexpected status %d", httpResp.StatusCode)
+	}
+
+	var resp cursorMembersResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("cannot decode cursor members response: %w", err)
+	}
+
+	records := make([]AccountRecord, 0, len(resp.TeamMembers))
+	for _, m := range resp.TeamMembers {
+		if m.Email == "" {
+			continue
+		}
+
+		// Cursor exposes two removal signals that are not always
+		// consistent: the isRemoved soft-delete flag and a role of
+		// "removed". Either one marks the member inactive, so Active is
+		// always populated (never nil): a removed member is reported
+		// inactive rather than dropped, per the AccountRecord contract.
+		active := !m.IsRemoved && m.Role != "removed"
+
+		records = append(records, AccountRecord{
+			Email:       m.Email,
+			FullName:    m.Name,
+			Roles:       cursorRoles(m.Role),
+			Active:      &active,
+			IsAdmin:     new(cursorIsAdmin(m.Role)),
+			MFAStatus:   coredata.MFAStatusUnknown,
+			AuthMethod:  coredata.AccessReviewEntryAuthMethodUnknown,
+			AccountType: coredata.AccessReviewEntryAccountTypeUser,
+			ExternalID:  m.ID,
+		})
+	}
+
+	return records, nil
+}
+
+// cursorIsAdmin reports whether a Cursor team role carries team
+// administration rights. Both paid ("owner") and free-tier
+// ("free-owner") owners administer the team.
+func cursorIsAdmin(role string) bool {
+	return role == "owner" || role == "free-owner"
+}
+
+func cursorRoles(role string) []string {
+	if role == "" {
+		return []string{}
+	}
+
+	switch role {
+	case "owner", "free-owner":
+		return []string{"Owner"}
+	case "member":
+		return []string{"Member"}
+	case "removed":
+		return []string{"Removed"}
+	default:
+		return []string{role}
+	}
+}

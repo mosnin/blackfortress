@@ -1,0 +1,271 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { usePageTitle } from "@probo/hooks";
+import {
+  ActionDropdown,
+  Card,
+  DropdownItem,
+  FileButton,
+  FrameworkLogo,
+  FrameworkSelector,
+  IconFolderUpload,
+  IconPencil,
+  IconTrashCan,
+  PageHeader,
+  useDialogRef,
+} from "@probo/ui";
+import { type ChangeEventHandler, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  graphql,
+  type PreloadedQuery,
+  useFragment,
+  usePreloadedQuery,
+} from "react-relay";
+import { Link } from "react-router";
+
+import type { FrameworkGraphListQuery } from "#/__generated__/core/FrameworkGraphListQuery.graphql";
+import type { FrameworksPageCardFragment$key } from "#/__generated__/core/FrameworksPageCardFragment.graphql";
+import {
+  frameworksQuery,
+  useDeleteFrameworkMutation,
+} from "#/hooks/graph/FrameworkGraph";
+import { useMutationWithToasts } from "#/hooks/useMutationWithToasts";
+
+import { FrameworkFormDialog } from "./dialogs/FrameworkFormDialog";
+
+type Props = {
+  queryRef: PreloadedQuery<FrameworkGraphListQuery>;
+};
+
+const importFrameworkMutation = graphql`
+  mutation FrameworksPageImportMutation(
+    $input: ImportFrameworkInput!
+    $connections: [ID!]!
+  ) {
+    importFramework(input: $input) {
+      frameworkEdge @prependEdge(connections: $connections) {
+        node {
+          id
+          ...FrameworksPageCardFragment
+        }
+      }
+    }
+  }
+`;
+
+export default function FrameworksPage(props: Props) {
+  const { t } = useTranslation();
+  usePageTitle(t("frameworksPage.title"));
+  const data = usePreloadedQuery<FrameworkGraphListQuery>(frameworksQuery, props.queryRef);
+  const connectionId = data.organization.frameworks!.__id;
+  const frameworks
+    = data.organization.frameworks?.edges.map(edge => edge.node) ?? [];
+  const [commitImport, isImporting] = useMutationWithToasts(
+    importFrameworkMutation,
+    {
+      successMessage: t("frameworksPage.messages.imported"),
+      errorMessage: t("frameworksPage.errors.import"),
+    },
+  );
+  const [isUploading, setUploading] = useState(false);
+  const dialogRef = useDialogRef();
+
+  const importNamedFramework = async (name: string) => {
+    // For custom framework, open the form
+    if (name === "custom") {
+      console.log(name, dialogRef);
+      dialogRef.current?.open();
+      return;
+    }
+    // Otherwise load the JSON and send the file to the server
+    try {
+      setUploading(true);
+      const fileName = `${name}.json`;
+      const json = await fetch(`/data/frameworks/${fileName}`).then(res =>
+        res.text(),
+      );
+      const file = new File([json], fileName, {
+        type: "application/json",
+      });
+      await importFile(file);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const importFile = (file: File) => {
+    return commitImport({
+      variables: {
+        input: {
+          organizationId: data.organization.id!,
+          file: null,
+        },
+        connections: [connectionId],
+      },
+      uploadables: {
+        "input.file": file,
+      },
+    });
+  };
+
+  const handleUpload: ChangeEventHandler<HTMLInputElement> = (event) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) {
+      return;
+    }
+    void importFile(file).finally(() => {
+      input.value = "";
+    });
+  };
+
+  const isLoading = isUploading || isImporting;
+
+  const hasAnyAction = frameworks.some(
+    ({ canUpdate, canDelete }) => canUpdate || canDelete,
+  );
+
+  return (
+    <div className="space-y-6">
+      <FrameworkFormDialog
+        ref={dialogRef}
+        connectionId={connectionId}
+        organizationId={data.organization.id!}
+      />
+      <PageHeader
+        title={t("frameworksPage.title")}
+        description={t("frameworksPage.description")}
+      >
+        {data.organization.canCreateFramework && (
+          <>
+            <FileButton
+              variant="secondary"
+              icon={IconFolderUpload}
+              onChange={handleUpload}
+              disabled={isLoading}
+            >
+              {t("frameworksPage.actions.import")}
+            </FileButton>
+            <FrameworkSelector
+              onSelect={name => void importNamedFramework(name)}
+              disabled={isLoading}
+            />
+          </>
+        )}
+      </PageHeader>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {frameworks.map(framework => (
+          <FrameworkCard
+            organizationId={data.organization.id!}
+            connectionId={connectionId}
+            key={framework.id}
+            framework={framework}
+            hasAnyAction={hasAnyAction}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const frameworkCardFragment = graphql`
+  fragment FrameworksPageCardFragment on Framework {
+    id
+    name
+    description
+    lightLogo {
+      downloadUrl
+    }
+    darkLogo {
+      downloadUrl
+    }
+    canUpdate: permission(action: "core:framework:update")
+    canDelete: permission(action: "core:framework:delete")
+  }
+`;
+
+type FrameworkCardProps = {
+  organizationId: string;
+  connectionId: string;
+  framework: FrameworksPageCardFragment$key;
+  hasAnyAction: boolean;
+};
+
+function FrameworkCard(props: FrameworkCardProps) {
+  const framework = useFragment(frameworkCardFragment, props.framework);
+  const deleteFramework = useDeleteFrameworkMutation(
+    framework,
+    props.connectionId,
+  );
+  const { t } = useTranslation();
+  const dialogRef = useDialogRef();
+  return (
+    <Card padded className="p-6 relative">
+      <FrameworkFormDialog
+        ref={dialogRef}
+        connectionId={props.connectionId}
+        organizationId={props.organizationId}
+        framework={framework}
+      />
+      <div className="flex justify-between mb-3">
+        <FrameworkLogo
+          name={framework.name}
+          lightLogoURL={framework.lightLogo?.downloadUrl}
+          darkLogoURL={framework.darkLogo?.downloadUrl}
+        />
+        {props.hasAnyAction && (
+          <ActionDropdown className="z-10 relative">
+            {framework.canUpdate && (
+              <DropdownItem
+                icon={IconPencil}
+                onClick={() => {
+                  dialogRef.current?.open();
+                }}
+              >
+                {t("frameworksPage.actions.edit")}
+              </DropdownItem>
+            )}
+            {framework.canDelete && (
+              <DropdownItem
+                icon={IconTrashCan}
+                onClick={() => deleteFramework()}
+                variant="danger"
+              >
+                {t("frameworksPage.actions.delete")}
+              </DropdownItem>
+            )}
+          </ActionDropdown>
+        )}
+      </div>
+      <h2 className="text-xl font-medium">
+        <Link
+          className="hover:underline after:absolute after:content-[''] after:inset-0"
+          to={`/organizations/${props.organizationId}/governance/frameworks/${framework.id}`}
+        >
+          {framework.name}
+        </Link>
+      </h2>
+      <p className="text-sm text-txt-secondary">{framework.description}</p>
+    </Card>
+  );
+}

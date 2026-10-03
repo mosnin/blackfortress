@@ -1,0 +1,177 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package scim
+
+import (
+	"testing"
+
+	scimfilter "github.com/scim2/filter-parser/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestParseUserFilter(t *testing.T) {
+	t.Run("nil expression returns empty filter", func(t *testing.T) {
+		filter, err := ParseUserFilter(nil)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		assert.Nil(t, filter.Email())
+	})
+
+	t.Run("simple userName eq filter with email value", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`userName eq "test@example.com"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		args := filter.SQLArguments()
+		require.NotNil(t, args["filter_user_name"])
+		assert.Equal(t, "test@example.com", *args["filter_user_name"].(*string))
+	})
+
+	t.Run("userName eq filter with non-email UPN", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`userName eq "john.doe"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		args := filter.SQLArguments()
+		require.NotNil(t, args["filter_user_name"])
+		assert.Equal(t, "john.doe", *args["filter_user_name"].(*string))
+	})
+
+	t.Run("userName filter is case insensitive", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`UserName eq "test@example.com"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		args := filter.SQLArguments()
+		require.NotNil(t, args["filter_user_name"])
+		assert.Equal(t, "test@example.com", *args["filter_user_name"].(*string))
+	})
+
+	t.Run("externalId eq filter", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`externalId eq "some-azure-id"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		args := filter.SQLArguments()
+		require.NotNil(t, args["filter_external_id"])
+		assert.Equal(t, "some-azure-id", *args["filter_external_id"].(*string))
+	})
+
+	t.Run("externalId filter is case insensitive", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`ExternalId eq "azure-obj-id"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		args := filter.SQLArguments()
+		require.NotNil(t, args["filter_external_id"])
+		assert.Equal(t, "azure-obj-id", *args["filter_external_id"].(*string))
+	})
+
+	t.Run("logical AND expression", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`userName eq "user1@example.com" and userName eq "user2@example.com"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		args := filter.SQLArguments()
+		require.NotNil(t, args["filter_user_name"])
+	})
+
+	t.Run("unsupported operator returns error", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`userName co "test"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		assert.Error(t, err)
+		assert.Nil(t, filter)
+		assert.Contains(t, err.Error(), "operator")
+		assert.Contains(t, err.Error(), "not supported")
+	})
+
+	t.Run("unsupported attribute returns error", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`displayName eq "John"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		assert.Error(t, err)
+		assert.Nil(t, filter)
+		assert.Contains(t, err.Error(), "displayName")
+		assert.Contains(t, err.Error(), "not supported")
+	})
+
+	t.Run("OR operator returns error", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`userName eq "a@b.com" or userName eq "c@d.com"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		assert.Error(t, err)
+		assert.Nil(t, filter)
+		assert.Contains(t, err.Error(), "logical operator")
+		assert.Contains(t, err.Error(), "not supported")
+	})
+
+	t.Run("NOT expression returns error", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`not (userName eq "test@example.com")`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		assert.Error(t, err)
+		assert.Nil(t, filter)
+		assert.Contains(t, err.Error(), "NOT expressions are not supported")
+	})
+
+	t.Run("nested AND expressions", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`(userName eq "a@b.com" and userName eq "c@d.com") and userName eq "e@f.com"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		args := filter.SQLArguments()
+		require.NotNil(t, args["filter_user_name"])
+	})
+
+	t.Run("userName and externalId combined", func(t *testing.T) {
+		expr, err := scimfilter.ParseFilter([]byte(`userName eq "john@contoso.com" and externalId eq "abc-123"`))
+		require.NoError(t, err)
+
+		filter, err := ParseUserFilter(expr)
+		require.NoError(t, err)
+		require.NotNil(t, filter)
+		args := filter.SQLArguments()
+		require.NotNil(t, args["filter_user_name"])
+		assert.Equal(t, "john@contoso.com", *args["filter_user_name"].(*string))
+		require.NotNil(t, args["filter_external_id"])
+		assert.Equal(t, "abc-123", *args["filter_external_id"].(*string))
+	})
+}

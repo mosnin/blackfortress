@@ -1,0 +1,2496 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package iam
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"go.gearno.de/crypto/uuid"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/packages/emails"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/filevalidation"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/scim"
+	"go.probo.inc/probo/pkg/mail"
+	"go.probo.inc/probo/pkg/page"
+	"go.probo.inc/probo/pkg/statelesstoken"
+	"go.probo.inc/probo/pkg/validator"
+	"go.probo.inc/probo/pkg/webhook"
+	webhooktypes "go.probo.inc/probo/pkg/webhook/types"
+)
+
+type (
+	OrganizationService struct {
+		*Service
+	}
+
+	InvitationTokenData struct {
+		InvitationID gid.GID `json:"invitation_id"`
+	}
+
+	UploadedFile struct {
+		Content     io.Reader
+		Filename    string
+		Size        int64
+		ContentType string
+	}
+
+	CreateOrganizationRequest struct {
+		Name               string
+		LogoFile           *UploadedFile
+		HorizontalLogoFile *UploadedFile
+	}
+
+	UpdateOrganizationRequest struct {
+		Name               *string
+		LogoFile           *UploadedFile
+		HorizontalLogoFile *UploadedFile
+	}
+
+	CreateSAMLConfigurationRequest struct {
+		EmailDomain        string
+		IdPEntityID        string
+		IdPSsoURL          string
+		IdPCertificate     string
+		AttributeEmail     *string
+		AttributeFirstname *string
+		AttributeLastname  *string
+		AttributeRole      *string
+		AutoSignupEnabled  bool
+		EnforcementPolicy  *coredata.SAMLEnforcementPolicy
+	}
+
+	UpdateSAMLConfigurationRequest struct {
+		ID                 gid.GID
+		EnforcementPolicy  *coredata.SAMLEnforcementPolicy
+		IdPEntityID        *string
+		IdPSsoURL          *string
+		IdPCertificate     *string
+		AttributeEmail     *string
+		AttributeFirstname *string
+		AttributeLastname  *string
+		AttributeRole      *string
+		AutoSignupEnabled  *bool
+	}
+
+	CreateInvitationRequest struct {
+		ProfileID      gid.GID
+		OrganizationID gid.GID
+	}
+
+	CreateUserRequest struct {
+		OrganizationID           gid.GID
+		EmailAddress             mail.Addr
+		Role                     coredata.MembershipRole
+		FullName                 string
+		AdditionalEmailAddresses mail.Addrs
+		Kind                     *string
+		Position                 *string
+		ContractStartDate        **time.Time
+		ContractEndDate          **time.Time
+	}
+
+	UpdateUserRequest struct {
+		ID                       gid.GID
+		FullName                 string
+		AdditionalEmailAddresses mail.Addrs
+		Kind                     *string
+		Position                 *string
+		ContractStartDate        **time.Time
+		ContractEndDate          **time.Time
+	}
+)
+
+var (
+	proboThirdParty = struct {
+		Name                 string
+		Description          string
+		LegalName            string
+		HeadquarterAddress   string
+		WebsiteURL           string
+		PrivacyPolicyURL     string
+		TermsOfServiceURL    string
+		SubprocessorsListURL string
+	}{
+		Name:                 "Probo",
+		Description:          "Probo is an open-source compliance platform that helps startups achieve SOC 2 and ISO 27001 certifications quickly and affordably, with expert guidance and no thirdParty lock-in.",
+		LegalName:            "Probo Inc.",
+		HeadquarterAddress:   "490 Post St, Suite 640,San Francisco, CA 94102, United States",
+		WebsiteURL:           "https://www.probo.com/",
+		PrivacyPolicyURL:     "https://www.probo.com/privacy",
+		TermsOfServiceURL:    "https://www.probo.com/terms",
+		SubprocessorsListURL: "https://www.probo.com/subprocessors",
+	}
+)
+
+const (
+	TokenTypeAPIKey = "api_key"
+
+	NameMaxLength    = 100
+	TitleMaxLength   = 1000
+	ContentMaxLength = 5000
+
+	maxOrganizationLogoFileSize = 5 << 20
+
+	DefaultAttributeEmail     = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+	DefaultAttributeFirstname = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname"
+	DefaultAttributeLastname  = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname"
+	DefaultAttributeRole      = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/role"
+)
+
+var (
+	organizationLogoValidator = filevalidation.NewValidator(
+		filevalidation.WithCategories(filevalidation.CategoryImage),
+		filevalidation.WithMaxFileSize(maxOrganizationLogoFileSize),
+	)
+)
+
+func (req CreateOrganizationRequest) Validate() error {
+	v := validator.New()
+
+	if req.LogoFile != nil {
+		err := organizationLogoValidator.Validate(req.LogoFile.Filename, req.LogoFile.ContentType, req.LogoFile.Size)
+		if err != nil {
+			return fmt.Errorf("invalid logo file: %w", err)
+		}
+	}
+
+	if req.HorizontalLogoFile != nil {
+		err := organizationLogoValidator.Validate(
+			req.HorizontalLogoFile.Filename,
+			req.HorizontalLogoFile.ContentType,
+			req.HorizontalLogoFile.Size,
+		)
+		if err != nil {
+			return fmt.Errorf("invalid horizontal logo file: %w", err)
+		}
+	}
+
+	v.Check(req.Name, "name", validator.Required(), validator.SafeTextNoNewLine(255))
+
+	return v.Error()
+}
+
+func (req UpdateOrganizationRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(req.Name, "name", validator.SafeTextNoNewLine(255))
+	v.Check(req.LogoFile, "logo_file", validator.NotEmpty())
+
+	if req.LogoFile != nil {
+		if err := organizationLogoValidator.Validate(
+			req.LogoFile.Filename,
+			req.LogoFile.ContentType,
+			req.LogoFile.Size,
+		); err != nil {
+			return fmt.Errorf("invalid logo file: %w", err)
+		}
+	}
+
+	v.Check(req.HorizontalLogoFile, "horizontal_logo_file", validator.NotEmpty())
+
+	if req.HorizontalLogoFile != nil {
+		if err := organizationLogoValidator.Validate(
+			req.HorizontalLogoFile.Filename,
+			req.HorizontalLogoFile.ContentType,
+			req.HorizontalLogoFile.Size,
+		); err != nil {
+			return fmt.Errorf("invalid horizontal logo file: %w", err)
+		}
+	}
+
+	return v.Error()
+}
+
+func (cur *CreateUserRequest) Validate() error {
+	cur.FullName = strings.TrimSpace(cur.FullName)
+
+	v := validator.New()
+
+	v.Check(cur.OrganizationID, "id", validator.Required(), validator.GID(coredata.OrganizationEntityType))
+	v.Check(cur.FullName, "full_name", validator.SafeTextNoNewLine(NameMaxLength))
+	v.CheckEach(cur.AdditionalEmailAddresses, "additional_email_addresses", func(index int, item any) {
+		v.Check(item, fmt.Sprintf("additional_email_addresses[%d]", index), validator.Required(), validator.NotEmpty())
+	})
+	v.Check(cur.Kind, "kind", validator.SafeTextNoNewLine(NameMaxLength))
+	v.Check(cur.Position, "position", validator.SafeTextNoNewLine(TitleMaxLength))
+	v.Check(cur.ContractStartDate, "contract_start_date", validator.Before(cur.ContractEndDate))
+	v.Check(cur.ContractEndDate, "contract_end_date", validator.After(cur.ContractStartDate))
+
+	return v.Error()
+}
+
+func (upr *UpdateUserRequest) Validate() error {
+	upr.FullName = strings.TrimSpace(upr.FullName)
+
+	v := validator.New()
+
+	v.Check(upr.ID, "id", validator.Required(), validator.GID(coredata.MembershipProfileEntityType))
+	v.Check(upr.FullName, "full_name", validator.SafeTextNoNewLine(NameMaxLength))
+	v.CheckEach(upr.AdditionalEmailAddresses, "additional_email_addresses", func(index int, item any) {
+		v.Check(item, fmt.Sprintf("additional_email_addresses[%d]", index), validator.Required(), validator.NotEmpty())
+	})
+	v.Check(upr.Kind, "kind", validator.SafeTextNoNewLine(NameMaxLength))
+	v.Check(upr.Position, "position", validator.SafeTextNoNewLine(TitleMaxLength))
+	v.Check(upr.ContractStartDate, "contract_start_date", validator.Before(upr.ContractEndDate))
+	v.Check(upr.ContractEndDate, "contract_end_date", validator.After(upr.ContractStartDate))
+
+	return v.Error()
+}
+
+func NewOrganizationService(svc *Service) *OrganizationService {
+	return &OrganizationService{Service: svc}
+}
+
+func (s *OrganizationService) UpdateMembership(
+	ctx context.Context,
+	organizationID gid.GID,
+	membershipID gid.GID,
+	role coredata.MembershipRole,
+) (*coredata.Membership, error) {
+	scope := coredata.NewScopeFromObjectID(organizationID)
+
+	membership := coredata.Membership{}
+
+	if err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := membership.LoadByID(ctx, tx, scope, membershipID); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewMembershipNotFoundError(membershipID)
+				}
+
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			if membership.OrganizationID != organizationID {
+				return NewMembershipNotFoundError(membership.ID)
+			}
+
+			profile := &coredata.MembershipProfile{}
+			if err := profile.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, membership.IdentityID, membership.OrganizationID); err != nil {
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if membership.Role == coredata.MembershipRoleOwner && role != coredata.MembershipRoleOwner && profile.State == coredata.ProfileStateActive {
+				profiles := coredata.MembershipProfiles{}
+
+				count, err := profiles.CountActiveOwnerByOrganizationID(ctx, tx, scope, organizationID)
+				if err != nil {
+					return fmt.Errorf("cannot count active owners: %w", err)
+				}
+
+				if count <= 1 {
+					return NewLastActiveOwnerError(membershipID)
+				}
+			}
+
+			previousUser := webhooktypes.NewUser(profile, &membership)
+
+			membership.Role = role
+			membership.UpdatedAt = time.Now()
+
+			if err := membership.Update(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot update membership: %w", err)
+			}
+
+			if err := webhook.InsertUpdateData(ctx, tx, scope, organizationID, coredata.WebhookEventTypeUserUpdated, webhooktypes.NewUser(profile, &membership), previousUser); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			return nil
+		},
+	); err != nil {
+		return nil, err
+	}
+
+	return &membership, nil
+}
+
+func (s *OrganizationService) RemoveUser(
+	ctx context.Context,
+	scope coredata.Scoper,
+	organizationID gid.GID,
+	profileID gid.GID,
+) error {
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			profile := coredata.MembershipProfile{}
+
+			if err := profile.LoadByID(ctx, tx, scope, profileID); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewProfileNotFoundError(profileID)
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.Source == coredata.ProfileSourceSCIM {
+				return NewUserManagedBySCIMError(profileID)
+			}
+
+			if profile.OrganizationID != organizationID {
+				return NewProfileNotFoundError(profileID)
+			}
+
+			membership := &coredata.Membership{}
+			if err := membership.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, profile.IdentityID, profile.OrganizationID); err != nil {
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			if membership.Role == coredata.MembershipRoleOwner && profile.State == coredata.ProfileStateActive {
+				profiles := coredata.MembershipProfiles{}
+
+				count, err := profiles.CountActiveOwnerByOrganizationID(ctx, tx, scope, profile.OrganizationID)
+				if err != nil {
+					return fmt.Errorf("cannot count active owners: %w", err)
+				}
+
+				if count <= 1 {
+					return NewLastActiveOwnerError(profileID)
+				}
+			}
+
+			if err := profile.Delete(ctx, tx, scope, profileID); err != nil {
+				if errors.Is(err, coredata.ErrResourceInUse) {
+					return NewProfileInUseError(profileID)
+				}
+
+				return fmt.Errorf("cannot delete profile: %w", err)
+			}
+
+			if err := membership.Delete(ctx, tx, scope, membership.ID); err != nil {
+				return fmt.Errorf("cannot delete membership: %w", err)
+			}
+
+			if err := webhook.InsertData(ctx, tx, scope, organizationID, coredata.WebhookEventTypeUserDeleted, webhooktypes.NewUser(&profile, membership)); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s *OrganizationService) DeactivateUser(
+	ctx context.Context,
+	scope coredata.Scoper,
+	organizationID gid.GID,
+	profileID gid.GID,
+) error {
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			profile := coredata.MembershipProfile{}
+
+			if err := profile.LoadByID(ctx, tx, scope, profileID); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewProfileNotFoundError(profileID)
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.Source == coredata.ProfileSourceSCIM {
+				return NewUserManagedBySCIMError(profileID)
+			}
+
+			membership := &coredata.Membership{}
+			if err := membership.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, profile.IdentityID, profile.OrganizationID); err != nil {
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			if membership.Role == coredata.MembershipRoleOwner && profile.State == coredata.ProfileStateActive {
+				profiles := coredata.MembershipProfiles{}
+
+				count, err := profiles.CountActiveOwnerByOrganizationID(ctx, tx, scope, profile.OrganizationID)
+				if err != nil {
+					return fmt.Errorf("cannot count active owners: %w", err)
+				}
+
+				if count <= 1 {
+					return NewLastActiveOwnerError(profileID)
+				}
+			}
+
+			invitations := &coredata.Invitations{}
+
+			onlyPending := coredata.NewInvitationFilter([]coredata.InvitationStatus{coredata.InvitationStatusPending})
+
+			if err := invitations.ExpireByUserID(
+				ctx,
+				tx,
+				scope,
+				profile.ID,
+				onlyPending,
+			); err != nil {
+				return fmt.Errorf("cannot expire pending invitations: %w", err)
+			}
+
+			signatures := &coredata.DocumentVersionSignatures{}
+			if err := signatures.DeleteRequestedBySignatory(ctx, tx, scope, profile.ID); err != nil {
+				return fmt.Errorf("cannot delete requested signatures: %w", err)
+			}
+
+			previousUser := webhooktypes.NewUser(&profile, membership)
+
+			now := time.Now()
+
+			if profile.State != coredata.ProfileStateDeactivated {
+				profile.MarkDeactivated(now)
+
+				if err := profile.Update(ctx, tx, scope); err != nil {
+					return fmt.Errorf("cannot update profile state: %w", err)
+				}
+			}
+
+			membership.UpdatedAt = now
+			if err := membership.Update(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot update membership: %w", err)
+			}
+
+			if err := webhook.InsertUpdateData(ctx, tx, scope, profile.OrganizationID, coredata.WebhookEventTypeUserUpdated, webhooktypes.NewUser(&profile, membership), previousUser); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s *OrganizationService) InviteUser(
+	ctx context.Context,
+	req *CreateInvitationRequest,
+) (*coredata.Invitation, error) {
+	var (
+		scope      = coredata.NewScopeFromObjectID(req.OrganizationID)
+		now        = time.Now()
+		invitation = &coredata.Invitation{
+			ID:             gid.New(req.OrganizationID.TenantID(), coredata.InvitationEntityType),
+			OrganizationID: req.OrganizationID,
+			UserID:         req.ProfileID,
+			Status:         coredata.InvitationStatusPending,
+			ExpiresAt:      now.Add(s.invitationTokenValidity),
+			CreatedAt:      now,
+		}
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			organization := coredata.Organization{}
+
+			err := organization.LoadByID(ctx, tx, scope, req.OrganizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewOrganizationNotFoundError(req.OrganizationID)
+				}
+
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			profile := &coredata.MembershipProfile{}
+			if err := profile.LoadByID(ctx, tx, scope, req.ProfileID); err != nil {
+				if errors.Is(err, coredata.ErrResourceNotFound) {
+					return NewProfileNotFoundError(req.ProfileID)
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.Source == coredata.ProfileSourceSCIM {
+				return NewUserManagedBySCIMError(profile.ID)
+			}
+
+			if profile.State == coredata.ProfileStateDeactivated {
+				profile.MarkPending(now)
+
+				if err := profile.Update(ctx, tx, scope); err != nil {
+					return fmt.Errorf("cannot update profile state: %w", err)
+				}
+			}
+
+			err = invitation.Insert(ctx, tx, scope)
+			if err != nil {
+				return fmt.Errorf("cannot insert invitation: %w", err)
+			}
+
+			invitationToken, err := statelesstoken.NewToken(
+				s.tokenSecret,
+				TokenTypeOrganizationInvitation,
+				s.invitationTokenValidity,
+				InvitationTokenData{InvitationID: invitation.ID},
+			)
+			if err != nil {
+				return fmt.Errorf("cannot generate invitation token: %w", err)
+			}
+
+			emailPresenter := emails.NewPresenter(s.baseURL, profile.FullName)
+
+			subject, textBody, htmlBody, err := emailPresenter.RenderInvitation(
+				ctx,
+				"/auth/activate-account",
+				invitationToken,
+				organization.Name,
+			)
+			if err != nil {
+				return fmt.Errorf("cannot render invitation email: %w", err)
+			}
+
+			email := coredata.NewEmail(
+				profile.FullName,
+				profile.EmailAddress,
+				subject,
+				textBody,
+				htmlBody,
+				nil,
+			)
+
+			err = email.Insert(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("cannot insert email: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return invitation, nil
+}
+
+func (s *OrganizationService) CreateOrganization(
+	ctx context.Context,
+	identityID gid.GID,
+	req *CreateOrganizationRequest,
+) (*coredata.Organization, *coredata.MembershipProfile, error) {
+	if err := req.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	var (
+		tenantID       = gid.NewTenantID()
+		organizationID = gid.New(tenantID, coredata.OrganizationEntityType)
+		now            = time.Now()
+		organization   = &coredata.Organization{
+			ID:        organizationID,
+			TenantID:  tenantID,
+			Name:      req.Name,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		profile = &coredata.MembershipProfile{
+			ID:             gid.New(tenantID, coredata.MembershipProfileEntityType),
+			IdentityID:     identityID,
+			OrganizationID: organization.ID,
+			Source:         coredata.ProfileSourceManual,
+			State:          coredata.ProfileStateActive,
+			ActivatedAt:    &now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+
+		membership = &coredata.Membership{
+			ID:             gid.New(tenantID, coredata.MembershipEntityType),
+			IdentityID:     identityID,
+			OrganizationID: organizationID,
+			Role:           coredata.MembershipRoleOwner,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+
+		organizationContext = &coredata.OrganizationContext{
+			OrganizationID: organizationID,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+
+		logoFile           *coredata.File
+		horizontalLogoFile *coredata.File
+		scope              = coredata.NewScope(tenantID)
+	)
+
+	if req.LogoFile != nil {
+		var (
+			fileID      = gid.New(tenantID, coredata.FileEntityType)
+			objectKey   = uuid.MustNewV7()
+			filename    = req.LogoFile.Filename
+			contentType = req.LogoFile.ContentType
+			now         = time.Now()
+		)
+
+		logoFile = &coredata.File{
+			ID:             fileID,
+			OrganizationID: organization.ID,
+			BucketName:     s.bucket,
+			MimeType:       contentType,
+			FileName:       filename,
+			FileKey:        objectKey.String(),
+			FileSize:       req.LogoFile.Size,
+			Visibility:     coredata.FileVisibilityPublic,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+
+		fileSize, err := s.fm.PutFile(
+			ctx,
+			logoFile,
+			req.LogoFile.Content,
+			map[string]string{
+				"file-id":         fileID.String(),
+				"organization-id": organization.ID.String(),
+			},
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cannot upload logo file: %w", err)
+		}
+
+		logoFile.FileSize = fileSize
+	}
+
+	if req.HorizontalLogoFile != nil {
+		var (
+			fileID      = gid.New(tenantID, coredata.FileEntityType)
+			objectKey   = uuid.MustNewV7()
+			filename    = req.HorizontalLogoFile.Filename
+			contentType = req.HorizontalLogoFile.ContentType
+			now         = time.Now()
+		)
+
+		horizontalLogoFile = &coredata.File{
+			ID:             fileID,
+			OrganizationID: organization.ID,
+			BucketName:     s.bucket,
+			MimeType:       contentType,
+			FileName:       filename,
+			FileKey:        objectKey.String(),
+			FileSize:       req.HorizontalLogoFile.Size,
+			Visibility:     coredata.FileVisibilityPublic,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+
+		fileSize, err := s.fm.PutFile(
+			ctx,
+			horizontalLogoFile,
+			req.HorizontalLogoFile.Content,
+			map[string]string{
+				"file-id":         fileID.String(),
+				"organization-id": organization.ID.String(),
+			},
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cannot upload logo file: %w", err)
+		}
+
+		horizontalLogoFile.FileSize = fileSize
+	}
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			identity := &coredata.Identity{}
+
+			err := identity.LoadByID(ctx, tx, identityID)
+			if err != nil {
+				return fmt.Errorf("cannot load identity: %w", err)
+			}
+
+			profile.FullName = identity.FullName
+
+			err = organization.Insert(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("cannot insert organization: %w", err)
+			}
+
+			if logoFile != nil {
+				err := logoFile.Insert(ctx, tx, scope)
+				if err != nil {
+					return fmt.Errorf("cannot insert file: %w", err)
+				}
+
+				organization.LogoFileID = &logoFile.ID
+			}
+
+			if horizontalLogoFile != nil {
+				err := horizontalLogoFile.Insert(ctx, tx, scope)
+				if err != nil {
+					return fmt.Errorf("cannot insert file: %w", err)
+				}
+
+				organization.HorizontalLogoFileID = &horizontalLogoFile.ID
+			}
+
+			err = profile.Insert(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("cannot insert profile: %w", err)
+			}
+
+			err = membership.Insert(ctx, tx, scope)
+			if err != nil {
+				return fmt.Errorf("cannot insert membership: %w", err)
+			}
+
+			if err := organizationContext.Insert(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot insert organization context: %w", err)
+			}
+
+			proboData := &coredata.ThirdParty{
+				ID:                     gid.New(scope.GetTenantID(), coredata.ThirdPartyEntityType),
+				OrganizationID:         organization.ID,
+				Name:                   proboThirdParty.Name,
+				Description:            &proboThirdParty.Description,
+				Category:               coredata.ThirdPartyCategorySecurity,
+				HeadquarterAddress:     &proboThirdParty.HeadquarterAddress,
+				LegalName:              &proboThirdParty.LegalName,
+				WebsiteURL:             &proboThirdParty.WebsiteURL,
+				PrivacyPolicyURL:       &proboThirdParty.PrivacyPolicyURL,
+				TermsOfServiceURL:      &proboThirdParty.TermsOfServiceURL,
+				SubprocessorsListURL:   &proboThirdParty.SubprocessorsListURL,
+				ShowOnCompliancePortal: false,
+				Level:                  1,
+				CreatedAt:              now,
+				UpdatedAt:              now,
+			}
+
+			if err := proboData.Insert(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot insert thirdParty: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot insert organization: %w", err)
+	}
+
+	return organization, profile, nil
+}
+
+func (s *OrganizationService) UpdateOrganization(ctx context.Context, organizationID gid.GID, req *UpdateOrganizationRequest) (*coredata.Organization, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	var (
+		now                = time.Now()
+		logoFile           *coredata.File
+		horizontalLogoFile *coredata.File
+		tenantID           = organizationID.TenantID()
+		scope              = coredata.NewScopeFromObjectID(organizationID)
+		organization       = &coredata.Organization{}
+	)
+
+	// TODO: s3 upload happen before we validate the tenantID
+
+	if req.LogoFile != nil {
+		var (
+			fileID      = gid.New(tenantID, coredata.FileEntityType)
+			objectKey   = uuid.MustNewV7()
+			filename    = (*req.LogoFile).Filename
+			contentType = (*req.LogoFile).ContentType
+		)
+
+		logoFile = &coredata.File{
+			ID:             fileID,
+			OrganizationID: organizationID,
+			BucketName:     s.bucket,
+			MimeType:       contentType,
+			FileName:       filename,
+			FileKey:        objectKey.String(),
+			FileSize:       (*req.LogoFile).Size,
+			Visibility:     coredata.FileVisibilityPublic,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+
+		fileSize, err := s.fm.PutFile(
+			ctx,
+			logoFile,
+			(*req.LogoFile).Content,
+			map[string]string{
+				"file-id":         fileID.String(),
+				"organization-id": organizationID.String(),
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot upload logo file: %w", err)
+		}
+
+		logoFile.FileSize = fileSize
+	}
+
+	if req.HorizontalLogoFile != nil {
+		var (
+			fileID      = gid.New(tenantID, coredata.FileEntityType)
+			objectKey   = uuid.MustNewV7()
+			filename    = (*req.HorizontalLogoFile).Filename
+			contentType = (*req.HorizontalLogoFile).ContentType
+			now         = time.Now()
+		)
+
+		horizontalLogoFile = &coredata.File{
+			ID:             fileID,
+			OrganizationID: organizationID,
+			BucketName:     s.bucket,
+			MimeType:       contentType,
+			FileName:       filename,
+			FileKey:        objectKey.String(),
+			FileSize:       (*req.HorizontalLogoFile).Size,
+			Visibility:     coredata.FileVisibilityPublic,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+
+		fileSize, err := s.fm.PutFile(
+			ctx,
+			horizontalLogoFile,
+			(*req.HorizontalLogoFile).Content,
+			map[string]string{
+				"file-id":         fileID.String(),
+				"organization-id": organizationID.String(),
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot upload logo file: %w", err)
+		}
+
+		horizontalLogoFile.FileSize = fileSize
+	}
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := organization.LoadByID(ctx, tx, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			organization.UpdatedAt = now
+
+			if req.Name != nil {
+				organization.Name = *req.Name
+			}
+
+			if logoFile != nil {
+				if err := logoFile.Insert(ctx, tx, scope); err != nil {
+					return fmt.Errorf("cannot insert file: %w", err)
+				}
+
+				organization.LogoFileID = &logoFile.ID
+			}
+
+			if horizontalLogoFile != nil {
+				err := horizontalLogoFile.Insert(ctx, tx, scope)
+				if err != nil {
+					return fmt.Errorf("cannot insert file: %w", err)
+				}
+
+				organization.HorizontalLogoFileID = &horizontalLogoFile.ID
+			}
+
+			err = organization.Update(ctx, scope, tx)
+			if err != nil {
+				return fmt.Errorf("cannot update organization: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organization, nil
+}
+
+func (s *OrganizationService) DeleteOrganization(ctx context.Context, organizationID gid.GID) error {
+	scope := coredata.NewScopeFromObjectID(organizationID)
+
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			organization := &coredata.Organization{}
+
+			err := organization.LoadByID(ctx, tx, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			if err := deleteOrganizationDependencies(ctx, tx, scope, organizationID); err != nil {
+				return fmt.Errorf("cannot delete organization dependencies: %w", err)
+			}
+
+			err = organization.Delete(ctx, tx, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot delete organization: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func deleteOrganizationDependencies(
+	ctx context.Context,
+	tx pg.Tx,
+	scope coredata.Scoper,
+	organizationID gid.GID,
+) error {
+	// These tables restrict deleting a membership profile that still owns
+	// them, a risk that is still linked to a scenario or measure, or a
+	// document that is still linked from a mapping table. They must be
+	// removed before organizations cascade-deletes those rows.
+	if err := new(coredata.ControlDocuments).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete control document mappings: %w", err)
+	}
+
+	if err := new(coredata.RiskDocuments).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete risk document mappings: %w", err)
+	}
+
+	if err := new(coredata.MeasureDocuments).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete measure document mappings: %w", err)
+	}
+
+	if err := new(coredata.RiskMeasures).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete risk measure mappings: %w", err)
+	}
+
+	if err := new(coredata.TreatmentPlanEvents).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete treatment plan events: %w", err)
+	}
+
+	if err := new(coredata.TreatmentPlans).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete treatment plans: %w", err)
+	}
+
+	if err := new(coredata.RiskAnalysisScenarioRisks).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete risk analysis scenario risks: %w", err)
+	}
+
+	if err := new(coredata.DocumentVersionApprovalDecisions).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete document version approval decisions: %w", err)
+	}
+
+	if err := new(coredata.DocumentVersionSignatures).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete document version signatures: %w", err)
+	}
+
+	if err := new(coredata.ThirdPartyAdministrators).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete third party administrators: %w", err)
+	}
+
+	if err := new(coredata.Assets).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete assets: %w", err)
+	}
+
+	if err := new(coredata.Data).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete data: %w", err)
+	}
+
+	if err := new(coredata.Devices).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete devices: %w", err)
+	}
+
+	if err := new(coredata.Obligations).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete obligations: %w", err)
+	}
+
+	if err := new(coredata.ProcessingActivities).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete processing activities: %w", err)
+	}
+
+	if err := new(coredata.StatementsOfApplicability).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete statements of applicability: %w", err)
+	}
+
+	if err := new(coredata.AiSystems).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete ai systems: %w", err)
+	}
+
+	if err := new(coredata.BusinessFunctions).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete business functions: %w", err)
+	}
+
+	if err := new(coredata.Findings).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete findings: %w", err)
+	}
+
+	if err := new(coredata.TaskComments).DeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot delete task comments: %w", err)
+	}
+
+	// files.organization_id has no foreign key, so they cannot cascade
+	// from the organization delete.
+	if err := new(coredata.Files).SoftDeleteByOrganizationID(ctx, tx, scope, organizationID); err != nil {
+		return fmt.Errorf("cannot soft delete files: %w", err)
+	}
+
+	return nil
+}
+
+func (s *OrganizationService) CreateUser(ctx context.Context, scope coredata.Scoper, req *CreateUserRequest) (*coredata.MembershipProfile, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	var (
+		profile *coredata.MembershipProfile
+		now     = time.Now()
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, conn pg.Tx) error {
+			identity := &coredata.Identity{}
+			if err := identity.LoadByEmail(ctx, conn, req.EmailAddress); err != nil {
+				if !errors.Is(err, coredata.ErrResourceNotFound) {
+					return fmt.Errorf("cannot load identity: %w", err)
+				}
+
+				identity = &coredata.Identity{
+					ID:           gid.New(gid.NilTenant, coredata.IdentityEntityType),
+					EmailAddress: req.EmailAddress,
+					FullName:     req.FullName,
+					CreatedAt:    now,
+					UpdatedAt:    now,
+				}
+
+				if err := identity.Insert(ctx, conn); err != nil {
+					return fmt.Errorf("cannot insert identity: %w", err)
+				}
+			}
+
+			profile = &coredata.MembershipProfile{
+				ID:                       gid.New(req.OrganizationID.TenantID(), coredata.MembershipProfileEntityType),
+				IdentityID:               identity.ID,
+				OrganizationID:           req.OrganizationID,
+				EmailAddress:             req.EmailAddress,
+				Source:                   coredata.ProfileSourceManual,
+				FullName:                 req.FullName,
+				Kind:                     req.Kind,
+				AdditionalEmailAddresses: req.AdditionalEmailAddresses,
+				Position:                 req.Position,
+				// User is pending until they accept an invitation.
+				State:     coredata.ProfileStatePending,
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
+
+			if req.ContractStartDate != nil {
+				profile.ContractStartDate = *req.ContractStartDate
+			}
+
+			if req.ContractEndDate != nil {
+				profile.ContractEndDate = *req.ContractEndDate
+			}
+
+			if err := profile.Insert(ctx, conn); err != nil {
+				if errors.Is(err, coredata.ErrResourceAlreadyExists) {
+					return NewUserAlreadyExistsError(identity.ID, req.OrganizationID)
+				}
+
+				return fmt.Errorf("cannot insert profile: %w", err)
+			}
+
+			membership := &coredata.Membership{
+				ID:             gid.New(req.OrganizationID.TenantID(), coredata.MembershipEntityType),
+				IdentityID:     identity.ID,
+				OrganizationID: req.OrganizationID,
+				Role:           req.Role,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}
+			if err := membership.Insert(ctx, conn, scope); err != nil {
+				return fmt.Errorf("cannot insert membership: %w", err)
+			}
+
+			if err := webhook.InsertData(ctx, conn, scope, req.OrganizationID, coredata.WebhookEventTypeUserCreated, webhooktypes.NewUser(profile, membership)); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return profile, nil
+}
+
+func (s *OrganizationService) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*coredata.MembershipProfile, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	var (
+		scope   = coredata.NewScopeFromObjectID(req.ID)
+		profile = &coredata.MembershipProfile{}
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, conn pg.Tx) error {
+			if err := profile.LoadByID(ctx, conn, scope, req.ID); err != nil {
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			previousProfile := *profile
+
+			if profile.Source != coredata.ProfileSourceSCIM {
+				profile.FullName = req.FullName
+				profile.Kind = req.Kind
+				profile.AdditionalEmailAddresses = req.AdditionalEmailAddresses
+				profile.Position = req.Position
+			}
+
+			if req.ContractStartDate != nil {
+				profile.ContractStartDate = *req.ContractStartDate
+			}
+
+			if req.ContractEndDate != nil {
+				profile.ContractEndDate = *req.ContractEndDate
+			}
+
+			now := time.Now()
+			profile.UpdatedAt = now
+
+			if err := profile.Update(ctx, conn, scope); err != nil {
+				return fmt.Errorf("cannot update profile: %w", err)
+			}
+
+			if profile.ContractEndDate != nil && profile.ContractEndDate.Before(now) {
+				signatures := &coredata.DocumentVersionSignatures{}
+				if err := signatures.DeleteRequestedBySignatory(ctx, conn, scope, profile.ID); err != nil {
+					return fmt.Errorf("cannot delete requested signatures: %w", err)
+				}
+			}
+
+			membership := &coredata.Membership{}
+
+			var (
+				webhookPayload *webhooktypes.User
+				previousUser   *webhooktypes.User
+			)
+
+			if err := membership.LoadByIdentityIDAndOrganizationID(ctx, conn, scope, profile.IdentityID, profile.OrganizationID); err != nil {
+				if !errors.Is(err, coredata.ErrResourceNotFound) {
+					return fmt.Errorf("cannot load membership: %w", err)
+				}
+
+				webhookPayload = webhooktypes.NewUser(profile, nil)
+				previousUser = webhooktypes.NewUser(&previousProfile, nil)
+			} else {
+				webhookPayload = webhooktypes.NewUser(profile, membership)
+				previousUser = webhooktypes.NewUser(&previousProfile, membership)
+			}
+
+			if err := webhook.InsertUpdateData(
+				ctx,
+				conn,
+				scope,
+				profile.OrganizationID,
+				coredata.WebhookEventTypeUserUpdated,
+				webhookPayload,
+				previousUser,
+			); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return profile, nil
+}
+
+func (s *OrganizationService) GetProfile(ctx context.Context, profileID gid.GID) (*coredata.MembershipProfile, error) {
+	profile := &coredata.MembershipProfile{}
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := profile.LoadByID(ctx, conn, coredata.NewScopeFromObjectID(profileID), profileID); err != nil {
+				if errors.Is(err, coredata.ErrResourceNotFound) {
+					return NewProfileNotFoundError(profileID)
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return profile, nil
+}
+
+func (s *OrganizationService) GetProfilesByIDs(
+	ctx context.Context,
+	scope coredata.Scoper,
+	profileIDs ...gid.GID,
+) (coredata.MembershipProfiles, error) {
+	var profiles coredata.MembershipProfiles
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := profiles.LoadByIDs(
+				ctx,
+				conn,
+				scope,
+				profileIDs,
+			); err != nil && !errors.Is(err, coredata.ErrResourceNotFound) {
+				return fmt.Errorf("cannot load profiles by ids: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return profiles, nil
+}
+
+func (s *OrganizationService) GetProfileForIdentityAndOrganization(ctx context.Context, identityID gid.GID, organizationID gid.GID) (*coredata.MembershipProfile, error) {
+	profile := &coredata.MembershipProfile{}
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := profile.LoadByIdentityIDAndOrganizationID(
+				ctx,
+				conn,
+				coredata.NewScopeFromObjectID(organizationID),
+				identityID,
+				organizationID,
+			); err != nil {
+				if errors.Is(err, coredata.ErrResourceNotFound) {
+					return NewProfileNotFoundError(gid.Nil)
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return profile, nil
+}
+
+func (s *OrganizationService) ListProfiles(
+	ctx context.Context,
+	organizationID gid.GID,
+	cursor *page.Cursor[coredata.MembershipProfileOrderField],
+	filter *coredata.MembershipProfileFilter,
+) (*page.Page[*coredata.MembershipProfile, coredata.MembershipProfileOrderField], error) {
+	var (
+		scope    = coredata.NewScopeFromObjectID(organizationID)
+		profiles = coredata.MembershipProfiles{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := profiles.LoadByOrganizationID(ctx, conn, scope, organizationID, cursor, filter); err != nil {
+				return fmt.Errorf("cannot load profiles: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(profiles, cursor), nil
+}
+
+func (s OrganizationService) CountProfiles(
+	ctx context.Context,
+	organizationID gid.GID,
+	filter *coredata.MembershipProfileFilter,
+) (int, error) {
+	var (
+		scope = coredata.NewScopeFromObjectID(organizationID)
+		count int
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) (err error) {
+			profiles := coredata.MembershipProfiles{}
+
+			count, err = profiles.CountByOrganizationID(ctx, conn, scope, organizationID, filter)
+			if err != nil {
+				return fmt.Errorf("cannot count profiles: %w", err)
+			}
+
+			return nil
+		},
+	)
+
+	return count, err
+}
+
+func (s *OrganizationService) GetOrganizationForMembership(ctx context.Context, membershipID gid.GID) (*coredata.Organization, error) {
+	var (
+		scope        = coredata.NewScopeFromObjectID(membershipID)
+		organization = &coredata.Organization{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			membership := &coredata.Membership{}
+
+			err := membership.LoadByID(ctx, conn, scope, membershipID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewMembershipNotFoundError(membershipID)
+				}
+
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			err = organization.LoadByID(ctx, conn, scope, membership.OrganizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewOrganizationNotFoundError(membership.OrganizationID)
+				}
+
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organization, nil
+}
+
+func (s OrganizationService) LogoFile(
+	ctx context.Context,
+	organizationID gid.GID,
+) (*coredata.File, error) {
+	var (
+		errNoLogoFile = errors.New("no logo file found")
+		scope         = coredata.NewScopeFromObjectID(organizationID)
+		file          = &coredata.File{}
+	)
+
+	if err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			organization := &coredata.Organization{}
+			if err := organization.LoadByID(ctx, conn, scope, organizationID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			if organization.LogoFileID == nil {
+				return errNoLogoFile
+			}
+
+			if err := file.LoadByID(ctx, conn, scope, *organization.LogoFileID); err != nil {
+				return fmt.Errorf("cannot load file: %w", err)
+			}
+
+			return nil
+		},
+	); err != nil {
+		if errors.Is(err, errNoLogoFile) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("cannot load logo file: %w", err)
+	}
+
+	return file, nil
+}
+
+func (s OrganizationService) HorizontalLogoFile(
+	ctx context.Context,
+	organizationID gid.GID,
+) (*coredata.File, error) {
+	var (
+		errNoLogoFile = errors.New("no logo file found")
+		scope         = coredata.NewScopeFromObjectID(organizationID)
+		file          = &coredata.File{}
+	)
+
+	if err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			organization := &coredata.Organization{}
+			if err := organization.LoadByID(ctx, conn, scope, organizationID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			if organization.HorizontalLogoFileID == nil {
+				return errNoLogoFile
+			}
+
+			if err := file.LoadByID(ctx, conn, scope, *organization.HorizontalLogoFileID); err != nil {
+				return fmt.Errorf("cannot load file: %w", err)
+			}
+
+			return nil
+		},
+	); err != nil {
+		if errors.Is(err, errNoLogoFile) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("cannot load horizontal logo file: %w", err)
+	}
+
+	return file, nil
+}
+
+func (s OrganizationService) DeleteHorizontalLogo(
+	ctx context.Context,
+	organizationID gid.GID,
+) (*coredata.Organization, error) {
+	scope := coredata.NewScopeFromObjectID(organizationID)
+	organization := &coredata.Organization{}
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := organization.LoadByID(ctx, tx, scope, organizationID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			if organization.HorizontalLogoFileID != nil {
+				file := coredata.File{ID: *organization.HorizontalLogoFileID}
+
+				if err := file.SoftDelete(ctx, tx, scope); err != nil {
+					return fmt.Errorf("cannot soft-delete horizontal logo file: %w", err)
+				}
+			}
+
+			organization.HorizontalLogoFileID = nil
+			organization.UpdatedAt = time.Now()
+
+			if err := organization.Update(ctx, scope, tx); err != nil {
+				return fmt.Errorf("cannot update organization: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organization, nil
+}
+
+func (s OrganizationService) DeleteSAMLConfiguration(
+	ctx context.Context,
+	organizationID gid.GID,
+	configID gid.GID,
+) error {
+	scope := coredata.NewScopeFromObjectID(organizationID)
+
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			var config coredata.SAMLConfiguration
+			if err := config.LoadByID(ctx, tx, scope, configID); err != nil {
+				return fmt.Errorf("cannot load saml configuration: %w", err)
+			}
+
+			if config.OrganizationID != organizationID {
+				return NewSAMLConfigurationNotFoundError(configID)
+			}
+
+			if err := config.Delete(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot delete saml configuration: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s OrganizationService) ListSAMLConfigurations(
+	ctx context.Context,
+	organizationID gid.GID,
+	cursor *page.Cursor[coredata.SAMLConfigurationOrderField],
+) (*page.Page[*coredata.SAMLConfiguration, coredata.SAMLConfigurationOrderField], error) {
+	var (
+		scope              = coredata.NewScopeFromObjectID(organizationID)
+		samlConfigurations = coredata.SAMLConfigurations{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := samlConfigurations.LoadByOrganizationID(ctx, conn, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot load saml configurations: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(samlConfigurations, cursor), nil
+}
+
+func (s OrganizationService) CountSAMLConfigurations(
+	ctx context.Context,
+	organizationID gid.GID,
+) (int, error) {
+	var (
+		scope = coredata.NewScopeFromObjectID(organizationID)
+		count int
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) (err error) {
+			samlConfigurations := coredata.SAMLConfigurations{}
+
+			count, err = samlConfigurations.CountByOrganizationID(ctx, conn, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot count saml configurations: %w", err)
+			}
+
+			return nil
+		},
+	)
+
+	return count, err
+}
+
+func (s OrganizationService) ListSCIMEvents(
+	ctx context.Context,
+	organizationID gid.GID,
+	cursor *page.Cursor[coredata.SCIMEventOrderField],
+) (*page.Page[*coredata.SCIMEvent, coredata.SCIMEventOrderField], error) {
+	var (
+		scope      = coredata.NewScopeFromObjectID(organizationID)
+		scimEvents = coredata.SCIMEvents{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := scimEvents.LoadByOrganizationID(
+				ctx,
+				conn,
+				scope,
+				organizationID,
+				cursor,
+				coredata.NewSCIMEventFilter(),
+			)
+			if err != nil {
+				return fmt.Errorf("cannot load scim events: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(scimEvents, cursor), nil
+}
+
+func (s OrganizationService) CountSCIMEvents(
+	ctx context.Context,
+	organizationID gid.GID,
+) (int, error) {
+	var (
+		scope = coredata.NewScopeFromObjectID(organizationID)
+		count int
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) (err error) {
+			scimEvents := coredata.SCIMEvents{}
+
+			count, err = scimEvents.CountByOrganizationID(ctx, conn, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot count scim events: %w", err)
+			}
+
+			return nil
+		},
+	)
+
+	return count, err
+}
+
+func (s OrganizationService) GetSCIMConfiguration(
+	ctx context.Context,
+	organizationID gid.GID,
+) (*coredata.SCIMConfiguration, error) {
+	var (
+		scope  = coredata.NewScopeFromObjectID(organizationID)
+		config = &coredata.SCIMConfiguration{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := config.LoadByOrganizationID(ctx, conn, scope, organizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewNoSCIMConfigurationFoundError(organizationID)
+				}
+
+				return fmt.Errorf("cannot load SCIM configuration: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+// CreateSCIMConfiguration creates the configuration and, when
+// connectorID is set, its bridge in one transaction: configurations
+// are unique per organization, so a bridge refusal must not commit a
+// bridgeless configuration that would block every retry.
+func (s OrganizationService) CreateSCIMConfiguration(
+	ctx context.Context,
+	organizationID gid.GID,
+	connectorID *gid.GID,
+) (*coredata.SCIMConfiguration, *coredata.SCIMBridge, string, error) {
+	token, err := scim.GenerateToken()
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	hashedToken := scim.HashToken(token)
+	now := time.Now()
+
+	config := &coredata.SCIMConfiguration{
+		ID:             gid.New(organizationID.TenantID(), coredata.SCIMConfigurationEntityType),
+		OrganizationID: organizationID,
+		HashedToken:    hashedToken,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	var (
+		scope  = coredata.NewScopeFromObjectID(organizationID)
+		bridge *coredata.SCIMBridge
+	)
+
+	err = s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := config.Insert(ctx, tx, scope)
+			if err != nil {
+				if err == coredata.ErrResourceAlreadyExists {
+					return scim.NewSCIMConfigurationAlreadyExistsError(organizationID)
+				}
+
+				return fmt.Errorf("cannot insert SCIM configuration: %w", err)
+			}
+
+			if connectorID == nil {
+				return nil
+			}
+
+			existingConnector := &coredata.Connector{}
+
+			err = existingConnector.LoadMetadataByID(ctx, tx, scope, *connectorID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewConnectorNotFoundError(*connectorID)
+				}
+
+				return fmt.Errorf("cannot load connector: %w", err)
+			}
+
+			sources := &coredata.AccessReviewSources{}
+
+			sourceCount, err := sources.CountByConnectorID(ctx, tx, scope, *connectorID)
+			if err != nil {
+				return fmt.Errorf("cannot count access sources for connector: %w", err)
+			}
+
+			if sourceCount > 0 {
+				return fmt.Errorf("cannot create SCIM bridge: connector is used by an access review source: %w", coredata.ErrResourceInUse)
+			}
+
+			var bridgeType coredata.SCIMBridgeType
+
+			switch existingConnector.Provider {
+			case coredata.ConnectorProviderGoogleWorkspace:
+				bridgeType = coredata.SCIMBridgeTypeGoogleWorkspace
+			case coredata.ConnectorProviderMicrosoft365:
+				bridgeType = coredata.SCIMBridgeTypeMicrosoft365
+			default:
+				return fmt.Errorf("connector provider %s is not supported for SCIM bridge", existingConnector.Provider)
+			}
+
+			bridge = &coredata.SCIMBridge{
+				ID:                  gid.New(organizationID.TenantID(), coredata.SCIMBridgeEntityType),
+				OrganizationID:      organizationID,
+				ScimConfigurationID: config.ID,
+				ConnectorID:         connectorID,
+				Type:                bridgeType,
+				State:               coredata.SCIMBridgeStateActive,
+				ExcludedUserNames:   []string{},
+				CreatedAt:           now,
+				UpdatedAt:           now,
+			}
+
+			if err := bridge.Insert(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot insert SCIM bridge: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return config, bridge, token, nil
+}
+
+func (s OrganizationService) DeleteSCIMConfiguration(
+	ctx context.Context,
+	organizationID gid.GID,
+	configID gid.GID,
+) error {
+	scope := coredata.NewScopeFromObjectID(configID)
+
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			config := &coredata.SCIMConfiguration{}
+
+			// A concurrent bridge insert FK-blocks on this row lock, so
+			// no bridge can appear after the lookup below and die via
+			// the cascade with its connector stranded.
+			err := config.LoadByIDForUpdate(ctx, tx, scope, configID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return scim.NewSCIMConfigurationNotFoundError(configID)
+				}
+
+				return fmt.Errorf("cannot load SCIM configuration: %w", err)
+			}
+
+			if config.OrganizationID != organizationID {
+				return scim.NewSCIMConfigurationNotFoundError(configID)
+			}
+
+			profiles := &coredata.MembershipProfiles{}
+
+			err = profiles.ResetSCIMSources(ctx, tx, scope, config.OrganizationID)
+			if err != nil {
+				return fmt.Errorf("cannot reset user sources: %w", err)
+			}
+
+			bridge := &coredata.SCIMBridge{}
+
+			err = bridge.LoadBySCIMConfigurationID(ctx, tx, scope, configID)
+			if err != nil && err != coredata.ErrResourceNotFound {
+				return fmt.Errorf("cannot load SCIM bridge: %w", err)
+			}
+
+			if err == nil {
+				// The bridge FK restricts the connector delete: bridge
+				// first, then its connector, in the same transaction.
+				err = bridge.Delete(ctx, tx, scope)
+				if err != nil {
+					return fmt.Errorf("cannot delete SCIM bridge: %w", err)
+				}
+
+				if bridge.ConnectorID != nil {
+					connector := &coredata.Connector{ID: *bridge.ConnectorID}
+					if err := connector.Delete(ctx, tx, scope); err != nil {
+						return fmt.Errorf("cannot delete connector: %w", err)
+					}
+				}
+			}
+
+			err = config.Delete(ctx, tx, scope)
+			if err != nil {
+				return fmt.Errorf("cannot delete SCIM configuration: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s OrganizationService) RegenerateSCIMToken(
+	ctx context.Context,
+	organizationID gid.GID,
+	configID gid.GID,
+) (*coredata.SCIMConfiguration, string, error) {
+	token, err := scim.GenerateToken()
+	if err != nil {
+		return nil, "", err
+	}
+
+	hashedToken := scim.HashToken(token)
+	config := &coredata.SCIMConfiguration{}
+	scope := coredata.NewScopeFromObjectID(configID)
+
+	err = s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := config.LoadByID(ctx, tx, scope, configID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return scim.NewSCIMConfigurationNotFoundError(configID)
+				}
+
+				return fmt.Errorf("cannot load SCIM configuration: %w", err)
+			}
+
+			if config.OrganizationID != organizationID {
+				return scim.NewSCIMConfigurationNotFoundError(configID)
+			}
+
+			config.HashedToken = hashedToken
+			config.UpdatedAt = time.Now()
+
+			err = config.Update(ctx, tx, scope)
+			if err != nil {
+				return fmt.Errorf("cannot update SCIM configuration: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return config, token, nil
+}
+
+func (s OrganizationService) UpdateSCIMBridge(
+	ctx context.Context,
+	organizationID gid.GID,
+	bridgeID gid.GID,
+	excludedUserNames []string,
+) (*coredata.SCIMBridge, error) {
+	bridge := &coredata.SCIMBridge{}
+	scope := coredata.NewScopeFromObjectID(bridgeID)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := bridge.LoadByID(ctx, tx, scope, bridgeID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSCIMBridgeNotFoundError(bridgeID)
+				}
+
+				return fmt.Errorf("cannot load SCIM bridge: %w", err)
+			}
+
+			if bridge.OrganizationID != organizationID {
+				return NewSCIMBridgeNotFoundError(bridgeID)
+			}
+
+			bridge.ExcludedUserNames = excludedUserNames
+			bridge.UpdatedAt = time.Now()
+
+			err = bridge.Update(ctx, tx, scope)
+			if err != nil {
+				return fmt.Errorf("cannot update SCIM bridge: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return bridge, nil
+}
+
+func (s OrganizationService) ReactivateSCIMBridge(
+	ctx context.Context,
+	bridgeID gid.GID,
+) (*coredata.SCIMBridge, error) {
+	bridge := &coredata.SCIMBridge{}
+	scope := coredata.NewScopeFromObjectID(bridgeID)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := bridge.LoadByID(ctx, tx, scope, bridgeID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSCIMBridgeNotFoundError(bridgeID)
+				}
+
+				return fmt.Errorf("cannot load SCIM bridge: %w", err)
+			}
+
+			now := time.Now()
+			bridge.NextSyncAt = new(now)
+			bridge.ConsecutiveFailures = 0
+			bridge.SyncError = nil
+
+			// The runner claims ACTIVE and FAILED bridges, plus stale SYNCING
+			// rows. DISABLED and PENDING are never selected, so any other
+			// state is returned to ACTIVE with the next sync due immediately.
+			if bridge.State != coredata.SCIMBridgeStateActive {
+				bridge.State = coredata.SCIMBridgeStateActive
+			}
+
+			bridge.UpdatedAt = now
+
+			err = bridge.Update(ctx, tx, scope)
+			if err != nil {
+				return fmt.Errorf("cannot reactivate SCIM bridge: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return bridge, nil
+}
+
+func (s OrganizationService) ListSCIMEventsByConfigID(
+	ctx context.Context,
+	scimConfigurationID gid.GID,
+	cursor *page.Cursor[coredata.SCIMEventOrderField],
+) (*page.Page[*coredata.SCIMEvent, coredata.SCIMEventOrderField], error) {
+	var (
+		scope      = coredata.NewScopeFromObjectID(scimConfigurationID)
+		scimEvents = coredata.SCIMEvents{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := scimEvents.LoadBySCIMConfigurationID(ctx, conn, scope, scimConfigurationID, cursor)
+			if err != nil {
+				return fmt.Errorf("cannot load scim events: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(scimEvents, cursor), nil
+}
+
+func (s OrganizationService) CountSCIMEventsByConfigID(
+	ctx context.Context,
+	scimConfigurationID gid.GID,
+) (int, error) {
+	var (
+		scope = coredata.NewScopeFromObjectID(scimConfigurationID)
+		count int
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) (err error) {
+			scimEvents := coredata.SCIMEvents{}
+
+			count, err = scimEvents.CountBySCIMConfigurationID(ctx, conn, scope, scimConfigurationID)
+			if err != nil {
+				return fmt.Errorf("cannot count scim events: %w", err)
+			}
+
+			return nil
+		},
+	)
+
+	return count, err
+}
+
+func (s OrganizationService) CreateSAMLConfiguration(
+	ctx context.Context,
+	organizationID gid.GID,
+	req *CreateSAMLConfigurationRequest,
+) (*coredata.SAMLConfiguration, error) {
+	var (
+		now                     = time.Now()
+		scope                   = coredata.NewScopeFromObjectID(organizationID)
+		domainVerificationToken = uuid.MustNewV4().String()
+		enforcementPolicy       = coredata.SAMLEnforcementPolicyOptional
+		config                  = &coredata.SAMLConfiguration{
+			ID:                      gid.New(scope.GetTenantID(), coredata.SAMLConfigurationEntityType),
+			OrganizationID:          organizationID,
+			EnforcementPolicy:       enforcementPolicy,
+			IdPEntityID:             req.IdPEntityID,
+			IdPSsoURL:               req.IdPSsoURL,
+			IdPCertificate:          req.IdPCertificate,
+			DomainVerificationToken: &domainVerificationToken,
+			EmailDomain:             req.EmailDomain,
+			AutoSignupEnabled:       req.AutoSignupEnabled,
+			AttributeEmail:          DefaultAttributeEmail,
+			AttributeFirstname:      DefaultAttributeFirstname,
+			AttributeLastname:       DefaultAttributeLastname,
+			AttributeRole:           DefaultAttributeRole,
+			CreatedAt:               now,
+			UpdatedAt:               now,
+		}
+	)
+
+	if req.EnforcementPolicy != nil {
+		config.EnforcementPolicy = *req.EnforcementPolicy
+	}
+
+	if req.AttributeEmail != nil {
+		config.AttributeEmail = *req.AttributeEmail
+	}
+
+	if req.AttributeFirstname != nil {
+		config.AttributeFirstname = *req.AttributeFirstname
+	}
+
+	if req.AttributeLastname != nil {
+		config.AttributeLastname = *req.AttributeLastname
+	}
+
+	if req.AttributeRole != nil {
+		config.AttributeRole = *req.AttributeRole
+	}
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			organization := &coredata.Organization{}
+
+			err := organization.LoadByID(ctx, tx, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			err = config.Insert(ctx, tx, scope)
+			if err != nil {
+				if errors.Is(err, coredata.ErrResourceAlreadyExists) {
+					return NewSAMLConfigurationEmailDomainAlreadyExistsError(req.EmailDomain)
+				}
+
+				return fmt.Errorf("cannot insert saml configuration: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+func (s OrganizationService) UpdateSAMLConfiguration(
+	ctx context.Context,
+	organizationID gid.GID,
+	configID gid.GID,
+	req *UpdateSAMLConfigurationRequest,
+) (*coredata.SAMLConfiguration, error) {
+	var (
+		scope  = coredata.NewScopeFromObjectID(organizationID)
+		config = &coredata.SAMLConfiguration{}
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			organization := &coredata.Organization{}
+
+			err := organization.LoadByID(ctx, tx, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			config = &coredata.SAMLConfiguration{}
+
+			err = config.LoadByID(ctx, tx, scope, configID)
+			if err != nil {
+				return fmt.Errorf("cannot load saml configuration: %w", err)
+			}
+
+			if req.EnforcementPolicy != nil {
+				config.EnforcementPolicy = *req.EnforcementPolicy
+			}
+
+			if req.IdPEntityID != nil {
+				config.IdPEntityID = *req.IdPEntityID
+			}
+
+			if req.IdPSsoURL != nil {
+				config.IdPSsoURL = *req.IdPSsoURL
+			}
+
+			if req.IdPCertificate != nil {
+				config.IdPCertificate = *req.IdPCertificate
+			}
+
+			if req.AttributeEmail != nil {
+				config.AttributeEmail = *req.AttributeEmail
+			}
+
+			if req.AttributeFirstname != nil {
+				config.AttributeFirstname = *req.AttributeFirstname
+			}
+
+			if req.AttributeLastname != nil {
+				config.AttributeLastname = *req.AttributeLastname
+			}
+
+			if req.AttributeRole != nil {
+				config.AttributeRole = *req.AttributeRole
+			}
+
+			if req.AutoSignupEnabled != nil {
+				config.AutoSignupEnabled = *req.AutoSignupEnabled
+			}
+
+			config.UpdatedAt = time.Now()
+
+			err = config.Update(ctx, tx, scope)
+			if err != nil {
+				return fmt.Errorf("cannot update saml configuration: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+func (s OrganizationService) GetOrganization(ctx context.Context, organizationID gid.GID) (*coredata.Organization, error) {
+	var (
+		scope        = coredata.NewScopeFromObjectID(organizationID)
+		organization = &coredata.Organization{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := organization.LoadByID(ctx, conn, scope, organizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewOrganizationNotFoundError(organizationID)
+				}
+
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return organization, nil
+}
+
+func (s OrganizationService) GetSCIMBridgeByID(ctx context.Context, bridgeID gid.GID) (*coredata.SCIMBridge, error) {
+	var (
+		scope  = coredata.NewScopeFromObjectID(bridgeID)
+		bridge = &coredata.SCIMBridge{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := bridge.LoadByID(ctx, conn, scope, bridgeID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSCIMBridgeNotFoundError(bridgeID)
+				}
+
+				return fmt.Errorf("cannot load SCIM bridge: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return bridge, nil
+}
+
+// GetConnectorMetadataByID returns connector metadata without decrypting the connection.
+// Use this when you only need provider, organization, or other metadata fields.
+func (s OrganizationService) GetConnectorMetadataByID(ctx context.Context, connectorID gid.GID) (*coredata.Connector, error) {
+	var (
+		scope     = coredata.NewScopeFromObjectID(connectorID)
+		connector = &coredata.Connector{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := connector.LoadMetadataByID(ctx, conn, scope, connectorID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewConnectorNotFoundError(connectorID)
+				}
+
+				return fmt.Errorf("cannot load connector: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return connector, nil
+}
+
+func (s OrganizationService) GetSCIMBridgeByOrganizationID(ctx context.Context, organizationID gid.GID) (*coredata.SCIMBridge, error) {
+	var (
+		scope  = coredata.NewScopeFromObjectID(organizationID)
+		bridge = &coredata.SCIMBridge{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := bridge.LoadByOrganizationID(ctx, conn, scope, organizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return nil // No bridge found, not an error
+				}
+
+				return fmt.Errorf("cannot load SCIM bridge: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// If bridge ID is empty, no bridge was found
+	if bridge.ID == (gid.GID{}) {
+		return nil, nil
+	}
+
+	return bridge, nil
+}
+
+func (s *OrganizationService) GetAuditLogEntry(
+	ctx context.Context,
+	id gid.GID,
+) (*coredata.AuditLogEntry, error) {
+	var (
+		scope = coredata.NewScopeFromObjectID(id)
+		entry = &coredata.AuditLogEntry{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			return entry.LoadByID(ctx, conn, scope, id)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot load audit log entry: %w", err)
+	}
+
+	return entry, nil
+}
+
+func (s *OrganizationService) ListAuditLogEntries(
+	ctx context.Context,
+	organizationID gid.GID,
+	cursor *page.Cursor[coredata.AuditLogEntryOrderField],
+	filter *coredata.AuditLogEntryFilter,
+) (*page.Page[*coredata.AuditLogEntry, coredata.AuditLogEntryOrderField], error) {
+	var (
+		scope   = coredata.NewScopeFromObjectID(organizationID)
+		entries = coredata.AuditLogEntries{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := entries.LoadByOrganizationID(ctx, conn, scope, organizationID, cursor, filter); err != nil {
+				return fmt.Errorf("cannot load audit log entries: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(entries, cursor), nil
+}
+
+func (s *OrganizationService) CountAuditLogEntries(
+	ctx context.Context,
+	organizationID gid.GID,
+	filter *coredata.AuditLogEntryFilter,
+) (int, error) {
+	var (
+		scope = coredata.NewScopeFromObjectID(organizationID)
+		count int
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) (err error) {
+			entries := coredata.AuditLogEntries{}
+
+			count, err = entries.CountByOrganizationID(ctx, conn, scope, organizationID, filter)
+			if err != nil {
+				return fmt.Errorf("cannot count audit log entries: %w", err)
+			}
+
+			return nil
+		},
+	)
+
+	return count, err
+}
+
+type RequestLogExportRequest struct {
+	OrganizationID gid.GID
+	Type           coredata.ExportJobType
+	FromTime       time.Time
+	ToTime         time.Time
+	RecipientEmail mail.Addr
+	RecipientName  string
+}
+
+func (s *OrganizationService) RequestLogExport(
+	ctx context.Context,
+	scope coredata.Scoper,
+	req RequestLogExportRequest,
+) (*coredata.ExportJob, error) {
+	if !req.FromTime.Before(req.ToTime) {
+		return nil, NewInvalidLogExportTimeRangeError()
+	}
+
+	if req.ToTime.After(req.FromTime.AddDate(maxLogExportTimeRangeYears, 0, 0)) {
+		return nil, NewLogExportTimeRangeTooLargeError()
+	}
+
+	switch req.Type {
+	case coredata.ExportJobTypeAuditLog, coredata.ExportJobTypeSCIMEvent:
+	default:
+		return nil, fmt.Errorf("unsupported log export type: %q", req.Type)
+	}
+
+	arguments, err := json.Marshal(coredata.LogExportArguments{
+		FromTime: req.FromTime,
+		ToTime:   req.ToTime,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal log export arguments: %w", err)
+	}
+
+	exportJob := &coredata.ExportJob{}
+
+	err = s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			now := time.Now()
+
+			exportJob = &coredata.ExportJob{
+				ID:             gid.New(scope.GetTenantID(), coredata.ExportJobEntityType),
+				OrganizationID: req.OrganizationID,
+				Type:           req.Type,
+				Arguments:      arguments,
+				Status:         coredata.ExportJobStatusPending,
+				RecipientEmail: req.RecipientEmail,
+				RecipientName:  req.RecipientName,
+				CreatedAt:      now,
+			}
+
+			if err := exportJob.Insert(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot insert export job: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot request log export: %w", err)
+	}
+
+	return exportJob, nil
+}

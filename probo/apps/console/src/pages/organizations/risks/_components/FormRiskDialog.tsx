@@ -1,0 +1,437 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { useToggle } from "@probo/hooks";
+import {
+  Breadcrumb,
+  Button,
+  Card,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  Field,
+  IconPlusLarge,
+  Label,
+  Option,
+  PropertyRow,
+  Select,
+  Textarea,
+  useDialogRef,
+} from "@probo/ui";
+import { type ReactNode, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { useFragment } from "react-relay";
+import { graphql } from "relay-runtime";
+
+import type { FormRiskDialog_risk$key } from "#/__generated__/core/FormRiskDialog_risk.graphql";
+import type { FormRiskDialogMutation } from "#/__generated__/core/FormRiskDialogMutation.graphql";
+import type { FormRiskDialogUpdateRiskMutation } from "#/__generated__/core/FormRiskDialogUpdateRiskMutation.graphql";
+import { ControlledField, ControlledSelect } from "#/components/form/ControlledField";
+import { PeopleSelectField } from "#/components/form/PeopleSelectField";
+import {
+  type RiskData,
+  type RiskForm,
+  useRiskForm,
+} from "#/hooks/forms/useRiskForm";
+import { useFetchQuery } from "#/hooks/useFetchQuery";
+import { useOrganizationId } from "#/hooks/useOrganizationId";
+import { useMutation } from "#/lib/relay/useMutation";
+
+interface FormRiskDialogProps {
+  trigger?: ReactNode;
+  risk?: FormRiskDialog_risk$key;
+  connection?: string;
+  ref?: ReturnType<typeof useDialogRef>;
+  onSuccess?: () => void;
+}
+
+type RiskTemplate = {
+  category: string;
+  name: string;
+  description: string;
+};
+
+const formRiskFragment = graphql`
+  fragment FormRiskDialog_risk on Risk {
+    id
+    referenceId
+    name
+    category
+    description
+    treatment
+    inherentLikelihood
+    inherentImpact
+    residualLikelihood
+    residualImpact
+    inherentRiskScore
+    residualRiskScore
+    note
+    owner {
+      id
+    }
+  }
+`;
+
+const createRiskMutation = graphql`
+  mutation FormRiskDialogMutation(
+    $input: CreateRiskInput!
+    $connections: [ID!]!
+  ) {
+    createRisk(input: $input) {
+      riskEdge @prependEdge(connections: $connections) {
+        node {
+          ...FormRiskDialog_risk
+        }
+      }
+    }
+  }
+`;
+
+const updateRiskMutation = graphql`
+  mutation FormRiskDialogUpdateRiskMutation($input: UpdateRiskInput!) {
+    updateRisk(input: $input) {
+      risk {
+        ...FormRiskDialog_risk
+      }
+    }
+  }
+`;
+
+export function FormRiskDialog({
+  trigger,
+  risk: riskKey,
+  connection,
+  ref: refProps,
+  onSuccess,
+}: FormRiskDialogProps) {
+  const { t } = useTranslation();
+  const organizationId = useOrganizationId();
+  const dialogRef = useDialogRef();
+  const ref = refProps ?? dialogRef;
+
+  const risk = useFragment(formRiskFragment, riskKey ?? null);
+  const formDefaults = risk
+    ? {
+        id: risk.id,
+        name: risk.name,
+        category: risk.category,
+        description: risk.description,
+        treatment: risk.treatment,
+        inherentLikelihood: risk.inherentLikelihood,
+        inherentImpact: risk.inherentImpact,
+        residualLikelihood: risk.residualLikelihood,
+        residualImpact: risk.residualImpact,
+        inherentRiskScore: risk.inherentRiskScore,
+        residualRiskScore: risk.residualRiskScore,
+        note: risk.note,
+        owner: risk.owner,
+      }
+    : undefined;
+  const { control, handleSubmit, setValue, register, watch, formState, reset }
+    = useRiskForm(formDefaults);
+  const errors = formState.errors ?? {};
+  const [createRisk, isCreating]
+    = useMutation<FormRiskDialogMutation>(createRiskMutation);
+  const [updateRisk, isUpdating]
+    = useMutation<FormRiskDialogUpdateRiskMutation>(updateRiskMutation);
+  const isLoading = isCreating || isUpdating;
+
+  const onTemplateChange = (template: RiskTemplate) => {
+    setValue("name", template.name);
+    setValue("description", template.description);
+  };
+
+  const onSubmit = async (data: RiskData) => {
+    try {
+      if (risk) {
+        await updateRisk(
+          {
+            variables: {
+              input: {
+                id: risk.id,
+                ...data,
+                description: data.description || null,
+              },
+            },
+          },
+          { successMessage: t("formRiskDialog.messages.updated"), errorToast: t("formRiskDialog.errors.update") },
+        );
+        ref?.current?.close();
+        return;
+      }
+
+      await createRisk(
+        {
+          variables: {
+            input: {
+              ...data,
+              description: data.description || null,
+              organizationId,
+            },
+            connections: [connection!],
+          },
+        },
+        { successMessage: t("formRiskDialog.messages.created"), errorToast: t("formRiskDialog.errors.create") },
+      );
+      ref?.current?.close();
+      reset();
+      onSuccess?.();
+    } catch {
+      // Error toast is handled by useMutation.
+    }
+  };
+
+  const [showNote, toggleNote] = useToggle(Boolean(risk?.note));
+
+  return (
+    <Dialog
+      ref={ref}
+      trigger={trigger}
+      title={(
+        <Breadcrumb
+          items={[t("formRiskDialog.breadcrumb.risks"), risk ? t("formRiskDialog.breadcrumb.edit") : t("formRiskDialog.breadcrumb.new")]}
+        />
+      )}
+    >
+      <form onSubmit={e => void handleSubmit(onSubmit)(e)}>
+        <DialogContent className="grid grid-cols-[1fr_420px]">
+          <div className="py-8 px-12 space-y-6">
+            <TemplateSelector
+              onChange={onTemplateChange}
+              control={control}
+              watch={watch}
+            />
+            <Field
+              type="text"
+              {...register("name")}
+              error={errors.name?.message}
+              label={t("formRiskDialog.fields.name")}
+              placeholder={t("formRiskDialog.placeholders.name")}
+            />
+            <Field
+              {...register("description")}
+              error={errors.description?.message}
+              label={t("formRiskDialog.fields.description")}
+              placeholder={t("formRiskDialog.placeholders.description")}
+              type="textarea"
+            />
+
+            <div className="grid grid-cols-2 gap-6">
+              <ImpactAndLikelihood
+                errors={errors}
+                control={control}
+                label={t("formRiskDialog.fields.initialRisk")}
+                prefix="inherent"
+              />
+              <ImpactAndLikelihood
+                errors={errors}
+                control={control}
+                label={t("formRiskDialog.fields.residualRisk")}
+                prefix="residual"
+              />
+            </div>
+          </div>
+
+          <div className="py-5 px-6 bg-subtle">
+            <Label>{t("formRiskDialog.properties")}</Label>
+
+            <PropertyRow
+              id="ownerId"
+              label={t("formRiskDialog.fields.owner")}
+              error={errors.ownerId?.message}
+            >
+              <PeopleSelectField
+                name="ownerId"
+                control={control}
+                organizationId={organizationId}
+              />
+            </PropertyRow>
+
+            <PropertyRow
+              id="treatment"
+              label={t("formRiskDialog.fields.treatment")}
+              error={errors.treatment?.message}
+            >
+              <ControlledSelect
+                control={control}
+                name="treatment"
+                variant="editor"
+                placeholder={t("formRiskDialog.placeholders.treatment")}
+              >
+                <Option value="AVOIDED">{t("formRiskDialog.treatments.avoided")}</Option>
+                <Option value="MITIGATED">{t("formRiskDialog.treatments.mitigated")}</Option>
+                <Option value="TRANSFERRED">{t("formRiskDialog.treatments.transferred")}</Option>
+                <Option value="ACCEPTED">{t("formRiskDialog.treatments.accepted")}</Option>
+              </ControlledSelect>
+            </PropertyRow>
+
+            <PropertyRow
+              id="note"
+              label={t("formRiskDialog.fields.note")}
+              error={errors.note?.message}
+            >
+              <Button
+                type="button"
+                variant="quaternary"
+                icon={IconPlusLarge}
+                onClick={toggleNote}
+              />
+              {showNote && (
+                <Textarea
+                  {...register("note")}
+                  className="animate-in slide-in-from-top-2"
+                  placeholder={t("formRiskDialog.placeholders.note")}
+                />
+              )}
+            </PropertyRow>
+          </div>
+        </DialogContent>
+        <DialogFooter>
+          <Button type="submit" disabled={isLoading}>
+            {risk ? t("formRiskDialog.actions.update") : t("formRiskDialog.actions.create")}
+          </Button>
+        </DialogFooter>
+      </form>
+    </Dialog>
+  );
+}
+
+function ImpactAndLikelihood({
+  label,
+  prefix,
+  control,
+  errors,
+}: {
+  label: string;
+  prefix: "inherent" | "residual";
+  control: RiskForm["control"];
+  errors: RiskForm["formState"]["errors"];
+}) {
+  const { t } = useTranslation();
+  return (
+    <div>
+      <Label>{label}</Label>
+      <Card padded className="space-y-4 p-4">
+        <ControlledField
+          control={control}
+          name={`${prefix}Impact`}
+          type="select"
+          label={t("formRiskDialog.fields.impact")}
+          placeholder={t("formRiskDialog.placeholders.impact")}
+          error={errors?.[`${prefix}Impact`]?.message}
+        >
+          {[1, 2, 3, 4, 5].map(value => (
+            <Option key={value} value={value.toString()}>
+              {t("formRiskDialog.scoreOption", {
+                value,
+                label: t(`formRiskDialog.impacts.${value}`),
+              })}
+            </Option>
+          ))}
+        </ControlledField>
+        <ControlledField
+          control={control}
+          name={`${prefix}Likelihood`}
+          type="select"
+          label={t("formRiskDialog.fields.likelihood")}
+          placeholder={t("formRiskDialog.placeholders.likelihood")}
+          error={errors?.[`${prefix}Likelihood`]?.message}
+        >
+          {[1, 2, 3, 4, 5].map(value => (
+            <Option key={value} value={value.toString()}>
+              {t("formRiskDialog.scoreOption", {
+                value,
+                label: t(`formRiskDialog.likelihoods.${value}`),
+              })}
+            </Option>
+          ))}
+        </ControlledField>
+      </Card>
+    </div>
+  );
+}
+
+function TemplateSelector({
+  onChange,
+  control,
+  watch,
+}: {
+  onChange: (risk: RiskTemplate) => void;
+  control: RiskForm["control"];
+  watch: RiskForm["watch"];
+}) {
+  const { t } = useTranslation();
+  const { data: risks } = useFetchQuery<RiskTemplate[]>(
+    "/data/risks/risks.json",
+    {
+      staleTime: 100_000,
+    },
+  );
+
+  const categories = useMemo(
+    () => Array.from(new Set(risks?.map(t => t.category))),
+    [risks],
+  );
+
+  const selectedCategory = watch("category");
+
+  const templates = useMemo(
+    () => risks?.filter(r => r.category === selectedCategory) ?? [],
+    [risks, selectedCategory],
+  );
+
+  const onTemplateChange = (template: string) => {
+    const risk = risks?.find(r => r.name === template);
+    if (!risk) {
+      throw new Error("Risk not found");
+    }
+    onChange(risk);
+  };
+  return (
+    <div>
+      <Label>{t("formRiskDialog.fields.category")}</Label>
+      <div className="grid grid-cols-2 gap-2">
+        <ControlledSelect
+          control={control}
+          name="category"
+          placeholder={t("formRiskDialog.placeholders.category")}
+        >
+          {categories.map(category => (
+            <Option key={category} value={category}>
+              {category}
+            </Option>
+          ))}
+        </ControlledSelect>
+        <Select
+          key={selectedCategory}
+          variant={templates?.length === 0 ? "dashed" : "default"}
+          placeholder={t("formRiskDialog.placeholders.template")}
+          onValueChange={onTemplateChange}
+        >
+          {templates?.map(template => (
+            <Option key={template.name} value={template.name}>
+              {template.name}
+            </Option>
+          ))}
+        </Select>
+      </div>
+    </div>
+  );
+}

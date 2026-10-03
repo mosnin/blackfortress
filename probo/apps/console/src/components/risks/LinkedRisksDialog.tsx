@@ -1,0 +1,205 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  IconMagnifyingGlass,
+  IconPlusLarge,
+  IconTrashCan,
+  Input,
+  Option,
+  Select,
+  Spinner,
+} from "@probo/ui";
+import { type ReactNode, Suspense, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useLazyLoadQuery } from "react-relay";
+import { graphql } from "relay-runtime";
+
+import type { LinkedRisksDialogQuery } from "#/__generated__/core/LinkedRisksDialogQuery.graphql";
+import { useOrganizationId } from "#/hooks/useOrganizationId";
+
+const risksQuery = graphql`
+  query LinkedRisksDialogQuery($organizationId: ID!) {
+    organization: node(id: $organizationId) {
+      id
+      ... on Organization {
+        risks(first: 100) {
+          edges {
+            node {
+              id
+              referenceId
+              name
+              category
+              description
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+type Props = {
+  children: ReactNode;
+  connectionId: string;
+  disabled?: boolean;
+  linkedRisks?: { id: string }[];
+  onLink: (riskId: string) => void;
+  onUnlink: (riskId: string) => void;
+};
+
+export function LinkedRisksDialog({ children, ...props }: Props) {
+  const { t } = useTranslation();
+
+  return (
+    <Dialog trigger={children} title={t("linkedRisksDialog.title")}>
+      <DialogContent>
+        <Suspense fallback={<Spinner centered />}>
+          <LinkedRisksDialogContent {...props} />
+        </Suspense>
+      </DialogContent>
+      <DialogFooter exitLabel={t("linkedRisksDialog.actions.close")} />
+    </Dialog>
+  );
+}
+
+function LinkedRisksDialogContent(props: Omit<Props, "children">) {
+  const organizationId = useOrganizationId();
+  const data = useLazyLoadQuery<LinkedRisksDialogQuery>(risksQuery, {
+    organizationId,
+  });
+  const { t } = useTranslation();
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState<string | null>(null);
+  const risks = useMemo(
+    () => data.organization?.risks?.edges?.map(edge => edge.node) ?? [],
+    [data.organization?.risks],
+  );
+  const linkedIds = useMemo(() => {
+    return new Set(props.linkedRisks?.map(r => r.id) ?? []);
+  }, [props.linkedRisks]);
+
+  const filteredRisks = useMemo(() => {
+    return risks.filter(
+      risk =>
+        (category === null || risk.category === category)
+        && (risk.referenceId.toLowerCase().includes(search.toLowerCase())
+          || risk.name.toLowerCase().includes(search.toLowerCase())
+          || risk.description?.toLowerCase().includes(search.toLowerCase())),
+    );
+  }, [risks, search, category]);
+
+  const categories = useMemo(
+    () => Array.from(new Set(risks.map(r => r.category))),
+    [risks],
+  );
+
+  return (
+    <>
+      <div className="flex items-center gap-2 sticky top-0 relative py-4 bg-linear-to-b from-50% from-level-2 to-level-2/0 px-6">
+        <Input
+          icon={IconMagnifyingGlass}
+          placeholder={t("linkedRisksDialog.searchPlaceholder")}
+          onValueChange={setSearch}
+        />
+        <Select
+          value={category ?? ""}
+          placeholder={t("linkedRisksDialog.allCategories")}
+          onValueChange={setCategory}
+          className="max-w-[180px]"
+        >
+          {categories.map(category => (
+            <Option key={category} value={category}>
+              {category}
+            </Option>
+          ))}
+        </Select>
+      </div>
+      <div className="divide-y divide-border-low">
+        {filteredRisks.map(risk => (
+          <RiskRow
+            key={risk.id}
+            risk={risk}
+            linkedRisks={linkedIds}
+            onLink={props.onLink}
+            onUnlink={props.onUnlink}
+            disabled={props.disabled}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
+type RowProps = {
+  risk: {
+    name: string;
+    referenceId: string;
+    category: string;
+    id: string;
+    description?: string | null;
+  };
+  linkedRisks: Set<string>;
+  disabled?: boolean;
+  onLink: (riskId: string) => void;
+  onUnlink: (riskId: string) => void;
+};
+
+function RiskRow(props: RowProps) {
+  const { t } = useTranslation();
+
+  const isLinked = props.linkedRisks.has(props.risk.id);
+  const onClick = isLinked ? props.onUnlink : props.onLink;
+  const IconComponent = isLinked ? IconTrashCan : IconPlusLarge;
+
+  return (
+    <button
+      className="py-4 flex items-center gap-4 hover:bg-subtle cursor-pointer px-6 w-full"
+      onClick={() => onClick(props.risk.id)}
+    >
+      <div className="text-left">
+        <span className="font-mono text-sm text-txt-secondary mr-2">
+          {props.risk.referenceId}
+        </span>
+        {props.risk.name}
+      </div>
+      <Badge variant="neutral">{props.risk.category}</Badge>
+      <Button
+        disabled={props.disabled}
+        className="ml-auto"
+        variant={isLinked ? "secondary" : "primary"}
+        asChild
+      >
+        <span>
+          <IconComponent size={16} />
+          {" "}
+          {isLinked
+            ? t("linkedRisksDialog.actions.unlink")
+            : t("linkedRisksDialog.actions.link")}
+        </span>
+      </Button>
+    </button>
+  );
+}

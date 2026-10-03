@@ -1,0 +1,76 @@
+---
+description: Extract connection list items (table rows, list entries) into their own fragment component
+globs: "**/*.tsx"
+alwaysApply: false
+---
+
+# Extract connection items into fragment components
+
+When rendering items from a Relay connection (e.g. `edges.map(…)`), each item
+MUST be rendered by a dedicated component that owns its own fragment — never
+inline the rendering of node fields directly in the parent's `.map()` body.
+
+This ensures:
+- Data requirements are colocated with the rendering component
+- Adding/removing fields in an item doesn't bloat the parent's fragment
+- The item component is independently testable and reusable
+
+## Pattern
+
+```tsx
+// _components/ThingListItem.tsx — owns its fragment
+const thingListItemFragment = graphql`
+  fragment ThingListItem_thing on Thing {
+    id
+    name
+    status
+  }
+`;
+
+interface ThingListItemProps {
+  thingKey: ThingListItem_thing$key;
+}
+
+export function ThingListItem({ thingKey }: ThingListItemProps) {
+  const thing = useFragment(thingListItemFragment, thingKey);
+  return (
+    <Tr>
+      <Td>{thing.name}</Td>
+      <Td>{thing.status}</Td>
+    </Tr>
+  );
+}
+```
+
+```tsx
+// Parent — spreads the item fragment in its connection and renders the component
+const parentFragment = graphql`
+  fragment ParentPage_things on Query
+  @refetchable(queryName: "ParentPageRefetchQuery") {
+    things(first: $first, after: $after) @connection(key: "ParentPage_things") {
+      edges {
+        node {
+          id
+          ...ThingListItem_thing
+        }
+      }
+    }
+  }
+`;
+
+// In JSX:
+{things.map(thing => (
+  <ThingListItem key={thing.id} thingKey={thing} />
+))}
+```
+
+## Naming
+
+- File: `_components/<NodeType>ListItem.tsx` — the canonical connection-item
+  suffix, regardless of whether the item renders as a table row, a card, or a
+  plain list entry (the layout is internal to the component, not its identity).
+  Do **not** use `*Row` or `*Card` suffixes.
+- Fragment: `<ComponentName>_<typeName>` (e.g. `ThingListItem_thing`)
+- Prop: `<typeName>Key` (e.g. `thingKey`)
+
+See `contrib/claude/react-components.md` for the full suffix taxonomy.

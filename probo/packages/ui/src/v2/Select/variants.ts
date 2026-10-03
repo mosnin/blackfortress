@@ -1,0 +1,98 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { tv } from "tailwind-variants/lite";
+
+// Select (Radix "Select" over Base UI's Select). A bordered surface trigger on
+// the neutral background, with an accent-highlighted popup of items.
+
+export const selectTrigger = tv({
+  slots: {
+    trigger: [
+      "flex w-full items-center justify-between rounded-2 text-sand-12",
+      "cursor-pointer outline-none transition-colors",
+      "focus-visible:ring-2 focus-visible:ring-sand-8 focus-visible:ring-offset-1 focus-visible:ring-offset-sand-1",
+      "data-disabled:pointer-events-none data-disabled:opacity-50 data-placeholder:text-sand-a10",
+    ],
+    value: "min-w-0 flex-1 truncate text-left",
+    icon: "flex shrink-0 items-center justify-center text-sand-a10",
+  },
+  variants: {
+    size: {
+      1: {
+        trigger: "h-6 gap-1 px-1.5 text-1",
+        icon: "size-3.5 [&_svg]:size-3.5",
+      },
+      2: {
+        trigger: "h-8 gap-2 px-3 text-2",
+        icon: "size-4 [&_svg]:size-4",
+      },
+    },
+    // Surface treatment. Only the accent (gold) color ships, matching Figma;
+    // classic adds a recessed inset shadow (Figma can't express its gradient),
+    // soft drops the border for a tint, ghost is transparent until hover.
+    variant: {
+      classic: { trigger: "border border-sand-a7 bg-sand-1 inset-shadow-2 hover:bg-sand-2" },
+      surface: { trigger: "border border-sand-a7 bg-sand-1 hover:bg-sand-2" },
+      soft: { trigger: "bg-gold-3 hover:bg-gold-4" },
+      ghost: { trigger: "hover:bg-sand-2" },
+    },
+  },
+  defaultVariants: {
+    size: 2,
+    variant: "surface",
+  },
+});
+
+export const selectPopup = tv({
+  base: [
+    "max-h-(--available-height) min-w-(--anchor-width) origin-(--transform-origin) overflow-y-auto rounded-3 bg-sand-1 p-1 shadow-3 outline-none",
+    "transition-[scale,opacity] duration-150 ease-out data-starting-style:scale-95 data-starting-style:opacity-0",
+    "data-ending-style:scale-95 data-ending-style:opacity-0",
+  ],
+});
+
+export const selectItem = tv({
+  slots: {
+    item: [
+      "flex h-8 cursor-pointer items-center justify-between gap-2 rounded-2 px-3 text-2 text-sand-12 outline-none select-none",
+      "data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-sand-3",
+    ],
+    label: "min-w-0 flex-1 truncate",
+    indicator: "flex size-4 shrink-0 items-center justify-center text-sand-12 [&_svg]:size-4",
+  },
+});
+
+export const selectLabel = tv({
+  base: "text-2 font-medium text-sand-12",
+});
+
+export const selectSkeleton = tv({
+  base: "inline-block animate-pulse rounded-2 bg-sand-3 align-middle",
+  variants: {
+    size: {
+      1: "h-6 w-32",
+      2: "h-8 w-40",
+    },
+  },
+  defaultVariants: {
+    size: 2,
+  },
+});

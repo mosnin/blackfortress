@@ -1,0 +1,207 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package drivers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+const (
+	// openRouterMembersPath is joined onto the driver's base URL.
+	openRouterMembersPath = "organization/members"
+	// openRouterPageSize is the maximum page size GET /organization/members
+	// accepts (limit must be between 1 and 100).
+	openRouterPageSize = 100
+)
+
+// OpenRouterDriver lists the members of a single OpenRouter organization. The
+// management (provisioning) API key is bound to one organization, so GET
+// /api/v1/organization/members returns every member of that organization
+// with no tenant selector.
+type OpenRouterDriver struct {
+	httpClient *http.Client
+	baseURL    string
+}
+
+var _ Driver = (*OpenRouterDriver)(nil)
+
+type openRouterMember struct {
+	ID        string  `json:"id"`
+	Email     string  `json:"email"`
+	FirstName *string `json:"first_name"`
+	LastName  *string `json:"last_name"`
+	// Role is OpenRouter's organization role enum: "org:admin" or
+	// "org:member".
+	Role string `json:"role"`
+}
+
+type openRouterMembersResponse struct {
+	Data       []openRouterMember `json:"data"`
+	TotalCount int                `json:"total_count"`
+}
+
+// NewOpenRouterDriver builds a driver against baseURL, the versioned
+// OpenRouter API origin (e.g. https://openrouter.ai/api/v1).
+func NewOpenRouterDriver(httpClient *http.Client, baseURL string) *OpenRouterDriver {
+	return &OpenRouterDriver{httpClient: httpClient, baseURL: baseURL}
+}
+
+func (d *OpenRouterDriver) ListAccounts(ctx context.Context) ([]AccountRecord, error) {
+	var records []AccountRecord
+
+	offset := 0
+
+	for range maxPaginationPages {
+		resp, err := d.fetchMembersPage(ctx, offset)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, m := range resp.Data {
+			email := strings.TrimSpace(m.Email)
+			if email == "" {
+				continue
+			}
+
+			role := strings.TrimSpace(m.Role)
+
+			records = append(records, AccountRecord{
+				Email:       email,
+				FullName:    openRouterFullName(m, email),
+				Roles:       openRouterRoles(role),
+				IsAdmin:     openRouterIsAdmin(role),
+				MFAStatus:   coredata.MFAStatusUnknown,
+				AuthMethod:  coredata.AccessReviewEntryAuthMethodUnknown,
+				AccountType: coredata.AccessReviewEntryAccountTypeUser,
+				ExternalID:  strings.TrimSpace(m.ID),
+			})
+		}
+
+		offset += len(resp.Data)
+		if len(resp.Data) < openRouterPageSize || offset >= resp.TotalCount {
+			return records, nil
+		}
+	}
+
+	return nil, fmt.Errorf("cannot list all openrouter members: %w", ErrPaginationLimitReached)
+}
+
+func (d *OpenRouterDriver) fetchMembersPage(ctx context.Context, offset int) (*openRouterMembersResponse, error) {
+	endpoint, err := url.JoinPath(d.baseURL, openRouterMembersPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build openrouter members URL: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create openrouter members request: %w", err)
+	}
+
+	q := req.URL.Query()
+	q.Set("limit", strconv.Itoa(openRouterPageSize))
+	q.Set("offset", strconv.Itoa(offset))
+	req.URL.RawQuery = q.Encode()
+
+	req.Header.Set("Accept", "application/json")
+
+	httpResp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot execute openrouter members request: %w", err)
+	}
+
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("cannot fetch openrouter members: unexpected status %d", httpResp.StatusCode)
+	}
+
+	var resp openRouterMembersResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("cannot decode openrouter members response: %w", err)
+	}
+
+	return &resp, nil
+}
+
+func openRouterFullName(m openRouterMember, fallback string) string {
+	first := ""
+	if m.FirstName != nil {
+		first = strings.TrimSpace(*m.FirstName)
+	}
+
+	last := ""
+	if m.LastName != nil {
+		last = strings.TrimSpace(*m.LastName)
+	}
+
+	full := strings.TrimSpace(first + " " + last)
+	if full != "" {
+		return full
+	}
+
+	return fallback
+}
+
+// openRouterRoles maps OpenRouter's organization role enum
+// (org:admin / org:member) to a display label, preserving any unknown
+// future role verbatim.
+func openRouterRoles(role string) []string {
+	role = strings.TrimSpace(role)
+
+	switch role {
+	case "org:admin":
+		return []string{"Admin"}
+	case "org:member":
+		return []string{"Member"}
+	default:
+		if role != "" {
+			return []string{role}
+		}
+
+		return []string{}
+	}
+}
+
+// openRouterIsAdmin maps the documented organization roles to an admin flag.
+// Unknown roles remain unclassified so future role additions are not
+// incorrectly treated as non-admin.
+func openRouterIsAdmin(role string) *bool {
+	role = strings.TrimSpace(role)
+
+	switch role {
+	case "org:admin":
+		return new(true)
+	case "org:member":
+		return new(false)
+	default:
+		return nil
+	}
+}

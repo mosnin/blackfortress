@@ -1,0 +1,297 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"encoding"
+	"fmt"
+)
+
+type ConnectorProvider string
+
+const (
+	ConnectorProviderSlack           ConnectorProvider = "SLACK"
+	ConnectorProviderGoogleWorkspace ConnectorProvider = "GOOGLE_WORKSPACE"
+	ConnectorProviderLinear          ConnectorProvider = "LINEAR"
+	ConnectorProviderLinearSync      ConnectorProvider = "LINEAR_SYNC"
+	// _ ConnectorProvider = "FIGMA" — formerly Figma; removed (no driver, no OAuth config, no usage)
+	ConnectorProviderOnePassword  ConnectorProvider = "ONE_PASSWORD"
+	ConnectorProviderHubSpot      ConnectorProvider = "HUBSPOT"
+	ConnectorProviderDocuSign     ConnectorProvider = "DOCUSIGN"
+	ConnectorProviderNotion       ConnectorProvider = "NOTION"
+	ConnectorProviderBrex         ConnectorProvider = "BREX"
+	ConnectorProviderTally        ConnectorProvider = "TALLY"
+	ConnectorProviderCloudflare   ConnectorProvider = "CLOUDFLARE"
+	ConnectorProviderGrafana      ConnectorProvider = "GRAFANA"
+	ConnectorProviderOpenAI       ConnectorProvider = "OPENAI"
+	ConnectorProviderPostHog      ConnectorProvider = "POSTHOG"
+	ConnectorProviderSentry       ConnectorProvider = "SENTRY"
+	ConnectorProviderSigNoz       ConnectorProvider = "SIGNOZ"
+	ConnectorProviderSupabase     ConnectorProvider = "SUPABASE"
+	ConnectorProviderBetterStack  ConnectorProvider = "BETTER_STACK"
+	ConnectorProviderGitHub       ConnectorProvider = "GITHUB"
+	ConnectorProviderIntercom     ConnectorProvider = "INTERCOM"
+	ConnectorProviderResend       ConnectorProvider = "RESEND"
+	ConnectorProviderSendGrid     ConnectorProvider = "SENDGRID"
+	ConnectorProviderMicrosoft365 ConnectorProvider = "MICROSOFT_365"
+	ConnectorProviderGitLab       ConnectorProvider = "GITLAB"
+	ConnectorProviderBitbucket    ConnectorProvider = "BITBUCKET"
+	ConnectorProviderHeroku       ConnectorProvider = "HEROKU"
+	ConnectorProviderPagerDuty    ConnectorProvider = "PAGERDUTY"
+	ConnectorProviderAsana        ConnectorProvider = "ASANA"
+	ConnectorProviderNetlify      ConnectorProvider = "NETLIFY"
+	ConnectorProviderClickUp      ConnectorProvider = "CLICKUP"
+	// ConnectorProviderClerk is disabled (unregistered) but kept in IsValid
+	// and the GraphQL enum so existing stored CLERK rows still validate.
+	ConnectorProviderClerk           ConnectorProvider = "CLERK"
+	ConnectorProviderVercel          ConnectorProvider = "VERCEL"
+	ConnectorProviderMonday          ConnectorProvider = "MONDAY"
+	ConnectorProviderMetabase        ConnectorProvider = "METABASE"
+	ConnectorProviderMongoDBAtlas    ConnectorProvider = "MONGODB_ATLAS"
+	ConnectorProviderTailscale       ConnectorProvider = "TAILSCALE"
+	ConnectorProviderAnthropic       ConnectorProvider = "ANTHROPIC"
+	ConnectorProviderCursor          ConnectorProvider = "CURSOR"
+	ConnectorProviderDatadog         ConnectorProvider = "DATADOG"
+	ConnectorProviderOkta            ConnectorProvider = "OKTA"
+	ConnectorProviderZendesk         ConnectorProvider = "ZENDESK"
+	ConnectorProviderQovery          ConnectorProvider = "QOVERY"
+	ConnectorProviderRender          ConnectorProvider = "RENDER"
+	ConnectorProviderNeon            ConnectorProvider = "NEON"
+	ConnectorProviderMercury         ConnectorProvider = "MERCURY"
+	ConnectorProviderApollo          ConnectorProvider = "APOLLO"
+	ConnectorProviderDeepgram        ConnectorProvider = "DEEPGRAM"
+	ConnectorProviderClickHouse      ConnectorProvider = "CLICKHOUSE"
+	ConnectorProviderLangfuse        ConnectorProvider = "LANGFUSE"
+	ConnectorProviderPylon           ConnectorProvider = "PYLON"
+	ConnectorProviderOpenRouter      ConnectorProvider = "OPENROUTER"
+	ConnectorProviderIncidentIO      ConnectorProvider = "INCIDENT_IO"
+	ConnectorProviderBrevo           ConnectorProvider = "BREVO"
+	ConnectorProviderScaleway        ConnectorProvider = "SCALEWAY"
+	ConnectorProviderYousign         ConnectorProvider = "YOUSIGN"
+	ConnectorProviderRailway         ConnectorProvider = "RAILWAY"
+	ConnectorProviderCrisp           ConnectorProvider = "CRISP"
+	ConnectorProviderDotfile         ConnectorProvider = "DOTFILE"
+	ConnectorProviderSegment         ConnectorProvider = "SEGMENT"
+	ConnectorProviderSquare          ConnectorProvider = "SQUARE"
+	ConnectorProviderGoogleAnalytics ConnectorProvider = "GOOGLE_ANALYTICS"
+	ConnectorProviderUpCloud         ConnectorProvider = "UPCLOUD"
+	ConnectorProviderNuki            ConnectorProvider = "NUKI"
+	ConnectorProviderAuthentik       ConnectorProvider = "AUTHENTIK"
+	ConnectorProviderCalCom          ConnectorProvider = "CAL_COM"
+	ConnectorProviderCalendly        ConnectorProvider = "CALENDLY"
+	ConnectorProviderAWS             ConnectorProvider = "AWS"
+	ConnectorProviderGCP             ConnectorProvider = "GCP"
+	ConnectorProviderElevenLabs      ConnectorProvider = "ELEVENLABS"
+	ConnectorProviderNewRelic        ConnectorProvider = "NEW_RELIC"
+	ConnectorProviderRetool          ConnectorProvider = "RETOOL"
+	ConnectorProviderTwingate        ConnectorProvider = "TWINGATE"
+	ConnectorProviderAttio           ConnectorProvider = "ATTIO"
+	ConnectorProviderAzure           ConnectorProvider = "AZURE"
+	ConnectorProviderOVHcloud        ConnectorProvider = "OVHCLOUD"
+)
+
+var (
+	_ fmt.Stringer             = ConnectorProvider("")
+	_ encoding.TextMarshaler   = ConnectorProvider("")
+	_ encoding.TextUnmarshaler = (*ConnectorProvider)(nil)
+)
+
+func ConnectorProviders() []ConnectorProvider {
+	return []ConnectorProvider{
+		ConnectorProviderSlack,
+		ConnectorProviderGoogleWorkspace,
+		ConnectorProviderLinear,
+		ConnectorProviderLinearSync,
+		ConnectorProviderOnePassword,
+		ConnectorProviderHubSpot,
+		ConnectorProviderDocuSign,
+		ConnectorProviderNotion,
+		ConnectorProviderBrex,
+		ConnectorProviderTally,
+		ConnectorProviderCloudflare,
+		ConnectorProviderGrafana,
+		ConnectorProviderOpenAI,
+		ConnectorProviderPostHog,
+		ConnectorProviderSentry,
+		ConnectorProviderSigNoz,
+		ConnectorProviderSupabase,
+		ConnectorProviderBetterStack,
+		ConnectorProviderGitHub,
+		ConnectorProviderIntercom,
+		ConnectorProviderResend,
+		ConnectorProviderSendGrid,
+		ConnectorProviderMicrosoft365,
+		ConnectorProviderGitLab,
+		ConnectorProviderBitbucket,
+		ConnectorProviderHeroku,
+		ConnectorProviderPagerDuty,
+		ConnectorProviderAsana,
+		ConnectorProviderNetlify,
+		ConnectorProviderClickUp,
+		ConnectorProviderVercel,
+		ConnectorProviderMonday,
+		ConnectorProviderMetabase,
+		ConnectorProviderMongoDBAtlas,
+		ConnectorProviderTailscale,
+		ConnectorProviderAnthropic,
+		ConnectorProviderCursor,
+		ConnectorProviderDatadog,
+		ConnectorProviderOkta,
+		ConnectorProviderZendesk,
+		ConnectorProviderQovery,
+		ConnectorProviderRender,
+		ConnectorProviderNeon,
+		ConnectorProviderMercury,
+		ConnectorProviderApollo,
+		ConnectorProviderDeepgram,
+		ConnectorProviderClickHouse,
+		ConnectorProviderLangfuse,
+		ConnectorProviderPylon,
+		ConnectorProviderOpenRouter,
+		ConnectorProviderIncidentIO,
+		ConnectorProviderBrevo,
+		ConnectorProviderScaleway,
+		ConnectorProviderYousign,
+		ConnectorProviderRailway,
+		ConnectorProviderCrisp,
+		ConnectorProviderDotfile,
+		ConnectorProviderSegment,
+		ConnectorProviderSquare,
+		ConnectorProviderGoogleAnalytics,
+		ConnectorProviderUpCloud,
+		ConnectorProviderNuki,
+		ConnectorProviderAuthentik,
+		ConnectorProviderCalCom,
+		ConnectorProviderCalendly,
+		ConnectorProviderAWS,
+		ConnectorProviderGCP,
+		ConnectorProviderElevenLabs,
+		ConnectorProviderNewRelic,
+		ConnectorProviderRetool,
+		ConnectorProviderTwingate,
+		ConnectorProviderAttio,
+		ConnectorProviderAzure,
+		ConnectorProviderOVHcloud,
+	}
+}
+
+func (v ConnectorProvider) IsValid() bool {
+	switch v {
+	case
+		ConnectorProviderSlack,
+		ConnectorProviderGoogleWorkspace,
+		ConnectorProviderLinear,
+		ConnectorProviderLinearSync,
+		ConnectorProviderOnePassword,
+		ConnectorProviderHubSpot,
+		ConnectorProviderDocuSign,
+		ConnectorProviderNotion,
+		ConnectorProviderBrex,
+		ConnectorProviderTally,
+		ConnectorProviderCloudflare,
+		ConnectorProviderGrafana,
+		ConnectorProviderOpenAI,
+		ConnectorProviderPostHog,
+		ConnectorProviderSentry,
+		ConnectorProviderSigNoz,
+		ConnectorProviderSupabase,
+		ConnectorProviderBetterStack,
+		ConnectorProviderGitHub,
+		ConnectorProviderIntercom,
+		ConnectorProviderResend,
+		ConnectorProviderSendGrid,
+		ConnectorProviderMicrosoft365,
+		ConnectorProviderGitLab,
+		ConnectorProviderBitbucket,
+		ConnectorProviderHeroku,
+		ConnectorProviderPagerDuty,
+		ConnectorProviderAsana,
+		ConnectorProviderNetlify,
+		ConnectorProviderClickUp,
+		ConnectorProviderClerk,
+		ConnectorProviderVercel,
+		ConnectorProviderMonday,
+		ConnectorProviderMetabase,
+		ConnectorProviderMongoDBAtlas,
+		ConnectorProviderTailscale,
+		ConnectorProviderAnthropic,
+		ConnectorProviderCursor,
+		ConnectorProviderDatadog,
+		ConnectorProviderOkta,
+		ConnectorProviderZendesk,
+		ConnectorProviderQovery,
+		ConnectorProviderRender,
+		ConnectorProviderNeon,
+		ConnectorProviderMercury,
+		ConnectorProviderApollo,
+		ConnectorProviderDeepgram,
+		ConnectorProviderClickHouse,
+		ConnectorProviderLangfuse,
+		ConnectorProviderPylon,
+		ConnectorProviderOpenRouter,
+		ConnectorProviderIncidentIO,
+		ConnectorProviderBrevo,
+		ConnectorProviderScaleway,
+		ConnectorProviderYousign,
+		ConnectorProviderRailway,
+		ConnectorProviderCrisp,
+		ConnectorProviderDotfile,
+		ConnectorProviderSegment,
+		ConnectorProviderSquare,
+		ConnectorProviderGoogleAnalytics,
+		ConnectorProviderUpCloud,
+		ConnectorProviderNuki,
+		ConnectorProviderAuthentik,
+		ConnectorProviderCalCom,
+		ConnectorProviderCalendly,
+		ConnectorProviderAWS,
+		ConnectorProviderGCP,
+		ConnectorProviderElevenLabs,
+		ConnectorProviderNewRelic,
+		ConnectorProviderRetool,
+		ConnectorProviderTwingate,
+		ConnectorProviderAttio,
+		ConnectorProviderAzure,
+		ConnectorProviderOVHcloud:
+		return true
+	}
+
+	return false
+}
+
+func (v ConnectorProvider) String() string {
+	return string(v)
+}
+
+func (v ConnectorProvider) MarshalText() ([]byte, error) {
+	return []byte(v.String()), nil
+}
+
+func (v *ConnectorProvider) UnmarshalText(text []byte) error {
+	val := ConnectorProvider(text)
+	if !val.IsValid() {
+		return fmt.Errorf("invalid ConnectorProvider value: %q", string(text))
+	}
+
+	*v = val
+
+	return nil
+}

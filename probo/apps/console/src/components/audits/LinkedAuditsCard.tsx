@@ -1,0 +1,228 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { getAuditStateVariant } from "@probo/helpers";
+import {
+  Badge,
+  Button,
+  Card,
+  IconChevronDown,
+  IconPlusLarge,
+  IconTrashCan,
+  Table,
+  Tbody,
+  Td,
+  Th,
+  Thead,
+  Tr,
+  TrButton,
+} from "@probo/ui";
+import { clsx } from "clsx";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useFragment } from "react-relay";
+import { graphql } from "relay-runtime";
+
+import type { LinkedAuditsCardFragment$key } from "#/__generated__/core/LinkedAuditsCardFragment.graphql";
+import { useOrganizationId } from "#/hooks/useOrganizationId";
+
+import { LinkedAuditsDialog } from "./LinkedAuditsDialog";
+
+const linkedAuditFragment = graphql`
+  fragment LinkedAuditsCardFragment on Audit {
+    id
+    name
+    state
+    framework {
+      id
+      name
+    }
+  }
+`;
+
+type Mutation<Params> = (p: {
+  variables: {
+    input: {
+      auditId: string;
+    } & Params;
+    connections: string[];
+  };
+}) => void;
+
+type Props<Params> = {
+  audits: (LinkedAuditsCardFragment$key & { id: string })[];
+  params: Params;
+  disabled?: boolean;
+  connectionId: string;
+  onAttach: Mutation<Params>;
+  onDetach: Mutation<Params>;
+  variant?: "card" | "table";
+  readOnly?: boolean;
+};
+
+export function LinkedAuditsCard<Params>(props: Props<Params>) {
+  const { t } = useTranslation();
+  const [limit, setLimit] = useState<number | null>(4);
+  const audits = useMemo(() => {
+    return limit ? props.audits.slice(0, limit) : props.audits;
+  }, [props.audits, limit]);
+  const showMoreButton = limit !== null && props.audits.length > limit;
+  const variant = props.variant ?? "table";
+
+  const onAttach = (auditId: string) => {
+    props.onAttach({
+      variables: {
+        input: {
+          auditId,
+          ...props.params,
+        },
+        connections: [props.connectionId],
+      },
+    });
+  };
+
+  const onDetach = (auditId: string) => {
+    props.onDetach({
+      variables: {
+        input: {
+          auditId,
+          ...props.params,
+        },
+        connections: [props.connectionId],
+      },
+    });
+  };
+
+  const Wrapper = variant === "card" ? Card : "div";
+
+  return (
+    <Wrapper padded className="space-y-[10px]">
+      {variant === "card" && (
+        <div className="flex justify-between">
+          <div className="text-lg font-semibold">{t("linkedAuditsCard.title")}</div>
+          {!props.readOnly && (
+            <LinkedAuditsDialog
+              disabled={props.disabled}
+              linkedAudits={props.audits}
+              onLink={onAttach}
+              onUnlink={onDetach}
+            >
+              <Button variant="tertiary" icon={IconPlusLarge}>
+                {t("linkedAuditsCard.actions.link")}
+              </Button>
+            </LinkedAuditsDialog>
+          )}
+        </div>
+      )}
+      <Table className={clsx(variant === "card" && "bg-invert")}>
+        <Thead>
+          <Tr>
+            <Th>{t("linkedAuditsCard.columns.name")}</Th>
+            <Th>{t("linkedAuditsCard.columns.state")}</Th>
+            {!props.readOnly && <Th></Th>}
+          </Tr>
+        </Thead>
+        <Tbody>
+          {audits.length === 0 && (
+            <Tr>
+              <Td
+                colSpan={props.readOnly ? 2 : 3}
+                className="text-center text-txt-secondary"
+              >
+                {t("linkedAuditsCard.empty")}
+              </Td>
+            </Tr>
+          )}
+          {audits.map(audit => (
+            <AuditRow
+              key={audit.id}
+              audit={audit}
+              onClick={onDetach}
+              readOnly={props.readOnly}
+            />
+          ))}
+          {variant === "table" && !props.readOnly && (
+            <LinkedAuditsDialog
+              disabled={props.disabled}
+              linkedAudits={props.audits}
+              onLink={onAttach}
+              onUnlink={onDetach}
+            >
+              <TrButton colspan={3} icon={IconPlusLarge}>
+                {t("linkedAuditsCard.actions.link")}
+              </TrButton>
+            </LinkedAuditsDialog>
+          )}
+        </Tbody>
+      </Table>
+      {showMoreButton && (
+        <Button
+          variant="tertiary"
+          onClick={() => setLimit(null)}
+          className="mt-3 mx-auto"
+          icon={IconChevronDown}
+        >
+          {t("linkedAuditsCard.actions.showMore", {
+            count: props.audits.length - limit,
+          })}
+        </Button>
+      )}
+    </Wrapper>
+  );
+}
+
+function AuditRow(props: {
+  audit: LinkedAuditsCardFragment$key & { id: string };
+  onClick: (auditId: string) => void;
+  readOnly?: boolean;
+}) {
+  const audit = useFragment(linkedAuditFragment, props.audit);
+  const organizationId = useOrganizationId();
+  const { t } = useTranslation();
+
+  return (
+    <Tr to={`/organizations/${organizationId}/governance/audits/${audit.id}`}>
+      <Td>
+        <div className="flex flex-col">
+          <div className="font-medium">{audit.framework?.name}</div>
+          {audit.name && (
+            <div className="text-sm text-txt-secondary">{audit.name}</div>
+          )}
+        </div>
+      </Td>
+      <Td>
+        <Badge color={getAuditStateVariant(audit.state)}>
+          {audit.state.replace(/_/g, " ")}
+        </Badge>
+      </Td>
+      {!props.readOnly && (
+        <Td noLink width={50} className="text-end">
+          <Button
+            variant="secondary"
+            onClick={() => props.onClick(audit.id)}
+            icon={IconTrashCan}
+          >
+            {t("linkedAuditsCard.actions.unlink")}
+          </Button>
+        </Td>
+      )}
+    </Tr>
+  );
+}

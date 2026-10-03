@@ -1,0 +1,442 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/crypto/cipher"
+	"go.probo.inc/probo/pkg/crypto/rand"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/policy"
+	"go.probo.inc/probo/pkg/page"
+)
+
+type (
+	WebhookSubscription struct {
+		ID                     gid.GID           `db:"id"`
+		OrganizationID         gid.GID           `db:"organization_id"`
+		EndpointURL            string            `db:"endpoint_url"`
+		SelectedEvents         WebhookEventTypes `db:"selected_events"`
+		EncryptedSigningSecret []byte            `db:"encrypted_signing_secret"`
+		CreatedAt              time.Time         `db:"created_at"`
+		UpdatedAt              time.Time         `db:"updated_at"`
+	}
+
+	WebhookSubscriptions []*WebhookSubscription
+)
+
+func (w *WebhookSubscription) GenerateSigningSecret(encryptionKey cipher.EncryptionKey) (string, error) {
+	hexSecret, err := rand.HexString(32)
+	if err != nil {
+		return "", fmt.Errorf("cannot generate signing secret: %w", err)
+	}
+
+	signingSecret := "whsec_" + hexSecret
+
+	encrypted, err := cipher.Encrypt([]byte(signingSecret), encryptionKey)
+	if err != nil {
+		return "", fmt.Errorf("cannot encrypt signing secret: %w", err)
+	}
+
+	w.EncryptedSigningSecret = encrypted
+
+	return signingSecret, nil
+}
+
+func (w *WebhookSubscription) DecryptSigningSecret(encryptionKey cipher.EncryptionKey) (string, error) {
+	if len(w.EncryptedSigningSecret) == 0 {
+		return "", fmt.Errorf("no encrypted signing secret")
+	}
+
+	plaintext, err := cipher.Decrypt(w.EncryptedSigningSecret, encryptionKey)
+	if err != nil {
+		return "", fmt.Errorf("cannot decrypt signing secret: %w", err)
+	}
+
+	return string(plaintext), nil
+}
+
+func (w WebhookSubscription) CursorKey(orderBy WebhookSubscriptionOrderField) page.CursorKey {
+	switch orderBy {
+	case WebhookSubscriptionOrderFieldCreatedAt:
+		return page.NewCursorKey(w.ID, w.CreatedAt)
+	}
+
+	panic(fmt.Sprintf("unsupported order by: %s", orderBy))
+}
+
+// AuthorizationAttributes returns the authorization attributes for policy evaluation.
+func (w *WebhookSubscription) AuthorizationAttributes(
+	ctx context.Context,
+	conn pg.Querier,
+	resourceIDs []gid.GID,
+) (policy.AttributesByID, error) {
+	q := `SELECT id, organization_id FROM webhook_subscriptions WHERE id = ANY(@resource_ids::text[])`
+
+	args := pgx.StrictNamedArgs{
+		"resource_ids": resourceIDs,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query authorization attributes: %w", err)
+	}
+
+	defer rows.Close()
+
+	attrsByID := make(policy.AttributesByID)
+
+	for rows.Next() {
+		var id, organizationID gid.GID
+
+		if err := rows.Scan(&id, &organizationID); err != nil {
+			return nil, fmt.Errorf("cannot scan authorization attributes: %w", err)
+		}
+
+		attrsByID[id] = policy.Attributes{
+			"organization_id": organizationID.String(),
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cannot iterate authorization attributes: %w", err)
+	}
+
+	return attrsByID, nil
+}
+
+func (w *WebhookSubscription) LoadByID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	webhookSubscriptionID gid.GID,
+) error {
+	q := `
+SELECT
+    id,
+    organization_id,
+    endpoint_url,
+    selected_events,
+    encrypted_signing_secret,
+    created_at,
+    updated_at
+FROM
+    webhook_subscriptions
+WHERE
+    %s
+    AND id = @webhook_subscription_id
+LIMIT 1;
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"webhook_subscription_id": webhookSubscriptionID}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query webhook subscriptions: %w", err)
+	}
+
+	wc, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[WebhookSubscription])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect webhook subscription: %w", err)
+	}
+
+	*w = wc
+
+	return nil
+}
+
+func (w *WebhookSubscriptions) LoadByOrganizationID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	organizationID gid.GID,
+	cursor *page.Cursor[WebhookSubscriptionOrderField],
+) error {
+	q := `
+SELECT
+    id,
+    organization_id,
+    endpoint_url,
+    selected_events,
+    encrypted_signing_secret,
+    created_at,
+    updated_at
+FROM
+    webhook_subscriptions
+WHERE
+    %s
+    AND organization_id = @organization_id
+    AND %s
+`
+	q = fmt.Sprintf(q, scope.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.NamedArgs{"organization_id": organizationID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query webhook subscriptions: %w", err)
+	}
+
+	subscriptions, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[WebhookSubscription])
+	if err != nil {
+		return fmt.Errorf("cannot collect webhook subscriptions: %w", err)
+	}
+
+	*w = subscriptions
+
+	return nil
+}
+
+func (w *WebhookSubscriptions) CountByOrganizationID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	organizationID gid.GID,
+) (int, error) {
+	q := `
+SELECT
+    COUNT(*)
+FROM
+    webhook_subscriptions
+WHERE
+    %s
+    AND organization_id = @organization_id
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"organization_id": organizationID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	row := conn.QueryRow(ctx, q, args)
+
+	var count int
+	if err := row.Scan(&count); err != nil {
+		return 0, fmt.Errorf("cannot count webhook subscriptions: %w", err)
+	}
+
+	return count, nil
+}
+
+func (w *WebhookSubscriptions) ExistsByOrganizationIDAndEventType(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	organizationID gid.GID,
+	eventType WebhookEventType,
+) (bool, error) {
+	q := `
+SELECT EXISTS (
+    SELECT 1
+    FROM webhook_subscriptions
+    WHERE %s
+        AND organization_id = @organization_id
+        AND @event_type = ANY(selected_events)
+)
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"organization_id": organizationID,
+		"event_type":      eventType.String(),
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	var exists bool
+	if err := conn.QueryRow(ctx, q, args).Scan(&exists); err != nil {
+		return false, fmt.Errorf("cannot check webhook subscription existence: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (w *WebhookSubscription) Insert(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+INSERT INTO
+    webhook_subscriptions (
+        tenant_id,
+        id,
+        organization_id,
+        endpoint_url,
+        selected_events,
+        encrypted_signing_secret,
+        created_at,
+        updated_at
+    )
+VALUES (
+    @tenant_id,
+    @webhook_subscription_id,
+    @organization_id,
+    @endpoint_url,
+    @selected_events,
+    @encrypted_signing_secret,
+    @created_at,
+    @updated_at
+);
+`
+
+	args := pgx.StrictNamedArgs{
+		"tenant_id":                scope.GetTenantID(),
+		"webhook_subscription_id":  w.ID,
+		"organization_id":          w.OrganizationID,
+		"endpoint_url":             w.EndpointURL,
+		"selected_events":          w.SelectedEvents,
+		"encrypted_signing_secret": w.EncryptedSigningSecret,
+		"created_at":               w.CreatedAt,
+		"updated_at":               w.UpdatedAt,
+	}
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot insert webhook subscription: %w", err)
+	}
+
+	return nil
+}
+
+func (w *WebhookSubscription) Update(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+UPDATE webhook_subscriptions
+SET
+    endpoint_url = @endpoint_url,
+    selected_events = @selected_events,
+    updated_at = @updated_at
+WHERE %s
+    AND id = @webhook_subscription_id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"webhook_subscription_id": w.ID,
+		"endpoint_url":            w.EndpointURL,
+		"selected_events":         w.SelectedEvents,
+		"updated_at":              w.UpdatedAt,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	result, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot update webhook subscription: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return ErrResourceNotFound
+	}
+
+	return nil
+}
+
+func (w *WebhookSubscriptions) LoadMatchingByOrganizationIDAndEventType(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	organizationID gid.GID,
+	eventType WebhookEventType,
+) error {
+	q := `
+SELECT
+    id,
+    organization_id,
+    endpoint_url,
+    selected_events,
+    encrypted_signing_secret,
+    created_at,
+    updated_at
+FROM
+    webhook_subscriptions
+WHERE
+    %s
+    AND organization_id = @organization_id
+    AND @event_type = ANY(selected_events)
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"organization_id": organizationID,
+		"event_type":      eventType.String(),
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query matching webhook subscriptions: %w", err)
+	}
+
+	subscriptions, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[WebhookSubscription])
+	if err != nil {
+		return fmt.Errorf("cannot collect matching webhook subscriptions: %w", err)
+	}
+
+	*w = subscriptions
+
+	return nil
+}
+
+func (w *WebhookSubscription) Delete(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+DELETE FROM webhook_subscriptions
+WHERE %s
+    AND id = @webhook_subscription_id
+`
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"webhook_subscription_id": w.ID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot delete webhook subscription: %w", err)
+	}
+
+	return nil
+}

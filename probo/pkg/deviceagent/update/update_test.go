@@ -1,0 +1,656 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package update
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path"
+	"path/filepath"
+	"runtime"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.gearno.de/kit/httpclient"
+	"go.gearno.de/kit/log"
+)
+
+func TestParseTag(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		tag    string
+		prefix string
+		want   string
+		ok     bool
+	}{
+		{"probo-agent/v0.1.0", "probo-agent/v", "0.1.0", true},
+		{"probo-agent/v0.2.0-rc.1", "probo-agent/v", "0.2.0-rc.1", true},
+		{"probo-agent/v1.2.3", "probo-agent/v", "1.2.3", true},
+		{"v1.2.3", "probo-agent/v", "", false},
+		{"probo-agent/vlatest", "probo-agent/v", "", false},
+		{"probo-agent/v", "probo-agent/v", "", false},
+		{"unrelated/v0.1.0", "probo-agent/v", "", false},
+	}
+
+	for _, tc := range cases {
+		got, ok := parseTag(tc.tag, tc.prefix)
+		assert.Equal(t, tc.ok, ok, tc.tag)
+		assert.Equal(t, tc.want, got, tc.tag)
+	}
+}
+
+func TestNormalizeSemver(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "v0.1.0", normalizeSemver("0.1.0"))
+	assert.Equal(t, "v1.2.3", normalizeSemver("v1.2.3"))
+	assert.Equal(t, "v1.2.3-alpha.1", normalizeSemver("1.2.3-alpha.1"))
+	assert.Equal(t, "", normalizeSemver(""))
+	assert.Equal(t, "", normalizeSemver("not-a-version"))
+}
+
+func TestReadChecksum(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"plain sha256sum output",
+		func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			file := filepath.Join(dir, "checksums.txt")
+			content := "" +
+				"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef  probo-agent_Linux_x86_64.tar.gz\n" +
+				"abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abcd  probo-agent_Darwin_arm64.tar.gz\n"
+			require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
+
+			got, err := readChecksum(file, "probo-agent_Darwin_arm64.tar.gz")
+			require.NoError(t, err)
+			assert.Equal(t, "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abcd", got)
+		},
+	)
+
+	t.Run(
+		"binary-mode flag is stripped",
+		func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			file := filepath.Join(dir, "checksums.txt")
+			content := "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef *probo-agent_Linux_x86_64.tar.gz\n"
+			require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
+
+			got, err := readChecksum(file, "probo-agent_Linux_x86_64.tar.gz")
+			require.NoError(t, err)
+			assert.Equal(t, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", got)
+		},
+	)
+
+	t.Run(
+		"missing entry returns error",
+		func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			file := filepath.Join(dir, "checksums.txt")
+			require.NoError(t, os.WriteFile(file, []byte("deadbeef  other.tar.gz\n"), 0o600))
+
+			_, err := readChecksum(file, "probo-agent_Linux_x86_64.tar.gz")
+			require.Error(t, err)
+		},
+	)
+}
+
+// fakeReleaseServer simulates the GitHub releases API and the
+// browser_download_url asset endpoints.
+type fakeReleaseServer struct {
+	t      *testing.T
+	server *httptest.Server
+
+	// release plumbing
+	tag        string
+	prerelease bool
+	draft      bool
+
+	// listed, when non-empty, replaces the single default release
+	// in the GitHub API response.
+	listed []listedRelease
+
+	// archive plumbing
+	binaryContent    []byte
+	guiBinaryContent []byte
+	archiveBytes     []byte
+	checksumLine     string
+	bundleBytes      []byte
+
+	// when true, the release does not advertise a checksums.txt.bundle asset
+	omitBundle bool
+}
+
+func newFakeReleaseServer(t *testing.T, tag, version string, layout AssetLayout, binary []byte) *fakeReleaseServer {
+	t.Helper()
+
+	var guiBinary []byte
+	if layout.GUIBinaryName != "" {
+		guiBinary = append([]byte("gui-"), binary...)
+	}
+
+	archive := buildArchive(t, layout, binary, guiBinary)
+	sum := sha256.Sum256(archive)
+	checksum := fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), layout.ArchiveName)
+
+	frs := &fakeReleaseServer{
+		t:                t,
+		tag:              tag,
+		binaryContent:    binary,
+		guiBinaryContent: guiBinary,
+		archiveBytes:     archive,
+		checksumLine:     checksum,
+		bundleBytes:      []byte("dummy-sigstore-bundle"),
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/getprobo/probo/releases", func(w http.ResponseWriter, r *http.Request) {
+		base := "http://" + r.Host
+
+		assets := []map[string]any{
+			{
+				"name":                 layout.ArchiveName,
+				"browser_download_url": base + "/download/" + layout.ArchiveName,
+			},
+			{
+				"name":                 checksumFileName,
+				"browser_download_url": base + "/download/" + checksumFileName,
+			},
+		}
+		if !frs.omitBundle {
+			assets = append(assets, map[string]any{
+				"name":                 checksumBundleFileName,
+				"browser_download_url": base + "/download/" + checksumBundleFileName,
+			})
+		}
+
+		listed := frs.listed
+		if len(listed) == 0 {
+			listed = []listedRelease{
+				{tag: frs.tag, prerelease: frs.prerelease, draft: frs.draft},
+			}
+		}
+
+		body := make([]map[string]any, 0, len(listed))
+		for _, rel := range listed {
+			body = append(body, map[string]any{
+				"tag_name":   rel.tag,
+				"draft":      rel.draft,
+				"prerelease": rel.prerelease,
+				"assets":     assets,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+		_ = version
+	})
+	mux.HandleFunc("/download/"+layout.ArchiveName, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(frs.archiveBytes)
+	})
+	mux.HandleFunc("/download/"+checksumFileName, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(frs.checksumLine))
+	})
+	mux.HandleFunc("/download/"+checksumBundleFileName, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(frs.bundleBytes)
+	})
+
+	frs.server = httptest.NewServer(mux)
+	t.Cleanup(frs.server.Close)
+
+	return frs
+}
+
+type listedRelease struct {
+	tag        string
+	prerelease bool
+	draft      bool
+}
+
+func (f *fakeReleaseServer) URL() string { return f.server.URL }
+
+func buildArchive(t *testing.T, layout AssetLayout, binary, guiBinary []byte) []byte {
+	t.Helper()
+
+	if layout.IsZip {
+		return buildZip(t, layout, binary, guiBinary)
+	}
+
+	return buildTarGz(t, layout, binary)
+}
+
+func buildTarGz(t *testing.T, layout AssetLayout, binary []byte) []byte {
+	t.Helper()
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, layout.ArchiveName)
+
+	f, err := os.Create(out)
+	require.NoError(t, err)
+
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name:     path.Join(layout.ArchiveDir, layout.BinaryName),
+		Mode:     0o755,
+		Size:     int64(len(binary)),
+		Typeflag: tar.TypeReg,
+	}))
+	_, err = tw.Write(binary)
+	require.NoError(t, err)
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+	require.NoError(t, f.Close())
+
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+
+	return data
+}
+
+func buildZip(t *testing.T, layout AssetLayout, binary, guiBinary []byte) []byte {
+	t.Helper()
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, layout.ArchiveName)
+
+	f, err := os.Create(out)
+	require.NoError(t, err)
+
+	zw := zip.NewWriter(f)
+	w, err := zw.Create(path.Join(layout.ArchiveDir, layout.BinaryName))
+	require.NoError(t, err)
+	_, err = w.Write(binary)
+	require.NoError(t, err)
+
+	if layout.GUIBinaryName != "" {
+		w, err = zw.Create(path.Join(layout.ArchiveDir, layout.GUIBinaryName))
+		require.NoError(t, err)
+		_, err = w.Write(guiBinary)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, zw.Close())
+	require.NoError(t, f.Close())
+
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+
+	return data
+}
+
+func newTestUpdater(server *fakeReleaseServer, currentVersion, exePath, goos, goarch string) *Updater {
+	return &Updater{
+		Repo:           "getprobo/probo",
+		TagPrefix:      DefaultTagPrefix,
+		APIBaseURL:     server.URL(),
+		AssetBaseURL:   server.URL(),
+		CurrentVersion: currentVersion,
+		ExePath:        exePath,
+		UserAgent:      "probo-agent-test/0.0.0",
+		Logger:         log.NewLogger(log.WithName("update-test")),
+		HTTP: &http.Client{
+			Transport: httpclient.DefaultPooledTransport(
+				httpclient.WithSSRFProtection(),
+				httpclient.WithSSRFAllowLoopback(),
+			),
+		},
+		// Tests bypass the cosign verifier; production code wires
+		// CosignVerifier in via Updater.SigstoreCacheDir.
+		Verifier: AllowAllVerifier{},
+		GOOS:     goos,
+		GOARCH:   goarch,
+	}
+}
+
+func TestUpdater_CheckLatest(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"returns release when newer version is available",
+		func(t *testing.T) {
+			t.Parallel()
+
+			layout, err := LayoutFor("linux", "amd64")
+			require.NoError(t, err)
+			fake := newFakeReleaseServer(t, "probo-agent/v0.2.0", "0.2.0", layout, []byte("new"))
+
+			u := newTestUpdater(fake, "0.1.0", filepath.Join(t.TempDir(), "probo-agent"), "linux", "amd64")
+			rel, err := u.CheckLatest(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, "0.2.0", rel.Version)
+			assert.Equal(t, layout.ArchiveName, rel.AssetName)
+		},
+	)
+
+	t.Run(
+		"returns ErrNoUpdateAvailable when running latest",
+		func(t *testing.T) {
+			t.Parallel()
+
+			layout, err := LayoutFor("darwin", "arm64")
+			require.NoError(t, err)
+			fake := newFakeReleaseServer(t, "probo-agent/v0.1.0", "0.1.0", layout, []byte("same"))
+
+			u := newTestUpdater(fake, "0.1.0", filepath.Join(t.TempDir(), "probo-agent"), "darwin", "arm64")
+			_, err = u.CheckLatest(context.Background())
+			assert.ErrorIs(t, err, ErrNoUpdateAvailable)
+		},
+	)
+
+	t.Run(
+		"skips draft and prerelease tags",
+		func(t *testing.T) {
+			t.Parallel()
+
+			layout, err := LayoutFor("linux", "amd64")
+			require.NoError(t, err)
+			fake := newFakeReleaseServer(t, "probo-agent/v0.2.0-rc.1", "0.2.0-rc.1", layout, []byte("rc"))
+			fake.prerelease = true
+
+			u := newTestUpdater(fake, "0.1.0", filepath.Join(t.TempDir(), "probo-agent"), "linux", "amd64")
+			_, err = u.CheckLatest(context.Background())
+			assert.ErrorIs(t, err, ErrNoUpdateAvailable)
+		},
+	)
+
+	t.Run(
+		"selects prerelease when AllowPrereleases is set",
+		func(t *testing.T) {
+			t.Parallel()
+
+			layout, err := LayoutFor("linux", "amd64")
+			require.NoError(t, err)
+			fake := newFakeReleaseServer(t, "probo-agent/v0.2.0-rc.1", "0.2.0-rc.1", layout, []byte("rc"))
+			fake.prerelease = true
+
+			u := newTestUpdater(fake, "0.1.0", filepath.Join(t.TempDir(), "probo-agent"), "linux", "amd64")
+			u.AllowPrereleases = true
+			rel, err := u.CheckLatest(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, "0.2.0-rc.1", rel.Version)
+		},
+	)
+
+	t.Run(
+		"skips drafts even when AllowPrereleases is set",
+		func(t *testing.T) {
+			t.Parallel()
+
+			layout, err := LayoutFor("linux", "amd64")
+			require.NoError(t, err)
+			fake := newFakeReleaseServer(t, "probo-agent/v0.2.0-rc.1", "0.2.0-rc.1", layout, []byte("rc"))
+			fake.prerelease = true
+			fake.draft = true
+
+			u := newTestUpdater(fake, "0.1.0", filepath.Join(t.TempDir(), "probo-agent"), "linux", "amd64")
+			u.AllowPrereleases = true
+			_, err = u.CheckLatest(context.Background())
+			assert.ErrorIs(t, err, ErrNoUpdateAvailable)
+		},
+	)
+
+	t.Run(
+		"picks highest semver among mixed stable and prerelease",
+		func(t *testing.T) {
+			t.Parallel()
+
+			layout, err := LayoutFor("linux", "amd64")
+			require.NoError(t, err)
+			fake := newFakeReleaseServer(t, "probo-agent/v0.2.0", "0.2.0", layout, []byte("rel"))
+			fake.listed = []listedRelease{
+				{tag: "probo-agent/v0.2.0-rc.1", prerelease: true},
+				{tag: "probo-agent/v0.1.0"},
+				{tag: "probo-agent/v0.2.0"},
+			}
+
+			u := newTestUpdater(fake, "0.1.0", filepath.Join(t.TempDir(), "probo-agent"), "linux", "amd64")
+			u.AllowPrereleases = true
+			rel, err := u.CheckLatest(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, "0.2.0", rel.Version)
+		},
+	)
+
+	t.Run(
+		"dev build always sees update available",
+		func(t *testing.T) {
+			t.Parallel()
+
+			layout, err := LayoutFor("linux", "amd64")
+			require.NoError(t, err)
+			fake := newFakeReleaseServer(t, "probo-agent/v0.1.0", "0.1.0", layout, []byte("rel"))
+
+			u := newTestUpdater(fake, "dev", filepath.Join(t.TempDir(), "probo-agent"), "linux", "amd64")
+			rel, err := u.CheckLatest(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, "0.1.0", rel.Version)
+		},
+	)
+}
+
+func TestUpdater_Apply(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("apply test exercises the unix swap path; windows has its own .old shuffle")
+	}
+
+	dir := t.TempDir()
+	exePath := filepath.Join(dir, "probo-agent")
+	require.NoError(t, os.WriteFile(exePath, []byte("old-binary"), 0o755))
+
+	layout, err := LayoutFor("linux", "amd64")
+	require.NoError(t, err)
+	fake := newFakeReleaseServer(t, "probo-agent/v0.2.0", "0.2.0", layout, []byte("new-binary"))
+
+	u := newTestUpdater(fake, "0.1.0", exePath, "linux", "amd64")
+	rel, err := u.CheckLatest(context.Background())
+	require.NoError(t, err)
+
+	require.NoError(t, u.Apply(context.Background(), rel))
+
+	got, err := os.ReadFile(exePath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("new-binary"), got)
+
+	stat, err := os.Stat(exePath)
+	require.NoError(t, err)
+	assert.NotZero(t, stat.Mode().Perm()&0o100, "new binary should be executable")
+}
+
+func TestUpdater_Apply_ReplacesWindowsBinaryPair(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	exePath := filepath.Join(dir, "probo-agent.exe")
+	guiExePath := filepath.Join(dir, "probo-agentw.exe")
+
+	require.NoError(t, os.WriteFile(exePath, []byte("old-console"), 0o755))
+	require.NoError(t, os.WriteFile(guiExePath, []byte("old-gui"), 0o755))
+
+	layout, err := LayoutFor("windows", "amd64")
+	require.NoError(t, err)
+	fake := newFakeReleaseServer(t, "probo-agent/v0.2.0", "0.2.0", layout, []byte("new-console"))
+
+	u := newTestUpdater(fake, "0.1.0", exePath, "windows", "amd64")
+	rel, err := u.CheckLatest(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, u.Apply(context.Background(), rel))
+
+	got, err := os.ReadFile(exePath)
+	require.NoError(t, err)
+	assert.Equal(t, fake.binaryContent, got)
+
+	got, err = os.ReadFile(guiExePath)
+	require.NoError(t, err)
+	assert.Equal(t, fake.guiBinaryContent, got)
+}
+
+func TestUpdater_EnsureGUIBinary_InstallsMissingCurrentCompanion(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	exePath := filepath.Join(dir, "probo-agent.exe")
+	guiExePath := filepath.Join(dir, "probo-agentw.exe")
+
+	require.NoError(t, os.WriteFile(exePath, []byte("current-console"), 0o755))
+
+	layout, err := LayoutFor("windows", "amd64")
+	require.NoError(t, err)
+	fake := newFakeReleaseServer(t, "probo-agent/v0.2.0", "0.2.0", layout, []byte("release-console"))
+
+	u := newTestUpdater(fake, "0.2.0", exePath, "windows", "amd64")
+	require.NoError(t, u.EnsureGUIBinary(context.Background()))
+
+	got, err := os.ReadFile(exePath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("current-console"), got)
+
+	got, err = os.ReadFile(guiExePath)
+	require.NoError(t, err)
+	assert.Equal(t, fake.guiBinaryContent, got)
+}
+
+func TestUpdater_Apply_RejectsWindowsArchiveWithoutGUIBinary(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	exePath := filepath.Join(dir, "probo-agent.exe")
+	guiExePath := filepath.Join(dir, "probo-agentw.exe")
+
+	require.NoError(t, os.WriteFile(exePath, []byte("old-console"), 0o755))
+	require.NoError(t, os.WriteFile(guiExePath, []byte("old-gui"), 0o755))
+
+	layout, err := LayoutFor("windows", "amd64")
+	require.NoError(t, err)
+	fake := newFakeReleaseServer(t, "probo-agent/v0.2.0", "0.2.0", layout, []byte("new-console"))
+
+	incompleteLayout := layout
+	incompleteLayout.GUIBinaryName = ""
+	fake.archiveBytes = buildZip(t, incompleteLayout, fake.binaryContent, nil)
+	sum := sha256.Sum256(fake.archiveBytes)
+	fake.checksumLine = fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), layout.ArchiveName)
+
+	u := newTestUpdater(fake, "0.1.0", exePath, "windows", "amd64")
+	rel, err := u.CheckLatest(context.Background())
+	require.NoError(t, err)
+
+	err = u.Apply(context.Background(), rel)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "probo-agentw.exe")
+
+	got, err := os.ReadFile(exePath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("old-console"), got)
+
+	got, err = os.ReadFile(guiExePath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("old-gui"), got)
+}
+
+func TestUpdater_CheckLatest_SkipsUnsignedRelease(t *testing.T) {
+	t.Parallel()
+
+	layout, err := LayoutFor("linux", "amd64")
+	require.NoError(t, err)
+	fake := newFakeReleaseServer(t, "probo-agent/v0.2.0", "0.2.0", layout, []byte("new"))
+	fake.omitBundle = true
+
+	u := newTestUpdater(fake, "0.1.0", filepath.Join(t.TempDir(), "probo-agent"), "linux", "amd64")
+	_, err = u.CheckLatest(context.Background())
+	assert.ErrorIs(t, err, ErrNoUpdateAvailable, "release without a sigstore bundle must be ignored")
+}
+
+func TestUpdater_Apply_RejectsBadSignature(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	exePath := filepath.Join(dir, "probo-agent")
+	require.NoError(t, os.WriteFile(exePath, []byte("old-binary"), 0o755))
+
+	layout, err := LayoutFor("linux", "amd64")
+	require.NoError(t, err)
+	fake := newFakeReleaseServer(t, "probo-agent/v0.2.0", "0.2.0", layout, []byte("new-binary"))
+
+	u := newTestUpdater(fake, "0.1.0", exePath, "linux", "amd64")
+	u.Verifier = rejectAllVerifier{err: fmt.Errorf("test: signer identity mismatch")}
+
+	rel, err := u.CheckLatest(context.Background())
+	require.NoError(t, err)
+
+	err = u.Apply(context.Background(), rel)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sigstore")
+
+	got, err := os.ReadFile(exePath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("old-binary"), got, "rejected signature must not touch the running binary")
+}
+
+func TestUpdater_Apply_RejectsCorruptedArchive(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	exePath := filepath.Join(dir, "probo-agent")
+	require.NoError(t, os.WriteFile(exePath, []byte("old-binary"), 0o755))
+
+	layout, err := LayoutFor("linux", "amd64")
+	require.NoError(t, err)
+	fake := newFakeReleaseServer(t, "probo-agent/v0.2.0", "0.2.0", layout, []byte("new-binary"))
+
+	// Corrupt the archive without updating checksums.
+	fake.archiveBytes = append(fake.archiveBytes, 0xff)
+
+	u := newTestUpdater(fake, "0.1.0", exePath, "linux", "amd64")
+	rel, err := u.CheckLatest(context.Background())
+	require.NoError(t, err)
+
+	err = u.Apply(context.Background(), rel)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "checksum mismatch")
+
+	got, err := os.ReadFile(exePath)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("old-binary"), got, "corrupted update must not touch the running binary")
+}

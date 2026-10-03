@@ -1,0 +1,43 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "probo.fullname" . }}-http
+  labels:
+    {{- include "probo.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- range .Values.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- $fullName := include "probo.fullname" . }}
+    {{- $servicePort := .Values.service.port }}
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ if and .backend .backend.service .backend.service.name }}{{ .backend.service.name }}{{ else }}{{ $fullName }}{{ end }}
+                port:
+                  number: {{ if and .backend .backend.service .backend.service.port .backend.service.port.number }}{{ .backend.service.port.number }}{{ else }}{{ $servicePort }}{{ end }}
+          {{- end }}
+    {{- end }}
+{{- end }}

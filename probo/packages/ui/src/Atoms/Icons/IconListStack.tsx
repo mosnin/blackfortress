@@ -1,0 +1,31 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import type { IconProps } from "./type";
+
+export function IconListStack({ size = 24, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
+      <path fillRule="evenodd" clipRule="evenodd" d="M11.4645 3.12042C11.906 2.95987 12.39 2.95986 12.8315 3.12042L20.9053 6.05635C22.6607 6.69466 22.6607 9.17721 20.9053 9.81553L12.8315 12.7514C12.39 12.912 11.906 12.912 11.4645 12.7514L3.39074 9.81553C1.63539 9.17722 1.63537 6.69467 3.39073 6.05635L11.4645 3.12042ZM20.2218 7.93594L12.148 5L4.07422 7.93594L12.148 10.8718L20.2218 7.93594Z" fill="currentColor" />
+      <path d="M20.9053 13.8155L12.8315 16.7514C12.39 16.912 11.906 16.912 11.4645 16.7514L3.39074 13.8155C2.25171 13.4013 1.85178 12.2106 2.19096 11.2511L12.148 14.8718L22.1051 11.2511C22.4443 12.2106 22.0444 13.4013 20.9053 13.8155Z" fill="currentColor" />
+      <path d="M20.9053 17.8155L12.8315 20.7514C12.39 20.912 11.906 20.912 11.4645 20.7514L3.39074 17.8155C2.25171 17.4013 1.85178 16.2106 2.19096 15.2511L12.148 18.8718L22.1051 15.2511C22.4443 16.2106 22.0444 17.4013 20.9053 17.8155Z" fill="currentColor" />
+    </svg>
+  );
+}

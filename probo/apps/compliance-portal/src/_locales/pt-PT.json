@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "Portal de Conformidade",
+    "getAccess": "Pedir acesso",
+    "openMenu": "Abrir menu",
+    "closeMenu": "Fechar menu",
+    "menuTitle": "Menu",
+    "nav": {
+      "documents": "Documentos",
+      "subprocessors": "Subprocessadores",
+      "updates": "Atualizações",
+      "requests": "Pedidos"
+    }
+  },
+  "userMenu": {
+    "subscribe": "Subscrever atualizações",
+    "subscribed": "Subscrito às atualizações",
+    "signOut": "Terminar sessão",
+    "signOutFailed": "Não é possível terminar a sessão",
+    "switchToDarkMode": "Mudar para o modo escuro",
+    "switchToLightMode": "Mudar para o modo claro"
+  },
+  "common": {
+    "error": "Ocorreu um erro",
+    "previousPage": "Página anterior",
+    "nextPage": "Página seguinte",
+    "pageOf": "Página {{current}} de {{total}}",
+    "zoomOut": "Reduzir zoom",
+    "zoomIn": "Aumentar zoom"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "Acesso solicitado"
+    },
+    "fullName": {
+      "title": "Adicione o seu nome",
+      "label": "Nome Completo",
+      "placeholder": "João Silva",
+      "required": "O nome completo é obrigatório",
+      "tooShort": "O nome completo é demasiado curto",
+      "submit": "Continuar"
+    },
+    "errors": {
+      "fullNameFailed": "Não foi possível guardar o seu nome. Tente novamente.",
+      "requestFailed": "Não foi possível concluir o seu pedido de acesso. Tente novamente."
+    }
+  },
+  "home": {
+    "heroTitle": "Conformidade em {{name}}.",
+    "heroDescription": "Bem-vindo ao nosso Portal de Conformidade. Encontre aqui a nossa documentação de segurança e certificações.",
+    "sections": {
+      "compliance": "Conformidade",
+      "securityCommitments": "Compromissos de Segurança",
+      "trustedBy": "Confiam em nós",
+      "recentUpdates": "Atualizações recentes"
+    },
+    "recentUpdates": {
+      "viewAll": "Ver tudo"
+    }
+  },
+  "notFound": {
+    "title": "Página não encontrada",
+    "description": "A página que procura não existe ou foi movida.",
+    "backHome": "Voltar ao início"
+  },
+  "errors": {
+    "notFound": {
+      "title": "Página não encontrada",
+      "description": "A página que procura não existe ou pode ter sido movida."
+    },
+    "forbidden": {
+      "title": "Acesso negado",
+      "description": "Não tem permissão para ver esta página."
+    },
+    "serverError": {
+      "title": "Ocorreu um erro",
+      "description": "Ocorreu um erro inesperado. Tente novamente dentro de momentos."
+    },
+    "generic": {
+      "title": "Ocorreu um erro",
+      "description": "Ocorreu um erro inesperado. Tente novamente dentro de momentos."
+    },
+    "actions": {
+      "backToCompliancePortal": "Voltar ao portal de conformidade",
+      "tryAgain": "Tentar novamente",
+      "contactSupport": "Contactar o suporte",
+      "requestAccess": "Pedir acesso"
+    },
+    "inline": {
+      "message": "Não foi possível carregar o conteúdo",
+      "retry": "Tentar novamente"
+    }
+  },
+  "footer": {
+    "poweredBy": "Desenvolvido por"
+  },
+  "pagination": {
+    "previous": "Página anterior",
+    "next": "Página seguinte"
+  },
+  "locale": {
+    "label": "Idioma",
+    "updateFailed": "Não foi possível atualizar o idioma",
+    "mismatch": {
+      "message": "Está a ver esta página em {{language}}.",
+      "switchToMine": "Mudar para {{language}}",
+      "useThis": "Usar {{language}} como o meu idioma",
+      "dismiss": "Ignorar"
+    }
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "Assine o acordo de confidencialidade para aceder aos documentos privados.",
+      "sign": "Rever e assinar",
+      "dismiss": "Fechar"
+    }
+  }
+}

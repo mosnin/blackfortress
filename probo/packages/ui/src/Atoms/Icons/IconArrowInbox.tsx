@@ -1,0 +1,29 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import type { IconProps } from "./type";
+
+export function IconArrowInbox({ size = 24, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
+      <path fillRule="evenodd" clipRule="evenodd" d="M12 3C12.5523 3 13 3.44772 13 4V12.0858L14.7929 10.2929C15.1834 9.90237 15.8166 9.90237 16.2071 10.2929C16.5976 10.6834 16.5976 11.3166 16.2071 11.7071L12.7071 15.2071C12.3166 15.5976 11.6834 15.5976 11.2929 15.2071L7.79289 11.7071C7.40237 11.3166 7.40237 10.6834 7.79289 10.2929C8.18342 9.90237 8.81658 9.90237 9.20711 10.2929L11 12.0858V4C11 3.44772 11.4477 3 12 3ZM4 14C4.55228 14 5 14.4477 5 15V17C5 18.1046 5.89542 19 7 19H17C18.1046 19 19 18.1046 19 17V15C19 14.4477 19.4477 14 20 14C20.5523 14 21 14.4477 21 15V17C21 19.2092 19.2092 21 17 21H7C4.79088 21 3 19.2092 3 17V15C3 14.4477 3.44772 14 4 14Z" fill="currentColor" />
+    </svg>
+  );
+}
