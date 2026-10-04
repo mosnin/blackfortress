@@ -106,8 +106,8 @@ jobs:
             sudo apt-get install -y postgresql-16
           fi
 
-      - name: Build runtime (probod, bfd, bf, bf-checks, library)
-        run: fortress/scripts/build-runtime.sh linux-amd64
+      - name: Build runtime for linux and macOS (probod, bfd, bf, bf-checks, library)
+        run: fortress/scripts/build-runtime.sh linux-amd64 darwin-arm64
 
       # Probo's packages embed the built frontends and email templates, so
       # this runs after the runtime build has produced them.
@@ -118,10 +118,18 @@ jobs:
       - name: Smoke test a fresh install
         run: fortress/scripts/smoke-test.sh fortress/bfd/dist/linux-amd64
 
+      - name: Hand the macOS runtime to the app job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runtime-darwin-arm64
+          path: fortress/bfd/dist/darwin-arm64
+          retention-days: 3
+
   macos-app:
-    name: macOS app build
+    name: macOS app build and smoke test
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
+    needs: smoke
     steps:
       - name: Checkout source without retaining credentials
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -133,6 +141,41 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Build the SwiftUI app against the macOS SDK
+      - name: Fetch the macOS runtime built on linux
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: runtime-darwin-arm64
+          path: fortress/bfd/dist/darwin-arm64
+
+      - name: Restore executable bits
+        run: chmod +x fortress/bfd/dist/darwin-arm64/{bfd,bf,bf-checks,probod,probod-bootstrap}
+
+      - name: Build BlackFortress.app (runtime, library and PostgreSQL bundled)
         working-directory: fortress/macos
-        run: swift build -c release
+        env:
+          STRICT: '1'
+        run: scripts/build-app.sh
+
+      - name: Bundled binaries still run after code signing
+        run: |
+          bin=fortress/macos/build/BlackFortress.app/Contents/Resources/bin
+          codesign --verify --verbose=2 fortress/macos/build/BlackFortress.app || true
+          "$bin/bfd" version
+          "$bin/bf-checks" list | python3 -c 'import json,sys; print(len(json.load(sys.stdin)), "check providers")'
+
+      - name: Smoke test the bundled runtime on macOS
+        run: |
+          app=fortress/macos/build/BlackFortress.app
+          BF_PG_DIR="$PWD/$app/Contents/Resources/postgres" \
+            fortress/scripts/smoke-test.sh "$app/Contents/Resources/bin"
+
+      - name: Package the app
+        working-directory: fortress/macos/build
+        run: ditto -c -k --keepParent BlackFortress.app BlackFortress-macos-arm64.zip
+
+      - name: Upload BlackFortress.app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: BlackFortress-macos-arm64
+          path: fortress/macos/build/BlackFortress-macos-arm64.zip
+          retention-days: 14
