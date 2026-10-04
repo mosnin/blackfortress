@@ -56,6 +56,17 @@ controls their rules cite, and uploads a daily Markdown report of the
 matching ledger entries to each. `bf sync` uploads immediately, including
 a snapshot of today.
 
+## Automated checks
+
+`bf-checks` (from `../checks`) runs Comp's 49 GitHub, AWS, GCP, Azure,
+Vercel, Google Workspace and Aikido checks with the credentials already on
+the machine (`gh`, `aws`, `gcloud`, `az` or environment variables). Each
+check keeps a Probo measure mapped to the controls its Comp task template
+covers; its state follows the result and reports are attached as evidence.
+`bf checks` shows the latest results, `bf checks run [provider]` runs them
+now, and `$BF_HOME/checks.json` sets the interval, disables providers, or
+sets variables such as GitHub `target_repos`.
+
 Customize in `$BF_HOME/policy.json`: a rule with an existing id replaces the
 default, `"disabled": true` turns one off, new ids add rules.
 
@@ -66,6 +77,7 @@ default, `"disabled": true` turns one off, new ids add rules.
 | `BF_HOME` | `~/Library/Application Support/BlackFortress` (macOS), `~/.local/share/blackfortress` |
 | `BF_BIN_DIR` | directory with `probod` and `probod-bootstrap` (else next to `bfd`, else `PATH`) |
 | `BF_PG_DIR` | PostgreSQL install (else Homebrew, Postgres.app, `/usr/lib/postgresql/*`) |
+| `BF_GITHUB_TOKEN`, `BF_GCP_TOKEN`, `BF_AZURE_TOKEN`, `BF_VERCEL_TOKEN`, `BF_GOOGLE_WORKSPACE_TOKEN`, `BF_AIKIDO_TOKEN` | override the CLI-discovered credentials for automated checks |
 | `BF_LIBRARY_DIR` | framework JSON directory (else `library/frameworks` next to or above `bfd`) |
 | `BF_OPENAI_API_KEY`, `BF_ANTHROPIC_API_KEY`, `BF_FIRECRAWL_API_KEY` | enable Probo's AI features (vendor vetting, evidence description) |
 | `BF_*_PORT` | `PROBOD` 7810, `CONTROL` 7811, `STORAGE` 7812, `MAIL` 7813, `PG` 7814, `CHROME` 7815 |

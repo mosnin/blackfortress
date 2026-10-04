@@ -41,6 +41,7 @@ struct MainWindow: View {
         case .overview: OverviewView()
         case .activity: AgentActivityView()
         case .frameworks: FrameworksView()
+        case .checks: ChecksView()
         case .console: ConsoleView()
         case .settings: SettingsView()
         }

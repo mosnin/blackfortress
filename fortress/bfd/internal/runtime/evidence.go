@@ -67,9 +67,10 @@ func (g measureGroup) owns(ruleID string) bool {
 }
 
 type syncState struct {
-	Measures   map[string]string   `json:"measures"`
-	Linked     map[string][]string `json:"linked"`
-	SyncedDays []string            `json:"synced_days"`
+	Measures     map[string]string      `json:"measures"`
+	Linked       map[string][]string    `json:"linked"`
+	SyncedDays   []string               `json:"synced_days"`
+	CheckUploads map[string]checkUpload `json:"check_uploads,omitempty"`
 }
 
 func loadSyncState(path string) *syncState {

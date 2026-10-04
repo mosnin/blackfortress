@@ -2,7 +2,7 @@
 # Builds BlackFortress.app without Xcode:
 #   1. swift build -c release
 #   2. assembles build/BlackFortress.app (Info.plist, executable)
-#   3. bundles bfd, bf, probod, probod-bootstrap from ../bfd/dist/darwin-<arch>
+#   3. bundles bfd, bf, bf-checks, probod, probod-bootstrap from ../bfd/dist/darwin-<arch>
 #      into Contents/Resources/bin, and the control library (dist/.../library)
 #      into Contents/Resources/library (bfd resolves <exe dir>/../library/frameworks).
 #      The dist directory is produced by fortress/scripts/build-runtime.sh.
@@ -12,7 +12,7 @@
 # Env:
 #   VERSION         CFBundleShortVersionString (default 0.1.0)
 #   BUILD_NUMBER    CFBundleVersion (default: git commit count or 1)
-#   BFD_DIST        directory with bfd/bf/probod/probod-bootstrap and library/
+#   BFD_DIST        directory with bfd/bf/bf-checks/probod/probod-bootstrap and library/
 #                   (default ../bfd/dist/darwin-<arch>)
 #   PG_SRC          PostgreSQL dir with bin/ lib/ share/
 #                   (default Resources/postgres/darwin-<arch>; fetched if missing)
@@ -133,7 +133,7 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "==> Bundling runtime binaries from $BFD_DIST"
 missing=0
-for b in bfd bf probod probod-bootstrap; do
+for b in bfd bf bf-checks probod probod-bootstrap; do
   if [[ -f "$BFD_DIST/$b" ]]; then
     cp "$BFD_DIST/$b" "$APP/Contents/Resources/bin/$b"
     chmod 755 "$APP/Contents/Resources/bin/$b"

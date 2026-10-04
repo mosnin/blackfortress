@@ -40,7 +40,7 @@ open build/BlackFortress.app
    - `LSMinimumSystemVersion` 14.0
    - `LSUIElement` false, so the app has a Dock icon as well as the menu bar extra
    - an ATS exception for `localhost` / `127.0.0.1` (`NSAllowsLocalNetworking`)
-3. Copies `bfd`, `bf`, `probod` and `probod-bootstrap` from
+3. Copies `bfd`, `bf`, `bf-checks`, `probod` and `probod-bootstrap` from
    `../bfd/dist/darwin-<arch>/` into `Contents/Resources/bin/`, and that
    directory's `library/` into `Contents/Resources/library/`. bfd looks for
    the control library at `<exe dir>/../library/frameworks`.

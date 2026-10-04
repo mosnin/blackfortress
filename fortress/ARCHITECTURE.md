@@ -9,6 +9,7 @@ over MCP and agent hooks. A native macOS app is the UI shell.
 fortress/
   ARCHITECTURE.md   this file — the contract between components
   bfd/              Go module: runtime daemon + `bf` CLI (hooks, status, config)
+  checks/           bf-checks: Comp's integration checks compiled into one Bun binary
   library/          unified control library (Comp + Probo) and the converter
   macos/            SwiftUI app (menu bar + window), bundles bfd and probod
 ```
@@ -65,6 +66,8 @@ stored in `secrets.json`. The API key is what agents use for MCP.
 | GET | `/v1/ledger/verify` | `{"valid":bool,"entries":n,"error"?}` — hash-chain check |
 | POST | `/v1/hooks/{event}` | Ingest a ledger entry already written by `bf hook` (bearer token) |
 | POST | `/v1/evidence/sync` | Upload agent evidence to Probo now, including today (bearer token) |
+| GET | `/v1/checks` | Latest automated check summary per provider (`?detail=1` for every result) |
+| POST | `/v1/checks/run` | Run automated checks now, `?provider=github` for one (bearer token) |
 | GET | `/v1/login-link` | `{"url": ".../login?nonce=..."}` — one-time, 60 s console login link |
 | ANY | `/mcp` | MCP proxy to probod (bearer `mcp_token` from `secrets.json`) |
 | GET | `/login?nonce=` | Signs the local user in to probod and redirects to the console (sets the session cookie for `localhost`) |
@@ -94,6 +97,26 @@ its rules reference in the organization's frameworks, set to In Progress
 (marking it Implemented is left to the owner), and receives one Markdown
 report per day with the entries, outcome counts and chain-head hash.
 Completed days upload at startup and hourly; `bf sync` uploads now.
+
+## Automated checks
+
+`bf-checks` runs Comp's integration checks (GitHub, AWS, GCP, Azure,
+Vercel, Google Workspace, Aikido — 49 checks) unchanged, reading one JSON
+request on stdin and writing results on stdout. bfd supplies credentials
+the developer already has: `gh auth token`, `aws configure
+export-credentials`, `gcloud auth print-access-token`, `az account
+get-access-token`, or `BF_*` / provider environment variables. GitHub
+repositories default to those agents have worked in (from the ledger).
+
+Checks run 30 s after startup and every `interval_minutes` (default 360)
+from `$BF_HOME/checks.json`, which also disables providers and sets
+variables. Each check becomes a Probo measure *Automated check: <provider>
+— <check>*, mapped through its Comp task template to the controls that
+template satisfies (via `library/processes/tasks.json`). The measure is
+Implemented only with passing evidence and no findings, Not Implemented
+with findings, and In Progress when a check found nothing to evaluate. A
+Markdown report is uploaded when the result changes, at most once a day
+otherwise. Every run is also written to the ledger.
 
 ## Branding
 

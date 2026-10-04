@@ -106,3 +106,71 @@ func Sync(stdout io.Writer) int {
 
 	return 0
 }
+
+// Checks prints the latest automated check results, or with "run [provider]"
+// runs them now.
+func Checks(args []string, stdout io.Writer) int {
+	if len(args) > 0 && args[0] == "run" {
+		sec, err := loadSecrets()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+
+		url := controlURL() + "/v1/checks/run"
+		if len(args) > 1 {
+			url += "?provider=" + args[1]
+		}
+
+		req, _ := http.NewRequest(http.MethodPost, url, nil)
+		req.Header.Set("Authorization", "Bearer "+sec.MCPToken)
+
+		resp, err := (&http.Client{Timeout: 30 * time.Minute}).Do(req)
+		if err != nil {
+			fmt.Fprintln(stdout, "Black Fortress is not running.")
+			return 1
+		}
+
+		resp.Body.Close()
+	}
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(controlURL() + "/v1/checks")
+	if err != nil {
+		fmt.Fprintln(stdout, "Black Fortress is not running.")
+		return 1
+	}
+	defer resp.Body.Close()
+
+	var s struct {
+		Providers []struct {
+			Name     string `json:"name"`
+			Source   string `json:"source"`
+			Error    string `json:"error"`
+			Passing  int    `json:"checks_passing"`
+			Failing  int    `json:"checks_failing"`
+			Errored  int    `json:"checks_errored"`
+			Unknown  int    `json:"checks_inconclusive"`
+			Findings int    `json:"findings"`
+		} `json:"providers"`
+		Skipped map[string]string `json:"skipped"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+
+	for _, p := range s.Providers {
+		if p.Error != "" {
+			fmt.Fprintf(stdout, "✗ %-18s error: %s\n", p.Name, p.Error)
+			continue
+		}
+
+		fmt.Fprintf(stdout, "• %-18s %d passing, %d failing (%d findings), %d inconclusive, %d errored  [%s]\n", p.Name, p.Passing, p.Failing, p.Findings, p.Unknown, p.Errored, p.Source)
+	}
+
+	for name, why := range s.Skipped {
+		fmt.Fprintf(stdout, "– %-18s skipped: %s\n", name, why)
+	}
+
+	return 0
+}

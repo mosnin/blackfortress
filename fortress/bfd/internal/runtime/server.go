@@ -41,6 +41,8 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("GET /v1/ledger/verify", s.verifyLedger)
 	mux.HandleFunc("POST /v1/hooks/{event}", s.requireToken(s.hook))
 	mux.HandleFunc("POST /v1/evidence/sync", s.requireToken(s.syncEvidence))
+	mux.HandleFunc("GET /v1/checks", s.checks)
+	mux.HandleFunc("POST /v1/checks/run", s.requireToken(s.runChecks))
 	mux.HandleFunc("GET /v1/login-link", s.loginLink)
 	mux.HandleFunc("GET /login", s.login)
 	mux.Handle("/mcp", s.requireToken(s.mcpProxy()))
@@ -183,6 +185,34 @@ func (s *Server) hook(w http.ResponseWriter, r *http.Request) {
 
 	s.d.publishEntry(e)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// checks returns the latest automated check results; ?detail=1 includes
+// every passing resource and finding.
+func (s *Server) checks(w http.ResponseWriter, r *http.Request) {
+	st := s.d.loadChecksState()
+	if r.URL.Query().Get("detail") != "" {
+		writeJSON(w, http.StatusOK, st)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, st.Summary())
+}
+
+// runChecks runs automated checks now (?provider=github for one provider).
+func (s *Server) runChecks(w http.ResponseWriter, r *http.Request) {
+	if s.d.Status().State != "running" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "runtime not running"})
+		return
+	}
+
+	st, err := s.d.RunChecks(r.Context(), r.URL.Query().Get("provider"))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, st.Summary())
 }
 
 // syncEvidence uploads agent evidence now, including a snapshot of today.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the Black Fortress runtime for macOS (or any GOOS/GOARCH) into
-# fortress/bfd/dist/<os>-<arch>/: bfd, bf, probod, probod-bootstrap and the
-# framework library. The macOS app bundles that directory.
+# fortress/bfd/dist/<os>-<arch>/: bfd, bf, bf-checks, probod,
+# probod-bootstrap and the control library. The macOS app bundles that
+# directory.
 #
 # Usage: fortress/scripts/build-runtime.sh [darwin-arm64 darwin-amd64 linux-amd64 ...]
 set -euo pipefail
@@ -22,6 +23,9 @@ if [ ! -d "$PROBO/node_modules" ]; then
 fi
 make -C "$PROBO" bin/probod bin/probod-bootstrap >/dev/null
 
+# bf-checks bundles Comp's integration checks into a standalone Bun binary.
+(cd "$ROOT/fortress/checks" && bun install --frozen-lockfile >/dev/null)
+
 for target in "${TARGETS[@]}"; do
   os="${target%-*}"
   arch="${target#*-}"
@@ -41,8 +45,14 @@ for target in "${TARGETS[@]}"; do
       -o "$out/$cmd" "./cmd/$cmd")
   done
 
+  case "$arch" in amd64) bun_arch=x64 ;; *) bun_arch="$arch" ;; esac
+  (cd "$ROOT/fortress/checks" && bun build src/main.ts \
+    --compile --minify --target="bun-$os-$bun_arch" --outfile "$out/bf-checks" >/dev/null)
+
+  mkdir -p "$out/library/processes"
   cp "$PROBO"/apps/console/public/data/frameworks/*.json "$out/library/frameworks/"
   cp "$ROOT"/fortress/library/frameworks/*.json "$out/library/frameworks/"
+  cp "$ROOT"/fortress/library/processes/*.json "$out/library/processes/"
 done
 
 echo "done: $BFD/dist"

@@ -58,6 +58,29 @@ struct BFDClient {
         return LedgerResponse.entries(from: json)
     }
 
+    /// GET /v1/checks — latest automated check results.
+    func checks() async throws -> ChecksSummary {
+        ChecksSummary(json: try await getJSON("v1/checks"))
+    }
+
+    /// POST /v1/checks/run — run automated checks now. Requires the local
+    /// agent token from secrets.json; checks can take several minutes.
+    func runChecks(token: String) async throws -> ChecksSummary {
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/checks/run"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30 * 60
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 30 * 60
+        config.timeoutIntervalForResource = 30 * 60
+        let (data, response) = try await URLSession(configuration: config).data(for: request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw ClientError.badStatus(http.statusCode)
+        }
+        guard let json = JSONValue.parse(data) else { throw ClientError.invalidBody }
+        return ChecksSummary(json: json)
+    }
+
     /// GET /v1/ledger/verify — hash-chain integrity of the evidence ledger.
     func verifyLedger() async throws -> LedgerVerification {
         LedgerVerification(json: try await getJSON("v1/ledger/verify", timeout: 30))

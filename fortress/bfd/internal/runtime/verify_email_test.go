@@ -68,3 +68,32 @@ func TestMatchControls(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckVerdict(t *testing.T) {
+	cases := map[string]CheckReport{
+		"pass":         {Status: "success", Passed: []Outcome{{Title: "ok"}}},
+		"fail":         {Status: "failed", Findings: []Outcome{{Title: "bad"}}, Passed: []Outcome{{Title: "ok"}}},
+		"inconclusive": {Status: "success"},
+		"error":        {Status: "error", Findings: []Outcome{{Title: "bad"}}},
+	}
+
+	for want, c := range cases {
+		if got := c.Verdict(); got != want {
+			t.Errorf("verdict = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestGithubSlug(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://github.com/acme/api.git":                "acme/api",
+		"git@github.com:acme/api.git":                    "acme/api",
+		"ssh://git@github.com/acme/api":                  "acme/api",
+		"http://local_proxy@127.0.0.1:1234/git/acme/api": "acme/api",
+		"https://gitlab.com/acme/api.git":                "",
+	} {
+		if got := githubSlug(in); got != want {
+			t.Errorf("githubSlug(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

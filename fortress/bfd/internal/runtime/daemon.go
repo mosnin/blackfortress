@@ -74,6 +74,7 @@ type Daemon struct {
 
 	postureKick chan struct{}
 	syncMu      sync.Mutex
+	checksMu    sync.Mutex
 }
 
 func New(cfg Config, layout paths.Layout, logger *log.Logger) *Daemon {
@@ -288,6 +289,7 @@ func (d *Daemon) start(ctx context.Context) error {
 	go d.supervise(ctx)
 	go d.postureLoop(ctx)
 	go d.evidenceLoop(ctx)
+	go d.checksLoop(ctx)
 
 	return nil
 }

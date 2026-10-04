@@ -6,6 +6,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case overview
     case activity
     case frameworks
+    case checks
     case console
     case settings
 
@@ -16,6 +17,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .overview: return "Overview"
         case .activity: return "Agent Activity"
         case .frameworks: return "Frameworks"
+        case .checks: return "Automated Checks"
         case .console: return "Console"
         case .settings: return "Settings"
         }
@@ -26,6 +28,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .overview: return "square.grid.2x2"
         case .activity: return "bolt.horizontal.circle"
         case .frameworks: return "checklist"
+        case .checks: return "checkmark.shield"
         case .console: return "globe"
         case .settings: return "gearshape"
         }
@@ -47,6 +50,8 @@ final class AppModel: ObservableObject {
     @Published var section: SidebarItem = .overview
     @Published private(set) var status: BFDStatus?
     @Published private(set) var posture: Posture?
+    @Published private(set) var checks: ChecksSummary?
+    @Published private(set) var runningChecks = false
     @Published private(set) var activity: [LedgerEntry] = []
     @Published private(set) var connection: Connection = .connecting
     @Published private(set) var streamOpen = false
@@ -174,6 +179,33 @@ final class AppModel: ObservableObject {
         await refreshStatus()
         await refreshPosture()
         await refreshLedger()
+        await refreshChecks()
+    }
+
+    func refreshChecks() async {
+        if let c = try? await client.checks() {
+            checks = c
+        }
+    }
+
+    /// Runs every provider that has local credentials, now.
+    func runChecksNow() {
+        guard !runningChecks else { return }
+        guard let token = AgentConfig.personalAPIKey(dataDir: paths.dataDir) else {
+            flash("Runtime not set up yet")
+            return
+        }
+        runningChecks = true
+        Task {
+            do {
+                checks = try await client.runChecks(token: token)
+                flash("Checks finished")
+            } catch {
+                flash("Checks failed: \(error.localizedDescription)")
+            }
+            runningChecks = false
+            await refreshPosture()
+        }
     }
 
     func refreshStatus() async {
@@ -242,6 +274,8 @@ final class AppModel: ObservableObject {
             if let entry = LedgerEntry(json: json, kind: .evidence) {
                 mergeActivity([entry])
             }
+        case "checks":
+            checks = ChecksSummary(json: json)
         case "posture":
             let p = Posture(json: json)
             if p.frameworks.isEmpty {
