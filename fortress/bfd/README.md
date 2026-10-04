@@ -31,12 +31,15 @@ Everything listens on loopback only. First start takes a few seconds.
 ```sh
 bf install-claude            # hooks in ~/.claude/settings.json + `claude mcp add`
 bf agent-config cursor       # ~/.cursor/mcp.json snippet
-bf agent-config codex        # stdio bridge for ~/.codex/config.toml
+bf agent-config codex        # ~/.codex/config.toml snippet
+bf agent-config http         # URL + bearer token, for clients without stdio
 ```
 
-Agents talk to `http://localhost:7811/mcp` with a local bearer token; bfd
-forwards to Probo's MCP server (378 tools) with the provisioned OAuth token and
-records every tool call in the ledger. Agents never see Probo credentials.
+Agents launch `bf mcp-stdio`, which reads the local bearer token from
+`secrets.json` and relays to `http://localhost:7811/mcp`, so the token stays
+out of agent configs and command lines. bfd forwards to Probo's MCP server
+(378 tools) with the provisioned OAuth token and records every tool call in
+the ledger. Agents never see Probo credentials.
 
 ## Guardrails and evidence
 

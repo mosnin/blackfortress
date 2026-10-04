@@ -92,7 +92,8 @@ stored in `secrets.json`. The API key is what agents use for MCP.
 |---|---|
 | `bf hook <event>` | Claude Code hook handler. Reads the hook JSON on stdin, evaluates guardrails locally, forwards to bfd for the ledger, writes the hook decision JSON to stdout |
 | `bf status` | Prints `/v1/status` |
-| `bf agent-config [claude|cursor|codex]` | Prints MCP + hook configuration for an agent |
+| `bf agent-config [claude|cursor|codex|stdio|http]` | Prints MCP + hook configuration for an agent (stdio bridge; `http` prints the URL and token) |
+| `bf mcp-stdio` | stdio MCP server relaying to `/mcp`; reads the token from `secrets.json` so agent configs never hold it |
 | `bf install-claude [--project DIR]` | Writes the MCP server and hooks into Claude Code settings |
 
 ## Agent guardrails and evidence

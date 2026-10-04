@@ -79,6 +79,9 @@ tools="$(curl "${MCP[@]}" -H "Authorization: Bearer $TOKEN" -d '{"jsonrpc":"2.0"
   | sed -n 's/^data: //p' | json 'len(d["result"]["tools"])')"
 expect "MCP lists Probo tools ($tools)" '[[ "$tools" -gt 300 ]]'
 
+stdio_tools="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | "$BF" mcp-stdio | json 'len(d["result"]["tools"])')"
+expect "MCP over the bf mcp-stdio bridge ($stdio_tools tools)" '[[ "$stdio_tools" == "$tools" ]]'
+
 ORG="$(json 'd["organization_id"]' <<<"$status")"
 listed="$(curl "${MCP[@]}" -H "Authorization: Bearer $TOKEN" -H "User-Agent: smoke-test" \
   -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"listFrameworks\",\"arguments\":{\"organization_id\":\"$ORG\"}}}" \

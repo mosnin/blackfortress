@@ -76,19 +76,11 @@ func AgentConfig(args []string, stdout io.Writer) int {
 		agent = args[0]
 	}
 
-	sec, err := loadSecrets()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-
-	url := strings.TrimSuffix(controlURL(), "/") + "/mcp"
-	url = strings.Replace(url, "127.0.0.1", "localhost", 1)
 	bf := bfPath()
 
 	switch agent {
 	case "claude":
-		fmt.Fprintf(stdout, "# MCP server (user scope):\nclaude mcp add --scope user --transport http %s %s --header \"Authorization: Bearer %s\"\n\n", mcpServerName, url, sec.MCPToken)
+		fmt.Fprintf(stdout, "# MCP server (user scope):\nclaude %s\n\n", strings.Join(quoteAll(claudeMCPArgs(bf)), " "))
 		fmt.Fprintln(stdout, "# Hooks (merge into ~/.claude/settings.json, or run `bf install-claude`):")
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -97,6 +89,21 @@ func AgentConfig(args []string, stdout io.Writer) int {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
 		fmt.Fprintln(stdout, "# ~/.cursor/mcp.json")
+		_ = enc.Encode(map[string]any{"mcpServers": map[string]any{
+			mcpServerName: map[string]any{"command": bf, "args": []string{"mcp-stdio"}},
+		}})
+	case "http":
+		// For clients without stdio support. This prints the bearer token,
+		// which then sits in the client's config where agents can read it.
+		sec, err := loadSecrets()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+
+		url := strings.Replace(strings.TrimSuffix(controlURL(), "/")+"/mcp", "127.0.0.1", "localhost", 1)
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
 		_ = enc.Encode(map[string]any{"mcpServers": map[string]any{
 			mcpServerName: map[string]any{"url": url, "headers": map[string]string{"Authorization": "Bearer " + sec.MCPToken}},
 		}})
@@ -109,7 +116,7 @@ func AgentConfig(args []string, stdout io.Writer) int {
 			mcpServerName: map[string]any{"command": bf, "args": []string{"mcp-stdio"}},
 		}})
 	default:
-		fmt.Fprintf(os.Stderr, "unknown agent %q (claude, cursor, codex, stdio)\n", agent)
+		fmt.Fprintf(os.Stderr, "unknown agent %q (claude, cursor, codex, stdio, http)\n", agent)
 		return 2
 	}
 
@@ -156,12 +163,6 @@ func InstallClaude(args []string, stdout io.Writer) int {
 		return 2
 	}
 
-	sec, err := loadSecrets()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-
 	settingsPath := ""
 	if *project != "" {
 		settingsPath = filepath.Join(*project, ".claude", "settings.json")
@@ -186,8 +187,7 @@ func InstallClaude(args []string, stdout io.Writer) int {
 		return 0
 	}
 
-	url := strings.Replace(controlURL(), "127.0.0.1", "localhost", 1) + "/mcp"
-	mcpArgs := []string{"mcp", "add", "--scope", "user", "--transport", "http", mcpServerName, url, "--header", "Authorization: Bearer " + sec.MCPToken}
+	mcpArgs := claudeMCPArgs(bfPath())
 
 	claude, err := exec.LookPath("claude")
 	if err != nil {
@@ -208,6 +208,14 @@ func InstallClaude(args []string, stdout io.Writer) int {
 	fmt.Fprintln(stdout, "✓ MCP server", mcpServerName, "registered with Claude Code")
 
 	return 0
+}
+
+// claudeMCPArgs registers bfd with Claude Code through the `bf mcp-stdio`
+// bridge, which reads the bearer token from secrets.json itself. The token
+// never appears on a command line (visible in ps) or in ~/.claude.json,
+// where the governed agent could read it.
+func claudeMCPArgs(bf string) []string {
+	return []string{"mcp", "add", "--scope", "user", mcpServerName, "--", bf, "mcp-stdio"}
 }
 
 func quoteAll(v []string) []string {
