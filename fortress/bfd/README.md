@@ -16,7 +16,12 @@ contract between components.
 5. First run only: creates the local owner, verifies its email from the
    mail sink, creates the organization, mints a 90-day agent token (renewed
    automatically), closes sign-up, and imports SOC 2, ISO 27001:2022 and
-   GDPR (`BF_DEFAULT_FRAMEWORKS` to change).
+   GDPR (`BF_DEFAULT_FRAMEWORKS` to change), then creates draft policy
+   documents from Comp's policy templates for those frameworks, linked to
+   their controls (`BF_IMPORT_POLICIES=0` to skip). Put company details in
+   `$BF_HOME/company.json` (`INDUSTRY`, `EMPLOYEES`, `DEVICES`, `SOFTWARE`,
+   `LOCATION`, `CRITICAL`, `DATA`, `GEO`, `COMPANYINFO`) before first start
+   to fill policy placeholders; unset ones read "[to be defined: …]".
 6. Serves the control API, MCP proxy and console login on `localhost:7811`.
 
 Everything listens on loopback only. First start takes a few seconds.

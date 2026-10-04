@@ -285,6 +285,10 @@ func (d *Daemon) start(ctx context.Context) error {
 
 	importDefaultFrameworks(ctx, sess, d.secrets.OrganizationID, d.logger.Printf)
 
+	if err := d.importPolicies(ctx, sess); err != nil {
+		d.logger.Printf("policy import incomplete (retried next start): %v", err)
+	}
+
 	d.setState("running", "")
 	go d.supervise(ctx)
 	go d.postureLoop(ctx)

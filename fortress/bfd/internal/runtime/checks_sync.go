@@ -18,6 +18,8 @@ import (
 type libraryIndex struct {
 	// task template id -> refs of (framework name, control section)
 	taskRefs map[string][]controlRef
+	// framework import id or file name -> framework name
+	frameworkNames map[string]string
 }
 
 type controlRef struct {
@@ -69,7 +71,7 @@ func loadLibraryIndex() (*libraryIndex, error) {
 		return nil, fmt.Errorf("task library: %w", err)
 	}
 
-	idx := &libraryIndex{taskRefs: map[string][]controlRef{}}
+	idx := &libraryIndex{taskRefs: map[string][]controlRef{}, frameworkNames: names}
 
 	for _, t := range lib.Tasks {
 		for _, r := range t.RequirementRefs.Probo {
@@ -83,11 +85,17 @@ func loadLibraryIndex() (*libraryIndex, error) {
 }
 
 func (idx *libraryIndex) controlsFor(taskID string, controls []orgControl) []string {
+	return matchRefs(idx.taskRefs[taskID], controls)
+}
+
+// matchRefs resolves (framework name, section) references to control ids;
+// a reference also matches its sub-clauses ("Art. 25" → "Art. 25(1)").
+func matchRefs(refs []controlRef, controls []orgControl) []string {
 	seen := map[string]bool{}
 
 	var ids []string
 
-	for _, ref := range idx.taskRefs[taskID] {
+	for _, ref := range refs {
 		code := compact(ref.Control)
 
 		for _, c := range controls {

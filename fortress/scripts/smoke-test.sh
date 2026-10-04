@@ -11,6 +11,7 @@ set -euo pipefail
 
 BIN_DIR="$(cd "${1:?usage: smoke-test.sh BIN_DIR}" && pwd)"
 export BF_HOME="${BF_HOME:-$(mktemp -d)}"
+mkdir -p "$BF_HOME"
 export BF_BIN_DIR="$BIN_DIR"
 export NO_PROXY="localhost,127.0.0.1${NO_PROXY:+,$NO_PROXY}"
 CONTROL="http://localhost:${BF_CONTROL_PORT:-7811}"
@@ -57,6 +58,9 @@ expect "all services up" '[[ "$(json "all(v in (\"up\",\"disabled\") for v in d[
 
 frameworks="$(curl -s "$CONTROL/v1/posture" | json 'len(d["frameworks"])')"
 expect "default frameworks imported ($frameworks)" '[[ "$frameworks" -ge 3 ]]'
+
+policies="$(python3 -c "import json; print(len(json.load(open('$BF_HOME/sync.json')).get('documents',{})))" 2>/dev/null || echo 0)"
+expect "Comp policy templates imported as documents ($policies)" '[[ "$policies" -gt 10 ]]'
 
 TOKEN="$(token)"
 MCP=(-s -X POST "$CONTROL/mcp" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")

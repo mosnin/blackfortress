@@ -52,7 +52,11 @@ $BF_HOME/
 
 On first start bfd creates a local identity (`owner@blackfortress.local`,
 random password), an organization named after the machine user, and a
-personal API key, using Probo's connect/console GraphQL APIs. Credentials are
+personal API key, using Probo's connect/console GraphQL APIs. It then
+imports the default frameworks and Comp's policy templates that apply to
+them as draft Probo policy documents: rendered with Comp's own template
+rules (`{{#if soc2}}` blocks follow the imported frameworks, placeholders
+come from `$BF_HOME/company.json`) and linked to the controls they cover. Credentials are
 stored in `secrets.json`. The API key is what agents use for MCP.
 
 ## bfd control API (`http://127.0.0.1:7811`)

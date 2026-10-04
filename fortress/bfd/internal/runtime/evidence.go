@@ -71,6 +71,9 @@ type syncState struct {
 	Linked       map[string][]string    `json:"linked"`
 	SyncedDays   []string               `json:"synced_days"`
 	CheckUploads map[string]checkUpload `json:"check_uploads,omitempty"`
+	// Documents maps Comp policy template ids to Probo document ids.
+	Documents        map[string]string `json:"documents,omitempty"`
+	PoliciesImported bool              `json:"policies_imported,omitempty"`
 }
 
 func loadSyncState(path string) *syncState {
