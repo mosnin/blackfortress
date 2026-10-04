@@ -72,6 +72,11 @@ covers; its state follows the result and reports are attached as evidence.
 now, and `$BF_HOME/checks.json` sets the interval, disables providers, or
 sets variables such as GitHub `target_repos`.
 
+Agents are also blocked, by rules no policy can override, from reading
+`secrets.json`, modifying `$BF_HOME`, or editing Claude Code settings; and
+ledger entries are HMAC-signed with a key from `secrets.json`, so they cannot
+be rewritten without it.
+
 Customize in `$BF_HOME/policy.json`: a rule with an existing id replaces the
 default, `"disabled": true` turns one off, new ids add rules.
 
@@ -85,7 +90,8 @@ default, `"disabled": true` turns one off, new ids add rules.
 | `BF_GITHUB_TOKEN`, `BF_GCP_TOKEN`, `BF_AZURE_TOKEN`, `BF_VERCEL_TOKEN`, `BF_GOOGLE_WORKSPACE_TOKEN`, `BF_AIKIDO_TOKEN` | override the CLI-discovered credentials for automated checks |
 | `BF_LIBRARY_DIR` | framework JSON directory (else `library/frameworks` next to or above `bfd`) |
 | `BF_OPENAI_API_KEY`, `BF_ANTHROPIC_API_KEY`, `BF_FIRECRAWL_API_KEY` | enable Probo's AI features (vendor vetting, evidence description) |
-| `BF_*_PORT` | `PROBOD` 7810, `CONTROL` 7811, `STORAGE` 7812, `MAIL` 7813, `PG` 7814, `CHROME` 7815 |
+| `BF_*_PORT` | `PROBOD` 7810, `CONTROL` 7811, `STORAGE` 7812, `MAIL` 7813, `PG` 7814 |
+| `BF_ENABLE_PDF=1` | start headless Chrome for PDF export (off by default: its DevTools port has no authentication) |
 
 Logs: `$BF_HOME/logs/{bfd,probod,postgres}.log`. PostgreSQL refuses to run as
 root, so run bfd as a normal user.

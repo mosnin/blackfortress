@@ -24,10 +24,20 @@ fortress/
 | Object storage | `127.0.0.1:7812` | in-process S3-compatible server, files under `$BF_HOME/objects` |
 | Mail sink | `127.0.0.1:7813` | in-process SMTP, messages saved to `$BF_HOME/mail/*.eml` |
 | probod | `127.0.0.1:7810` | Probo server (console, MCP, GraphQL) |
-| Chrome | optional | used for PDF export if a local Chrome/Chromium is found |
+| Chrome | random loopback port | PDF export only, when `BF_ENABLE_PDF=1` (its DevTools port is unauthenticated) |
 | bfd control API | `127.0.0.1:7811` | status, events, hook ingestion, auto-login |
 
 All listeners bind to loopback only. Nothing is reachable from the network.
+
+Loopback is still reachable from the user's browser and from other local
+users, so:
+
+- the control API rejects any `Host` other than `localhost`/`127.0.0.1`
+  (DNS rebinding) and requires the bearer `mcp_token` from `secrets.json`
+  (0600) on every endpoint except `/v1/status`;
+- the object store requires a random per-install access key on every
+  request and only serves the console origin;
+- the mail sink only accepts probod's sender address.
 
 ## Data directory (`$BF_HOME`)
 
@@ -121,6 +131,16 @@ Implemented only with passing evidence and no findings, Not Implemented
 with findings, and In Progress when a check found nothing to evaluate. A
 Markdown report is uploaded when the result changes, at most once a day
 otherwise. Every run is also written to the ledger.
+
+## Self-protection
+
+The governed agent must not be able to switch off its own governance.
+Built-in rules that `policy.json` cannot override block agents from reading
+`secrets.json`, writing anything in `$BF_HOME`, and editing Claude Code
+`settings*.json` (where the hooks live). Ledger entries carry an HMAC keyed
+from `secrets.json`, so an agent that cannot read the key cannot rewrite the
+chain undetected. Shell commands are matched on their text, so this is
+defence in depth rather than a sandbox.
 
 ## Branding
 
