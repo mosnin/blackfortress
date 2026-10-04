@@ -38,11 +38,28 @@ enum WindowID {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminating = false
+    private var signalSources: [DispatchSourceSignal] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installSignalHandlers()
         NSApp.appearance = NSAppearance(named: .darkAqua)
         NotificationManager.shared.setUp()
         AppModel.shared.start()
+    }
+
+    /// `kill`/`pkill` send SIGTERM, which would end the app without running
+    /// applicationShouldTerminate and leave the managed bfd running. Route
+    /// SIGTERM and SIGINT through the normal Quit path instead.
+    private func installSignalHandlers() {
+        for sig in [SIGTERM, SIGINT] {
+            signal(sig, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            source.setEventHandler {
+                NSApp.terminate(nil)
+            }
+            source.resume()
+            signalSources.append(source)
+        }
     }
 
     // Keep running in the menu bar when the main window is closed.

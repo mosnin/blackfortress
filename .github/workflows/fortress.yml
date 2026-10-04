@@ -169,6 +169,44 @@ jobs:
           BF_PG_DIR="$PWD/$app/Contents/Resources/postgres" \
             fortress/scripts/smoke-test.sh "$app/Contents/Resources/bin"
 
+      - name: Launch the app, check it runs the runtime, quit cleanly
+        run: |
+          app="$PWD/fortress/macos/build/BlackFortress.app"
+          export BF_HOME="$(mktemp -d)"
+          shots="$RUNNER_TEMP/screenshots"
+          mkdir -p "$shots"
+
+          "$app/Contents/MacOS/BlackFortress" > "$RUNNER_TEMP/app.log" 2>&1 &
+          app_pid=$!
+
+          state=""
+          for _ in $(seq 1 120); do
+            state="$(curl -s http://localhost:7811/v1/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' 2>/dev/null || true)"
+            [ "$state" = running ] && break
+            sleep 1
+          done
+          echo "runtime state via the app: ${state:-none}"
+          sleep 15  # let posture and the SSE stream populate the window
+          screencapture -x "$shots/black-fortress-window.png" || echo "screencapture unavailable"
+
+          kill -TERM "$app_pid"
+          for _ in $(seq 1 60); do kill -0 "$app_pid" 2>/dev/null || break; sleep 1; done
+
+          leftovers="$(pgrep -fl "bfd run|postgres -D $BF_HOME|probod -cfg-file" || true)"
+          tail -20 "$RUNNER_TEMP/app.log"
+          test "$state" = running
+          if kill -0 "$app_pid" 2>/dev/null; then echo "app did not quit"; exit 1; fi
+          if [ -n "$leftovers" ]; then echo "runtime left running after quit:"; echo "$leftovers"; exit 1; fi
+
+      - name: Upload app screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-app-screenshots
+          path: ${{ runner.temp }}/screenshots
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Package the app
         working-directory: fortress/macos/build
         run: ditto -c -k --keepParent BlackFortress.app BlackFortress-macos-arm64.zip
