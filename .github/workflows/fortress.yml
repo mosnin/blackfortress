@@ -193,9 +193,14 @@ jobs:
           for _ in $(seq 1 60); do kill -0 "$app_pid" 2>/dev/null || break; sleep 1; done
 
           leftovers="$(pgrep -fl "bfd run|postgres -D $BF_HOME|probod -cfg-file" || true)"
-          tail -20 "$RUNNER_TEMP/app.log"
+          echo "--- app output"; cat "$RUNNER_TEMP/app.log"
           test "$state" = running
-          if kill -0 "$app_pid" 2>/dev/null; then echo "app did not quit"; exit 1; fi
+          if kill -0 "$app_pid" 2>/dev/null; then
+            echo "app did not quit"
+            ps -o pid,ppid,stat,command -p "$app_pid" || true
+            echo "--- bfd-macos.log"; tail -40 "$BF_HOME/logs/bfd-macos.log" 2>/dev/null || true
+            exit 1
+          fi
           if [ -n "$leftovers" ]; then echo "runtime left running after quit:"; echo "$leftovers"; exit 1; fi
 
       - name: Upload app screenshots

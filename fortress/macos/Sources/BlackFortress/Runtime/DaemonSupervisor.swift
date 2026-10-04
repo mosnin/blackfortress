@@ -134,13 +134,15 @@ final class DaemonSupervisor: ObservableObject {
             return
         }
         mode = .stopping
-        proc.terminate() // SIGTERM
         let pid = proc.processIdentifier
+        AppDelegate.log("stopping bfd (pid \(pid))")
+        proc.terminate() // SIGTERM
         let deadline = Date().addingTimeInterval(timeout)
         while proc.isRunning && Date() < deadline {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         if proc.isRunning {
+            AppDelegate.log("bfd did not stop in \(Int(timeout))s, killing it")
             kill(pid, SIGKILL)
             try? await Task.sleep(nanoseconds: 200_000_000)
         }

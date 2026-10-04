@@ -54,12 +54,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for sig in [SIGTERM, SIGINT] {
             signal(sig, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
-            source.setEventHandler {
-                NSApp.terminate(nil)
+            source.setEventHandler { [weak self] in
+                MainActor.assumeIsolated { self?.handleSignal(sig) }
             }
             source.resume()
             signalSources.append(source)
         }
+        AppDelegate.log("pid \(getpid()) handling SIGTERM and SIGINT")
+    }
+
+    /// Stops the managed bfd and exits. This does not go through
+    /// NSApp.terminate: under SwiftUI that can be deferred or vetoed, and a
+    /// signal must end the app either way. A hard exit after 30 s covers a
+    /// shutdown that hangs.
+    private func handleSignal(_ sig: Int32) {
+        AppDelegate.log("received signal \(sig), stopping the runtime")
+        guard !terminating else { return }
+        terminating = true
+        DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
+            AppDelegate.log("runtime did not stop in 30s, exiting anyway")
+            exit(1)
+        }
+        Task { @MainActor in
+            await AppModel.shared.shutdown()
+            AppDelegate.log("runtime stopped, exiting")
+            exit(0)
+        }
+    }
+
+    nonisolated static func log(_ message: String) {
+        FileHandle.standardError.write(Data("Black Fortress: \(message)\n".utf8))
     }
 
     // Keep running in the menu bar when the main window is closed.
