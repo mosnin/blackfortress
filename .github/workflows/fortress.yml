@@ -37,9 +37,7 @@ jobs:
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: probo/go.mod
-          cache-dependency-path: |
-            fortress/bfd/go.sum
-            fortress/library/validate/go.sum
+          cache-dependency-path: fortress/bfd/go.sum
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -58,12 +56,11 @@ jobs:
           go vet ./...
           go test ./...
 
-      - name: Framework library validates against Probo's importer
+      - name: Framework library is up to date with Comp's seed data
         working-directory: fortress/library
         run: |
           node scripts/convert-comp.mjs
           git diff --exit-code -- frameworks crosswalk.json processes manifest.json
-          cd validate && go test ./...
 
       - name: bf-checks tests and typecheck
         working-directory: fortress/checks
@@ -90,6 +87,7 @@ jobs:
           cache-dependency-path: |
             probo/go.sum
             fortress/bfd/go.sum
+            fortress/library/validate/go.sum
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -110,6 +108,12 @@ jobs:
 
       - name: Build runtime (probod, bfd, bf, bf-checks, library)
         run: fortress/scripts/build-runtime.sh linux-amd64
+
+      # Probo's packages embed the built frontends and email templates, so
+      # this runs after the runtime build has produced them.
+      - name: Framework library validates against Probo's importer
+        working-directory: fortress/library/validate
+        run: go test ./...
 
       - name: Smoke test a fresh install
         run: fortress/scripts/smoke-test.sh fortress/bfd/dist/linux-amd64
