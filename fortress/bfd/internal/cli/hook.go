@@ -25,6 +25,9 @@ Every file edit and shell command you make is evaluated against compliance contr
 - Infrastructure, CI/CD, dependency, auth/crypto and personal-data schema changes are change-managed: explain the change and its risk in your summary.
 - The black-fortress MCP server gives you the organization's frameworks, controls, measures, risks, policies and tasks. Check relevant controls before security-sensitive changes, and record evidence or update measure status when you implement a control.`
 
+// maxHookInput bounds how much hook JSON is read from stdin.
+var maxHookInput = 32 << 20
+
 // Hook handles a Claude Code hook event. It must never break the agent: on
 // any internal error it exits 0 with no output, except that block rules are
 // evaluated locally first so enforcement does not depend on bfd running.
@@ -48,8 +51,25 @@ func Hook(args []string, stdin io.Reader, stdout io.Writer) (code int) {
 		}
 	}
 
-	raw, err := io.ReadAll(io.LimitReader(stdin, 32<<20))
+	raw, err := io.ReadAll(io.LimitReader(stdin, int64(maxHookInput)+1))
 	if err != nil {
+		return 0
+	}
+
+	// Input past the limit cannot be parsed, so none of the rules could
+	// inspect it. Fail closed for tool calls rather than let a large enough
+	// write skip every guardrail.
+	if len(raw) > maxHookInput {
+		if event == "PreToolUse" {
+			writeHookOutput(stdout, map[string]any{
+				"hookSpecificOutput": map[string]any{
+					"hookEventName":            "PreToolUse",
+					"permissionDecision":       "ask",
+					"permissionDecisionReason": "Black Fortress: this tool call is too large to check against the compliance guardrails; review it before approving.",
+				},
+			})
+		}
+
 		return 0
 	}
 
