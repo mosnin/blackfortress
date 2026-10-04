@@ -89,7 +89,8 @@ func TestGithubSlug(t *testing.T) {
 		"https://github.com/acme/api.git":                "acme/api",
 		"git@github.com:acme/api.git":                    "acme/api",
 		"ssh://git@github.com/acme/api":                  "acme/api",
-		"http://local_proxy@127.0.0.1:1234/git/acme/api": "acme/api",
+		"http://local_proxy@127.0.0.1:1234/git/acme/api": "",
+		"https://gitea.corp/git/acme/pay":                "",
 		"https://gitlab.com/acme/api.git":                "",
 	} {
 		if got := githubSlug(in); got != want {

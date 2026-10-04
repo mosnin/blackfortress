@@ -126,6 +126,7 @@ func (d *Daemon) RunChecks(ctx context.Context, only string) (*ChecksState, erro
 	}
 
 	st := d.loadChecksState()
+	ran := map[string]bool{}
 
 	for _, provider := range checkProviders {
 		if only != "" && provider != only {
@@ -158,6 +159,7 @@ func (d *Daemon) RunChecks(ctx context.Context, only string) (*ChecksState, erro
 
 		run.Source = auth.Source
 		st.Providers[provider] = run
+		ran[provider] = true
 		d.recordCheckRun(run)
 	}
 
@@ -168,7 +170,7 @@ func (d *Daemon) RunChecks(ctx context.Context, only string) (*ChecksState, erro
 
 	d.hub.Publish("checks", st.Summary())
 
-	if err := d.syncCheckEvidence(ctx, st); err != nil {
+	if err := d.syncCheckEvidence(ctx, st, ran); err != nil {
 		d.logger.Printf("check evidence sync failed: %v", err)
 	}
 
@@ -194,6 +196,7 @@ func execChecks(ctx context.Context, bin, provider string, auth *providerAuth) (
 	var stdout, stderr bytes.Buffer
 
 	cmd := exec.CommandContext(ctx, bin, "run")
+	cmd.Env = checksEnv()
 	cmd.Stdin = bytes.NewReader(req)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -208,6 +211,24 @@ func execChecks(ctx context.Context, bin, provider string, auth *providerAuth) (
 	}
 
 	return &run, nil
+}
+
+// checksEnv is the environment bf-checks runs with: enough to reach the
+// network (proxies, CA bundles) but none of bfd's own or other providers'
+// credentials, which travel only in the JSON request.
+func checksEnv() []string {
+	env := minimalEnv()
+
+	for _, k := range []string{
+		"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
+		"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "AWS_CA_BUNDLE",
+	} {
+		if v, ok := os.LookupEnv(k); ok {
+			env = append(env, k+"="+v)
+		}
+	}
+
+	return env
 }
 
 func lastLine(s string) string {

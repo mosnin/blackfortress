@@ -79,6 +79,14 @@ func MCPStdio(stdin io.Reader, stdout io.Writer) int {
 			continue
 		}
 
+		// probod restarted and forgot the session: drop it so the client's
+		// next initialize starts a new one instead of failing forever.
+		if resp.StatusCode == http.StatusNotFound {
+			mu.Lock()
+			sessionID = ""
+			mu.Unlock()
+		}
+
 		if id := resp.Header.Get("Mcp-Session-Id"); id != "" {
 			mu.Lock()
 			sessionID = id

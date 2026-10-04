@@ -125,7 +125,11 @@ type checkUpload struct {
 // the controls of the check's task template, its state following the latest
 // result, and a report uploaded whenever the result changes (at most daily
 // when unchanged).
-func (d *Daemon) syncCheckEvidence(ctx context.Context, st *ChecksState) error {
+//
+// Only providers in ran (this cycle) produce evidence. Measures of
+// providers that did not run — credentials gone, provider disabled — fall
+// back to In Progress: an old pass is no longer current evidence.
+func (d *Daemon) syncCheckEvidence(ctx context.Context, st *ChecksState, ran map[string]bool) error {
 	idx, err := loadLibraryIndex()
 	if err != nil {
 		return err
@@ -159,7 +163,19 @@ func (d *Daemon) syncCheckEvidence(ctx context.Context, st *ChecksState) error {
 
 	today := time.Now().UTC().Format("2006-01-02")
 
+	const upd = `mutation($input: UpdateMeasureInput!) { updateMeasure(input: $input) { measure { id } } }`
+
 	for _, run := range st.Providers {
+		if !ran[run.Provider] {
+			for _, c := range run.Checks {
+				if id := sync.Measures["check:"+run.Provider+"/"+c.ID]; id != "" {
+					_ = sess.Do(ctx, "console", upd, map[string]any{"input": map[string]any{"id": id, "state": "IN_PROGRESS"}}, nil)
+				}
+			}
+
+			continue
+		}
+
 		for _, c := range run.Checks {
 			verdict := c.Verdict()
 			if verdict == "error" {
@@ -189,7 +205,6 @@ func (d *Daemon) syncCheckEvidence(ctx context.Context, st *ChecksState) error {
 				state = "IN_PROGRESS"
 			}
 
-			const upd = `mutation($input: UpdateMeasureInput!) { updateMeasure(input: $input) { measure { id } } }`
 			if err := sess.Do(ctx, "console", upd, map[string]any{"input": map[string]any{"id": sync.Measures[key], "state": state}}, nil); err != nil {
 				return fmt.Errorf("%s: %w", key, err)
 			}

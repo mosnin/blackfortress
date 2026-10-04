@@ -31,12 +31,21 @@ struct BFDClient {
 
     var eventsURL: URL { baseURL.appendingPathComponent("v1/events") }
 
+    /// Every bfd endpoint except /v1/status needs the local token that bfd
+    /// writes to secrets.json (readable only by this user).
+    static func authToken() -> String? {
+        AgentConfig.personalAPIKey(dataDir: RuntimePaths.current.dataDir)
+    }
+
     func getJSON(_ path: String, query: [URLQueryItem] = [], timeout: TimeInterval = 5) async throws -> JSONValue {
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { components.queryItems = query }
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = BFDClient.authToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw ClientError.badStatus(http.statusCode)

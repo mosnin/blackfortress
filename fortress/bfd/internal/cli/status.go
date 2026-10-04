@@ -10,6 +10,7 @@ import (
 
 	"blackfortress.dev/fortress/bfd/internal/guard"
 	"blackfortress.dev/fortress/bfd/internal/paths"
+	"blackfortress.dev/fortress/bfd/internal/secrets"
 )
 
 // Status prints bfd's /v1/status, or reports that it is not running.
@@ -44,7 +45,9 @@ func Ledger(args []string, stdout io.Writer) int {
 		return 1
 	}
 
-	l := guard.Ledger{Dir: paths.NewLayout(home).Ledger}
+	layout := paths.NewLayout(home)
+	sec, _ := secrets.Load(layout.Secrets)
+	l := guard.Ledger{Dir: layout.Ledger, Key: sec.LedgerKeyBytes()}
 
 	if len(args) > 0 && args[0] == "verify" {
 		n, err := l.Verify()
@@ -110,13 +113,13 @@ func Sync(stdout io.Writer) int {
 // Checks prints the latest automated check results, or with "run [provider]"
 // runs them now.
 func Checks(args []string, stdout io.Writer) int {
-	if len(args) > 0 && args[0] == "run" {
-		sec, err := loadSecrets()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
+	sec, err := loadSecrets()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 
+	if len(args) > 0 && args[0] == "run" {
 		url := controlURL() + "/v1/checks/run"
 		if len(args) > 1 {
 			url += "?provider=" + args[1]
@@ -134,7 +137,10 @@ func Checks(args []string, stdout io.Writer) int {
 		resp.Body.Close()
 	}
 
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(controlURL() + "/v1/checks")
+	req, _ := http.NewRequest(http.MethodGet, controlURL()+"/v1/checks", nil)
+	req.Header.Set("Authorization", "Bearer "+sec.MCPToken)
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
 		fmt.Fprintln(stdout, "Black Fortress is not running.")
 		return 1

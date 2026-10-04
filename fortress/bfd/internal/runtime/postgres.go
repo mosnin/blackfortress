@@ -92,6 +92,14 @@ func (p *Postgres) Start(ctx context.Context) (*Proc, error) {
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		if p.ready(ctx) {
+			// A server left over from a previous run answers too; make sure
+			// the one we started is the one serving.
+			select {
+			case <-proc.Done():
+				return nil, errors.New("postgres exited right after start (port or data directory in use?); see " + p.LogPath)
+			case <-time.After(500 * time.Millisecond):
+			}
+
 			return proc, p.ensureDatabase(ctx)
 		}
 

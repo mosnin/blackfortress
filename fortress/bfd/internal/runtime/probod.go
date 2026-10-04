@@ -33,6 +33,8 @@ type Probod struct {
 	ExtraEnv      []string
 }
 
+const mailSender = "no-reply@blackfortress.local"
+
 func (p *Probod) BaseURL() string { return "http://localhost:" + strconv.Itoa(p.Port) }
 
 func (p *Probod) env() []string {
@@ -56,14 +58,14 @@ func (p *Probod) env() []string {
 		"PROBOD_PG_POOL_SIZE=20",
 		"PROBOD_AWS_REGION=" + storageRegion,
 		"PROBOD_AWS_BUCKET=" + storageBucket,
-		"PROBOD_AWS_ACCESS_KEY_ID=" + storageAccessKey,
-		"PROBOD_AWS_SECRET_ACCESS_KEY=" + storageAccessKey,
+		"PROBOD_AWS_ACCESS_KEY_ID=" + s.StorageKeyID,
+		"PROBOD_AWS_SECRET_ACCESS_KEY=" + s.StorageSecret,
 		"PROBOD_AWS_ENDPOINT=" + p.StorageURL,
 		"PROBOD_AWS_USE_PATH_STYLE=true",
 		"PROBOD_SMTP_ADDR=" + p.MailAddr,
 		"PROBOD_SMTP_TLS_REQUIRED=false",
 		"PROBOD_MAILER_SENDER_NAME=Black Fortress",
-		"PROBOD_MAILER_SENDER_EMAIL=no-reply@blackfortress.local",
+		"PROBOD_MAILER_SENDER_EMAIL=" + mailSender,
 		"PROBOD_MAILER_INTERVAL=2",
 		"PROBOD_TRACING_ADDR=",
 		"PROBOD_METRICS_ADDR=127.0.0.1:0",
@@ -128,6 +130,12 @@ func (p *Probod) Start(ctx context.Context) (*Proc, error) {
 		if resp, err := client.Get(p.BaseURL() + "/.well-known/openid-configuration"); err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
+				select {
+				case <-proc.Done():
+					return nil, errors.New("probod exited right after start (port in use?); see " + p.LogPath)
+				case <-time.After(500 * time.Millisecond):
+				}
+
 				return proc, nil
 			}
 		}

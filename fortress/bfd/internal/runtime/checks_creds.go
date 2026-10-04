@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -263,25 +264,37 @@ func githubReposFromLedger(ledgerDir string) []string {
 	return repos
 }
 
-// githubSlug extracts owner/repo from https, ssh and proxied GitHub URLs.
+// githubSlug extracts owner/repo from https and ssh GitHub remotes. Only
+// github.com hosts count: a repository on another forge must never be
+// checked (and credited as evidence) against a same-named GitHub repo.
 func githubSlug(remote string) string {
-	remote = strings.TrimSuffix(remote, ".git")
+	remote = strings.TrimSuffix(strings.TrimSpace(remote), ".git")
 
-	i := strings.Index(remote, "github.com")
-	if i < 0 {
-		// Proxied clones look like http://host/git/owner/repo.
-		if j := strings.Index(remote, "/git/"); j >= 0 {
-			remote = "github.com/" + remote[j+len("/git/"):]
-			i = 0
-		} else {
+	var host, path string
+
+	switch {
+	case strings.Contains(remote, "://"):
+		u, err := url.Parse(remote)
+		if err != nil {
 			return ""
 		}
+
+		host, path = u.Hostname(), u.Path
+	case strings.Contains(remote, ":"):
+		// scp-like: git@github.com:owner/repo
+		at := strings.LastIndex(remote[:strings.Index(remote, ":")], "@")
+		host = remote[at+1 : strings.Index(remote, ":")]
+		path = remote[strings.Index(remote, ":")+1:]
+	default:
+		return ""
 	}
 
-	rest := strings.TrimLeft(remote[i+len("github.com"):], ":/")
+	if !strings.EqualFold(host, "github.com") && !strings.EqualFold(host, "www.github.com") {
+		return ""
+	}
 
-	parts := strings.Split(rest, "/")
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return ""
 	}
 

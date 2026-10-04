@@ -28,7 +28,13 @@ Every file edit and shell command you make is evaluated against compliance contr
 // Hook handles a Claude Code hook event. It must never break the agent: on
 // any internal error it exits 0 with no output, except that block rules are
 // evaluated locally first so enforcement does not depend on bfd running.
-func Hook(args []string, stdin io.Reader, stdout io.Writer) int {
+func Hook(args []string, stdin io.Reader, stdout io.Writer) (code int) {
+	defer func() {
+		if recover() != nil {
+			code = 0
+		}
+	}()
+
 	event := "PreToolUse"
 	agent := "claude-code"
 
@@ -62,7 +68,8 @@ func Hook(args []string, stdin io.Reader, stdout io.Writer) int {
 	}
 
 	layout := paths.NewLayout(home)
-	ledger := guard.Ledger{Dir: layout.Ledger}
+	sec, _ := secrets.Load(layout.Secrets)
+	ledger := guard.Ledger{Dir: layout.Ledger, Key: sec.LedgerKeyBytes()}
 
 	switch event {
 	case "SessionStart":
@@ -93,6 +100,11 @@ func Hook(args []string, stdin io.Reader, stdout io.Writer) int {
 
 	subject := guard.SubjectFromHook(in)
 	decision := policy.Evaluate(subject)
+
+	// Self-protection overrides any user policy.
+	if p := guard.Protection(subject, home); p != nil {
+		decision = *p
+	}
 
 	if decision.Action == "" {
 		return 0

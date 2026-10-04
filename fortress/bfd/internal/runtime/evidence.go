@@ -311,7 +311,13 @@ func (s *Session) ensureMeasure(ctx context.Context, orgID string, g measureGrou
 				ID string `json:"id"`
 			} `json:"node"`
 		}
-		if err := s.Do(ctx, "console", `query($id: ID!) { node(id: $id) { id } }`, map[string]any{"id": id}, &out); err == nil && out.Node != nil {
+		if err := s.Do(ctx, "console", `query($id: ID!) { node(id: $id) { id } }`, map[string]any{"id": id}, &out); err != nil {
+			// A transient failure must not be mistaken for a deletion, or
+			// every hiccup would create a duplicate measure.
+			return err
+		}
+
+		if out.Node != nil {
 			return nil
 		}
 
@@ -400,7 +406,7 @@ func (d *Daemon) uploadDay(ctx context.Context, sess *Session, st *syncState, da
 		return 0, err
 	}
 
-	verified, verifyErr := guard.VerifyDay(d.layout.Ledger, day)
+	verified, verifyErr := d.ledger.VerifyDay(day)
 
 	uploaded := 0
 
@@ -496,9 +502,5 @@ func cell(s string) string {
 	s = strings.ReplaceAll(s, "|", `\|`)
 	s = strings.ReplaceAll(s, "\n", " ")
 
-	if len(s) > 120 {
-		s = s[:120] + "…"
-	}
-
-	return s
+	return guard.Truncate(s, 120)
 }

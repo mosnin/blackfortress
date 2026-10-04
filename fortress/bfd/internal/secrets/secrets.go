@@ -33,6 +33,15 @@ type Secrets struct {
 	// MCPToken authenticates agents to bfd's own MCP endpoint. It never
 	// grants direct access to probod.
 	MCPToken string `json:"mcp_token"`
+
+	// StorageKeyID/StorageSecret authenticate probod to the local object
+	// store; the store rejects any request that does not carry the key id.
+	StorageKeyID  string `json:"storage_key_id"`
+	StorageSecret string `json:"storage_secret"`
+
+	// LedgerKey keys the ledger's HMAC chain so entries cannot be rewritten
+	// and re-hashed by anything that cannot read this file.
+	LedgerKey string `json:"ledger_key"`
 }
 
 // LoadOrCreate reads the secrets file, generating any missing value.
@@ -80,6 +89,9 @@ func LoadOrCreate(path string) (*Secrets, error) {
 		{&s.UserEmail, func() (string, error) { return "owner@blackfortress.local", nil }},
 		{&s.UserPassword, func() (string, error) { return randomURLSafe(24) }},
 		{&s.MCPToken, func() (string, error) { return randomURLSafe(32) }},
+		{&s.StorageKeyID, func() (string, error) { return randomAlnum(20) }},
+		{&s.StorageSecret, func() (string, error) { return randomURLSafe(30) }},
+		{&s.LedgerKey, func() (string, error) { return randomBase64(32) }},
 	}
 	for _, step := range steps {
 		if err := fill(step.field, step.gen); err != nil {
@@ -137,6 +149,23 @@ func randomURLSafe(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+// randomAlnum returns n random uppercase letters and digits (S3 access key
+// ids must survive URL query encoding unchanged).
+func randomAlnum(n int) (string, error) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+	b, err := randomBytes(n)
+	if err != nil {
+		return "", err
+	}
+
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+
+	return string(b), nil
+}
+
 func rsaKeyPEM() (string, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -161,4 +190,18 @@ func Load(path string) (*Secrets, error) {
 	}
 
 	return s, nil
+}
+
+// LedgerKeyBytes returns the ledger HMAC key, or nil when none is set.
+func (s *Secrets) LedgerKeyBytes() []byte {
+	if s == nil || s.LedgerKey == "" {
+		return nil
+	}
+
+	key, err := base64.StdEncoding.DecodeString(s.LedgerKey)
+	if err != nil {
+		return nil
+	}
+
+	return key
 }

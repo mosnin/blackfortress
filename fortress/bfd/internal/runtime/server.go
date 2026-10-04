@@ -34,16 +34,18 @@ func newServer(d *Daemon) *Server {
 
 func (s *Server) Start(port int) error {
 	mux := http.NewServeMux()
+	// Only /v1/status (no secrets) and the nonce-protected /login are open;
+	// everything else needs the local token from secrets.json (0600).
 	mux.HandleFunc("GET /v1/status", s.status)
-	mux.HandleFunc("GET /v1/events", s.events)
-	mux.HandleFunc("GET /v1/posture", s.posture)
-	mux.HandleFunc("GET /v1/ledger", s.ledger)
-	mux.HandleFunc("GET /v1/ledger/verify", s.verifyLedger)
+	mux.HandleFunc("GET /v1/events", s.requireToken(s.events))
+	mux.HandleFunc("GET /v1/posture", s.requireToken(s.posture))
+	mux.HandleFunc("GET /v1/ledger", s.requireToken(s.ledger))
+	mux.HandleFunc("GET /v1/ledger/verify", s.requireToken(s.verifyLedger))
 	mux.HandleFunc("POST /v1/hooks/{event}", s.requireToken(s.hook))
 	mux.HandleFunc("POST /v1/evidence/sync", s.requireToken(s.syncEvidence))
-	mux.HandleFunc("GET /v1/checks", s.checks)
+	mux.HandleFunc("GET /v1/checks", s.requireToken(s.checks))
 	mux.HandleFunc("POST /v1/checks/run", s.requireToken(s.runChecks))
-	mux.HandleFunc("GET /v1/login-link", s.loginLink)
+	mux.HandleFunc("GET /v1/login-link", s.requireToken(s.loginLink))
 	mux.HandleFunc("GET /login", s.login)
 	mux.Handle("/mcp", s.requireToken(s.mcpProxy()))
 	mux.Handle("/mcp/", s.requireToken(s.mcpProxy()))
@@ -53,10 +55,26 @@ func (s *Server) Start(port int) error {
 		return err
 	}
 
-	s.srv = &http.Server{Handler: rejectForeignOrigins(mux), ReadHeaderTimeout: 10 * time.Second}
+	s.srv = &http.Server{Handler: requireLocalHost(port, rejectForeignOrigins(mux)), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = s.srv.Serve(ln) }()
 
 	return nil
+}
+
+// requireLocalHost defeats DNS rebinding: a page on attacker.example that
+// resolves to 127.0.0.1 still sends Host: attacker.example.
+func requireLocalHost(port int, next http.Handler) http.Handler {
+	p := strconv.Itoa(port)
+	allowed := map[string]bool{"localhost:" + p: true, "127.0.0.1:" + p: true, "[::1]:" + p: true}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !allowed[strings.ToLower(r.Host)] {
+			http.Error(w, "forbidden host", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // rejectForeignOrigins blocks browser requests from non-local origins. The

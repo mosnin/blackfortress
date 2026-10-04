@@ -43,6 +43,15 @@ func startProc(name string, cmd *exec.Cmd, logPath string) (*Proc, error) {
 	return p, nil
 }
 
+// Pid returns the process id.
+func (p *Proc) Pid() int {
+	if p == nil || p.cmd.Process == nil {
+		return 0
+	}
+
+	return p.cmd.Process.Pid
+}
+
 // Done is closed when the process exits.
 func (p *Proc) Done() <-chan struct{} { return p.done }
 

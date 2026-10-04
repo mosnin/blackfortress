@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +31,6 @@ type Config struct {
 	StoragePort int
 	MailPort    int
 	PgPort      int
-	ChromePort  int
 }
 
 func DefaultConfig() Config {
@@ -40,7 +40,6 @@ func DefaultConfig() Config {
 		StoragePort: envPort("BF_STORAGE_PORT", paths.StoragePort),
 		MailPort:    envPort("BF_MAIL_PORT", paths.MailPort),
 		PgPort:      envPort("BF_PG_PORT", paths.PgPort),
-		ChromePort:  envPort("BF_CHROME_PORT", 7815),
 	}
 }
 
@@ -172,6 +171,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	d.secrets = sec
+	d.ledger.Key = sec.LedgerKeyBytes()
 
 	if err := writeDefaultPolicy(d.layout.Policy); err != nil {
 		d.logger.Printf("cannot write policy file: %v", err)
@@ -195,7 +195,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 }
 
 func (d *Daemon) start(ctx context.Context) error {
-	d.storage = &Storage{Dir: d.layout.Objects, Port: d.cfg.StoragePort}
+	// A previous bfd that crashed or was killed leaves its children running
+	// in their own process groups; stop them before taking their ports.
+	killOrphans(d.runDir(), d.layout.PgData, d.logger.Printf)
+
+	d.storage = &Storage{
+		Dir:           d.layout.Objects,
+		Port:          d.cfg.StoragePort,
+		KeyID:         d.secrets.StorageKeyID,
+		ConsoleOrigin: d.probodURL(),
+	}
 	if err := d.storage.Start(); err != nil {
 		return err
 	}
@@ -321,6 +330,8 @@ func (d *Daemon) track(name string, p *Proc) {
 	d.mu.Lock()
 	d.procs[name] = p
 	d.mu.Unlock()
+
+	writePidFile(d.runDir(), name, p.Pid())
 }
 
 func (d *Daemon) stopProc(name string, sig syscall.Signal) {
@@ -332,45 +343,22 @@ func (d *Daemon) stopProc(name string, sig syscall.Signal) {
 	if p != nil {
 		p.Stop(sig, 20*time.Second)
 	}
+
+	removePidFile(d.runDir(), name)
 }
 
-// supervise restarts probod or postgres if they exit unexpectedly.
+func (d *Daemon) runDir() string { return filepath.Join(d.layout.Home, "run") }
+
+// supervise keeps postgres and probod running. It restarts whichever is
+// missing (postgres first, since probod depends on it) with exponential
+// backoff, and never gives up while bfd runs.
 func (d *Daemon) supervise(ctx context.Context) {
 	backoff := time.Second
 
-	for {
-		d.mu.Lock()
-		pg, pd := d.procs["postgres"], d.procs["probod"]
-		d.mu.Unlock()
-
-		if pg == nil || pd == nil {
-			return
-		}
-
+	wait := func() bool {
 		select {
 		case <-ctx.Done():
-			return
-		case <-pg.Done():
-			d.logger.Printf("postgres exited; restarting")
-			d.setService("postgres", "restarting")
-			d.setState("degraded", "postgres exited")
-			d.stopProc("probod", syscall.SIGTERM)
-
-			if p, err := d.pg.Start(ctx); err == nil {
-				d.track("postgres", p)
-				d.setService("postgres", "up")
-			} else {
-				d.logger.Printf("postgres restart failed: %v", err)
-			}
-		case <-pd.Done():
-			d.logger.Printf("probod exited; restarting")
-			d.setService("probod", "restarting")
-			d.setState("degraded", "probod exited")
-		}
-
-		select {
-		case <-ctx.Done():
-			return
+			return false
 		case <-time.After(backoff):
 		}
 
@@ -378,13 +366,67 @@ func (d *Daemon) supervise(ctx context.Context) {
 			backoff *= 2
 		}
 
-		if err := d.startProbod(ctx); err != nil {
-			d.logger.Printf("probod restart failed: %v", err)
+		return true
+	}
+
+	for {
+		d.mu.Lock()
+		pg, pd := d.procs["postgres"], d.procs["probod"]
+		d.mu.Unlock()
+
+		switch {
+		case pg == nil:
+			d.setService("postgres", "restarting")
+
+			p, err := d.pg.Start(ctx)
+			if err != nil {
+				d.logger.Printf("postgres restart failed: %v", err)
+				if !wait() {
+					return
+				}
+
+				continue
+			}
+
+			d.track("postgres", p)
+			d.setService("postgres", "up")
+
+			continue
+		case pd == nil:
+			if err := d.startProbod(ctx); err != nil {
+				d.logger.Printf("probod restart failed: %v", err)
+				if !wait() {
+					return
+				}
+
+				continue
+			}
+
+			backoff = time.Second
+			d.setState("running", "")
+
 			continue
 		}
 
-		backoff = time.Second
-		d.setState("running", "")
+		select {
+		case <-ctx.Done():
+			return
+		case <-pg.Done():
+			d.logger.Printf("postgres exited; restarting")
+			d.setState("degraded", "postgres exited")
+			d.stopProc("postgres", syscall.SIGINT)
+			// probod holds connections to the old server; restart it too.
+			d.stopProc("probod", syscall.SIGTERM)
+		case <-pd.Done():
+			d.logger.Printf("probod exited; restarting")
+			d.setState("degraded", "probod exited")
+			d.setService("probod", "restarting")
+			d.stopProc("probod", syscall.SIGTERM)
+		}
+
+		if !wait() {
+			return
+		}
 	}
 }
 
@@ -407,10 +449,15 @@ func (d *Daemon) postureLoop(ctx context.Context) {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
+	renew := time.NewTicker(12 * time.Hour)
+	defer renew.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-renew.C:
+			d.renewAgentToken(ctx)
 		case <-ticker.C:
 			refresh()
 		case <-d.postureKick:
@@ -449,6 +496,23 @@ func (d *Daemon) evidenceLoop(ctx context.Context) {
 			run()
 		}
 	}
+}
+
+// renewAgentToken re-runs provisioning, which mints a new agent token once
+// the current one is within a week of expiring, so a long-running bfd
+// never starts failing MCP and posture calls.
+func (d *Daemon) renewAgentToken(ctx context.Context) {
+	if time.Until(d.secrets.APIKeyExpiresAt) > 7*24*time.Hour {
+		return
+	}
+
+	save := func() error { return d.secrets.Save(d.layout.Secrets) }
+	if _, err := Provision(ctx, d.probodURL(), d.layout.Mail, d.secrets, save); err != nil {
+		d.logger.Printf("agent token renewal failed: %v", err)
+		return
+	}
+
+	d.logger.Printf("agent token renewed")
 }
 
 func (d *Daemon) kickPosture() {
@@ -513,12 +577,7 @@ func agentFromUserAgent(ua string) string {
 }
 
 func summarizeArgs(raw []byte) string {
-	s := strings.Join(strings.Fields(string(raw)), " ")
-	if len(s) > 200 {
-		s = s[:200] + "…"
-	}
-
-	return s
+	return guard.Truncate(strings.Join(strings.Fields(string(raw)), " "), 200)
 }
 
 // mcpControls tags compliance-record changes made by agents: writes to the
@@ -560,11 +619,23 @@ func (d *Daemon) guardrailSummary() GuardrailSummary {
 	return g
 }
 
-// startChrome launches a headless Chrome for PDF export when one is
-// installed. PDF export is the only feature that needs it.
+// startChrome launches a headless Chrome for PDF export, only when the user
+// opts in with BF_ENABLE_PDF=1: Chrome's DevTools port has no
+// authentication, so any local process could drive the browser with the
+// user's file access. It listens on a random loopback port.
 func (d *Daemon) startChrome() string {
+	if os.Getenv("BF_ENABLE_PDF") != "1" {
+		return ""
+	}
+
 	bin := findChrome()
 	if bin == "" {
+		return ""
+	}
+
+	port, err := freePort()
+	if err != nil {
+		d.logger.Printf("chrome unavailable: %v", err)
 		return ""
 	}
 
@@ -575,7 +646,7 @@ func (d *Daemon) startChrome() string {
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--remote-debugging-address=127.0.0.1",
-		"--remote-debugging-port="+strconv.Itoa(d.cfg.ChromePort),
+		"--remote-debugging-port="+strconv.Itoa(port),
 		"--user-data-dir="+filepath.Join(d.layout.Home, "chrome"),
 	)
 
@@ -588,7 +659,17 @@ func (d *Daemon) startChrome() string {
 	d.track("chrome", p)
 	d.setService("chrome", "up")
 
-	return "127.0.0.1:" + strconv.Itoa(d.cfg.ChromePort)
+	return "127.0.0.1:" + strconv.Itoa(port)
+}
+
+func freePort() (int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer ln.Close()
+
+	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
 func findChrome() string {

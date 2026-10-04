@@ -56,13 +56,21 @@ status="$(curl -s "$CONTROL/v1/status")"
 expect "organization provisioned" '[[ -n "$(json "d.get(\"organization_id\",\"\")" <<<"$status")" ]]'
 expect "all services up" '[[ "$(json "all(v in (\"up\",\"disabled\") for v in d[\"services\"].values())" <<<"$status")" == True ]]'
 
-frameworks="$(curl -s "$CONTROL/v1/posture" | json 'len(d["frameworks"])')"
+TOKEN="$(token)"
+AUTH=(-H "Authorization: Bearer $TOKEN")
+
+frameworks="$(curl -s "${AUTH[@]}" "$CONTROL/v1/posture" | json 'len(d["frameworks"])')"
 expect "default frameworks imported ($frameworks)" '[[ "$frameworks" -ge 3 ]]'
+
+expect "API requires the local token" '[[ "$(curl -s -o /dev/null -w "%{http_code}" "$CONTROL/v1/posture")" == 401 && "$(curl -s -o /dev/null -w "%{http_code}" "$CONTROL/v1/login-link")" == 401 ]]'
+expect "DNS-rebinding Host rejected" '[[ "$(curl -s -o /dev/null -w "%{http_code}" -H "Host: attacker.example:${BF_CONTROL_PORT:-7811}" "$CONTROL/v1/status")" == 403 ]]'
+STORAGE="http://127.0.0.1:${BF_STORAGE_PORT:-7812}"
+expect "object store rejects unsigned writes" '[[ "$(curl -s -o /dev/null -w "%{http_code}" -X PUT --data x "$STORAGE/probod/smoke")" == 403 ]]'
+expect "object store rejects foreign origins" '[[ "$(curl -s -o /dev/null -w "%{http_code}" -H "Origin: https://evil.example" "$STORAGE/probod/")" == 403 ]]'
 
 policies="$(python3 -c "import json; print(len(json.load(open('$BF_HOME/sync.json')).get('documents',{})))" 2>/dev/null || echo 0)"
 expect "Comp policy templates imported as documents ($policies)" '[[ "$policies" -gt 10 ]]'
 
-TOKEN="$(token)"
 MCP=(-s -X POST "$CONTROL/mcp" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")
 code="$(curl -o /dev/null -w '%{http_code}' "${MCP[@]}" -d '{}')"
 expect "MCP rejects missing token" '[[ "$code" == 401 ]]'
@@ -77,7 +85,7 @@ listed="$(curl "${MCP[@]}" -H "Authorization: Bearer $TOKEN" -H "User-Agent: smo
   | sed -n 's/^data: //p' | json 'len(d["result"]["structuredContent"]["frameworks"])')"
 expect "MCP tool call works ($listed frameworks)" '[[ "$listed" == "$frameworks" ]]'
 
-link="$(curl -s "$CONTROL/v1/login-link" | json 'd["url"]')"
+link="$(curl -s "${AUTH[@]}" "$CONTROL/v1/login-link" | json 'd["url"]')"
 redirect="$(curl -s -o /dev/null -w '%{redirect_url}' "$link")"
 expect "console login redirects to organization" '[[ "$redirect" == */organizations/* ]]'
 expect "login link is single-use" '[[ "$(curl -s -o /dev/null -w "%{http_code}" "$link")" == 403 ]]'
@@ -88,6 +96,8 @@ deny="$(hook '{"session_id":"smoke","cwd":"/tmp","hook_event_name":"PreToolUse",
 expect "hook blocks hard-coded credentials" '[[ "$deny" == *"\"deny\""* ]]'
 ask="$(hook '{"session_id":"smoke","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push origin main --force"}}')"
 expect "hook asks before force push" '[[ "$ask" == *"\"ask\""* ]]'
+own="$(hook "{\"session_id\":\"smoke\",\"cwd\":\"/tmp\",\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$BF_HOME/secrets.json\"}}")"
+expect "hook blocks agents reading Black Fortress secrets" '[[ "$own" == *"\"deny\""* ]]'
 quiet="$(hook '{"session_id":"smoke","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"infra/main.tf","new_string":"x"}}')"
 expect "hook records IaC change silently" '[[ -z "$quiet" ]]'
 expect "ledger hash chain verifies" '"$BF" ledger verify >/dev/null'
@@ -96,9 +106,9 @@ sync="$("$BF" sync)"
 expect "agent evidence uploads to Probo" '[[ "$sync" == *"uploaded"* && "$sync" != *"failed"* ]]'
 
 sleep 3
-in_progress="$(curl -s "$CONTROL/v1/posture" | json 'sum(f["measures"].get("IN_PROGRESS",0) for f in d["frameworks"])')"
+in_progress="$(curl -s "${AUTH[@]}" "$CONTROL/v1/posture" | json 'sum(f["measures"].get("IN_PROGRESS",0) for f in d["frameworks"])')"
 expect "guardrail measures mapped to controls ($in_progress)" '[[ "$in_progress" -gt 0 ]]'
-expect "checks API responds" '[[ "$(curl -s -o /dev/null -w "%{http_code}" "$CONTROL/v1/checks")" == 200 ]]'
+expect "checks API responds" '[[ "$(curl -s -o /dev/null -w "%{http_code}" "${AUTH[@]}" "$CONTROL/v1/checks")" == 200 ]]'
 
 kill -INT "$BFD_PID"
 wait "$BFD_PID" 2>/dev/null || true

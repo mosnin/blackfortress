@@ -144,7 +144,7 @@ final class AppModel: ObservableObject {
     }
 
     private func startStream() {
-        let stream = SSEClient(url: client.eventsURL)
+        let stream = SSEClient(url: client.eventsURL, token: BFDClient.authToken)
         sse = stream
         stream.start(
             onMessage: { [weak self] message in

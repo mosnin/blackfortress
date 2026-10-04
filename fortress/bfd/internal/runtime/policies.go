@@ -91,6 +91,12 @@ func (d *Daemon) importPolicies(ctx context.Context, sess *Session) error {
 		return err
 	}
 
+	// Without frameworks no policy applies yet; try again next start rather
+	// than recording the import as done.
+	if len(controls) == 0 {
+		return fmt.Errorf("organization has no framework controls yet")
+	}
+
 	frameworkNames := map[string]bool{}
 	for _, c := range controls {
 		frameworkNames[c.Framework] = true
@@ -140,7 +146,12 @@ func (d *Daemon) importPolicies(ctx context.Context, sess *Session) error {
 			return fmt.Errorf("policy %q: %w", p.Name, err)
 		}
 
+		// Record the document before mapping controls, so a failure below
+		// cannot cause a duplicate document on the next start.
 		st.Documents[p.ID] = docID
+		if err := st.save(statePath); err != nil {
+			return err
+		}
 
 		const q = `mutation($input: CreateControlDocumentMappingInput!) { createControlDocumentMapping(input: $input) { documentEdge { node { id } } } }`
 		for _, cid := range controlIDs {

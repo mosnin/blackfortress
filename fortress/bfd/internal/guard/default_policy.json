@@ -8,7 +8,13 @@
       "severity": "high",
       "tools": "^(Write|Edit|MultiEdit|NotebookEdit)$",
       "content": "(AKIA[0-9A-Z]{16}|-----BEGIN (RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk_live_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{35})",
-      "controls": ["SOC2:CC6.1", "SOC2:CC6.7", "ISO27001:A.5.17", "ISO27001:A.8.12", "PCIDSS:3.6"]
+      "controls": [
+        "SOC2:CC6.1",
+        "SOC2:CC6.7",
+        "ISO27001:A.5.17",
+        "ISO27001:A.8.12",
+        "PCIDSS:3.6"
+      ]
     },
     {
       "id": "secrets.file",
@@ -17,7 +23,11 @@
       "severity": "high",
       "tools": "^(Write|Edit|MultiEdit)$",
       "path": "(^|/)(\\.env(\\..+)?|.*\\.pem|.*\\.key|id_(rsa|ed25519|ecdsa)|credentials(\\.json)?|\\.npmrc|\\.pypirc|\\.netrc)$",
-      "controls": ["SOC2:CC6.1", "ISO27001:A.5.17", "ISO27001:A.8.12"]
+      "controls": [
+        "SOC2:CC6.1",
+        "ISO27001:A.5.17",
+        "ISO27001:A.8.12"
+      ]
     },
     {
       "id": "secrets.read",
@@ -26,7 +36,11 @@
       "severity": "medium",
       "tools": "^(Read|Bash)$",
       "path": "(^|/)(\\.env(\\..+)?|.*\\.pem|id_(rsa|ed25519|ecdsa)|\\.aws/credentials|\\.netrc)$",
-      "controls": ["SOC2:CC6.1", "ISO27001:A.5.15", "ISO27001:A.8.3"]
+      "controls": [
+        "SOC2:CC6.1",
+        "ISO27001:A.5.15",
+        "ISO27001:A.8.3"
+      ]
     },
     {
       "id": "change.destructive-command",
@@ -34,8 +48,12 @@
       "action": "ask",
       "severity": "high",
       "tools": "^Bash$",
-      "command": "(rm\\s+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\\s+(/|~|\\$HOME|\\*)(\\s|$)|git\\s+push\\s+.*(--force|-f)(\\s|$)|git\\s+reset\\s+--hard\\s+origin|DROP\\s+(DATABASE|TABLE|SCHEMA)|TRUNCATE\\s+TABLE|terraform\\s+(destroy|apply\\s+.*-auto-approve)|kubectl\\s+delete\\s+(ns|namespace)|mkfs\\.|dd\\s+if=.*of=/dev/)",
-      "controls": ["SOC2:CC8.1", "ISO27001:A.8.32", "ISO27001:A.8.13"]
+      "command": "(\\brm\\s+(?:-{1,2}[A-Za-z-]+\\s+)+(?:/|/\\*|~|~/|~/\\*|\\$HOME/?|\\$\\{HOME\\}/?|\\*)(?:\\s|$|[;&|])|\\bgit\\s+push\\b.*(?:\\s--force(?:-with-lease)?\\b|\\s-f\\b|\\s\\+\\S)|\\bgit\\s+reset\\s+--hard\\s+origin|(?i:\\bdrop\\s+(?:database|table|schema)\\b|\\btruncate\\s+table\\b)|\\bterraform\\s+(?:destroy|apply\\s+.*-auto-approve)|\\bkubectl\\s+delete\\s+(?:ns|namespace)\\b|\\bmkfs\\.|\\bdd\\s+if=.*of=/dev/)",
+      "controls": [
+        "SOC2:CC8.1",
+        "ISO27001:A.8.32",
+        "ISO27001:A.8.13"
+      ]
     },
     {
       "id": "change.bypass-review",
@@ -44,7 +62,11 @@
       "severity": "medium",
       "tools": "^Bash$",
       "command": "(--no-verify|git\\s+commit\\s+.*-n(\\s|$)|--no-gpg-sign|git\\s+push\\s+\\S+\\s+(main|master)(\\s|$)|gh\\s+pr\\s+merge\\s+.*--admin)",
-      "controls": ["SOC2:CC8.1", "ISO27001:A.8.32", "ISO27001:A.8.28"]
+      "controls": [
+        "SOC2:CC8.1",
+        "ISO27001:A.8.32",
+        "ISO27001:A.8.28"
+      ]
     },
     {
       "id": "supply-chain.remote-script",
@@ -53,7 +75,11 @@
       "severity": "high",
       "tools": "^Bash$",
       "command": "(curl|wget)\\s+[^|]*\\|\\s*(sudo\\s+)?(ba|z)?sh",
-      "controls": ["SOC2:CC6.8", "ISO27001:A.8.7", "ISO27001:A.8.19"]
+      "controls": [
+        "SOC2:CC6.8",
+        "ISO27001:A.8.7",
+        "ISO27001:A.8.19"
+      ]
     },
     {
       "id": "access.permissive-mode",
@@ -62,7 +88,11 @@
       "severity": "medium",
       "tools": "^Bash$",
       "command": "(chmod\\s+(-R\\s+)?(777|a\\+w)|sudo\\s+)",
-      "controls": ["SOC2:CC6.1", "ISO27001:A.8.2", "ISO27001:A.8.18"]
+      "controls": [
+        "SOC2:CC6.1",
+        "ISO27001:A.8.2",
+        "ISO27001:A.8.18"
+      ]
     },
     {
       "id": "change.infrastructure",
@@ -71,7 +101,11 @@
       "severity": "medium",
       "tools": "^(Write|Edit|MultiEdit)$",
       "path": "(\\.tf$|\\.tfvars$|(^|/)\\.github/workflows/|(^|/)(k8s|kubernetes|helm|charts|deploy|infra)/|Dockerfile$|docker-compose\\.ya?ml$|compose\\.ya?ml$|\\.gitlab-ci\\.yml$|buildspec\\.ya?ml$)",
-      "controls": ["SOC2:CC8.1", "ISO27001:A.8.9", "ISO27001:A.8.32"]
+      "controls": [
+        "SOC2:CC8.1",
+        "ISO27001:A.8.9",
+        "ISO27001:A.8.32"
+      ]
     },
     {
       "id": "change.dependencies",
@@ -80,7 +114,11 @@
       "severity": "low",
       "tools": "^(Write|Edit|MultiEdit)$",
       "path": "(^|/)(package(-lock)?\\.json|bun\\.lockb?|yarn\\.lock|pnpm-lock\\.yaml|go\\.(mod|sum)|requirements.*\\.txt|poetry\\.lock|Pipfile(\\.lock)?|Cargo\\.(toml|lock)|Gemfile(\\.lock)?|pom\\.xml|build\\.gradle)$",
-      "controls": ["SOC2:CC7.1", "ISO27001:A.8.8", "ISO27001:A.8.28"]
+      "controls": [
+        "SOC2:CC7.1",
+        "ISO27001:A.8.8",
+        "ISO27001:A.8.28"
+      ]
     },
     {
       "id": "change.dependency-install",
@@ -89,7 +127,11 @@
       "severity": "low",
       "tools": "^Bash$",
       "command": "((npm|pnpm|yarn|bun)\\s+(add|install|i)\\s+\\S|go\\s+get\\s|pip3?\\s+install\\s|cargo\\s+add\\s|gem\\s+install\\s|brew\\s+install\\s)",
-      "controls": ["SOC2:CC7.1", "ISO27001:A.8.8", "ISO27001:A.8.19"]
+      "controls": [
+        "SOC2:CC7.1",
+        "ISO27001:A.8.8",
+        "ISO27001:A.8.19"
+      ]
     },
     {
       "id": "secure-dev.security-sensitive-code",
@@ -98,7 +140,12 @@
       "severity": "medium",
       "tools": "^(Write|Edit|MultiEdit)$",
       "path": "(?i)(auth|login|session|password|permission|rbac|acl|crypto|encrypt|token|oauth|saml|jwt)[^/]*$",
-      "controls": ["SOC2:CC8.1", "ISO27001:A.8.25", "ISO27001:A.8.28", "ISO27001:A.8.5"]
+      "controls": [
+        "SOC2:CC8.1",
+        "ISO27001:A.8.25",
+        "ISO27001:A.8.28",
+        "ISO27001:A.8.5"
+      ]
     },
     {
       "id": "privacy.personal-data-schema",
@@ -108,7 +155,14 @@
       "tools": "^(Write|Edit|MultiEdit)$",
       "path": "(?i)(migrations?/|\\.sql$|schema\\.prisma$|\\.prisma$|models?/|entities/)",
       "content": "(?i)\\b(email|phone|ssn|social_security|date_of_birth|dob|birth_?date|address|passport|national_id|ip_address|first_?name|last_?name|full_?name|gender|health|diagnosis)\\b",
-      "controls": ["GDPR:Art.25", "GDPR:Art.30", "GDPR:Art.35", "ISO27701:7.4", "HIPAA:164.312(a)(1)", "CCPA:1798.100"]
+      "controls": [
+        "GDPR:Art.25",
+        "GDPR:Art.30",
+        "GDPR:Art.35",
+        "ISO27701:7.4",
+        "HIPAA:164.312(a)(1)",
+        "CCPA:1798.100"
+      ]
     },
     {
       "id": "privacy.logging-personal-data",
@@ -117,7 +171,12 @@
       "severity": "medium",
       "tools": "^(Write|Edit|MultiEdit)$",
       "content": "(?i)(console\\.log|logger?\\.(info|debug|warn|error)|log\\.(Print|Info|Debug)|print)\\s*\\([^)]*\\b(password|ssn|credit_?card|card_?number|cvv|social_security)\\b",
-      "controls": ["GDPR:Art.32", "ISO27001:A.8.15", "PCIDSS:3.3", "SOC2:CC6.1"]
+      "controls": [
+        "GDPR:Art.32",
+        "ISO27001:A.8.15",
+        "PCIDSS:3.3",
+        "SOC2:CC6.1"
+      ]
     },
     {
       "id": "change.code",
@@ -125,7 +184,10 @@
       "action": "record",
       "severity": "info",
       "tools": "^(Write|Edit|MultiEdit|NotebookEdit)$",
-      "controls": ["SOC2:CC8.1", "ISO27001:A.8.32"]
+      "controls": [
+        "SOC2:CC8.1",
+        "ISO27001:A.8.32"
+      ]
     }
   ]
 }

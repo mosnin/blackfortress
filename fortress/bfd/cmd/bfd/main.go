@@ -75,7 +75,7 @@ func run() int {
 	logger := log.New(io.MultiWriter(os.Stderr, logFile), "bfd ", log.LstdFlags|log.Lmsgprefix)
 	logger.Printf("Black Fortress %s starting; data in %s", runtime.Version, home)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
 	d := runtime.New(runtime.DefaultConfig(), layout, logger)

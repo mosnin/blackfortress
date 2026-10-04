@@ -3,8 +3,10 @@ package guard
 import (
 	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // HookInput is the payload Claude Code (and compatible agents) send to a
@@ -68,12 +70,7 @@ func (s Subject) Target() string {
 	}
 
 	if s.Command != "" {
-		c := s.Command
-		if len(c) > 200 {
-			c = c[:200] + "…"
-		}
-
-		return c
+		return Truncate(s.Command, 200)
 	}
 
 	return ""
@@ -164,21 +161,41 @@ func (r *Rule) matches(s Subject) bool {
 	return true
 }
 
-// matchesPath tests the file path, or for shell commands every argument
-// that looks like a path, so "cat .env" is caught like Read(.env).
+// matchesPath tests the file path, or for shell commands every word that
+// could be a path, so "cat .env", "cat<.env" and "cat .env|base64" are
+// caught like Read(.env).
 func matchesPath(r *Rule, s Subject) bool {
 	if s.Path != "" {
 		return r.path.MatchString(s.Path)
 	}
 
-	for _, field := range strings.Fields(s.Command) {
-		field = strings.Trim(field, `"'`)
+	for _, field := range shellWordSplit.Split(s.Command, -1) {
+		field = strings.TrimRight(strings.Trim(field, `"'`), "*?")
 		if field != "" && r.path.MatchString(field) {
 			return true
 		}
 	}
 
 	return false
+}
+
+var shellWordSplit = regexp.MustCompile(`[\s|;&<>()]+`)
+
+// Truncate shortens s to at most n bytes without splitting a UTF-8
+// character, appending "…" when it cut anything. Invalid UTF-8 is repaired
+// so the result survives a JSON round trip byte for byte.
+func Truncate(s string, n int) string {
+	s = strings.ToValidUTF8(s, "\uFFFD")
+	if len(s) <= n {
+		return s
+	}
+
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+
+	return s[:cut] + "…"
 }
 
 func firstNonEmpty(v ...string) string {

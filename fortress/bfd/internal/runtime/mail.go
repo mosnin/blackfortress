@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-smtp"
@@ -59,7 +60,16 @@ type mailSession struct {
 	to  []string
 }
 
-func (s *mailSession) Mail(string, *smtp.MailOptions) error { return nil }
+// Mail accepts only probod's configured sender, so other local software
+// (or a browser cross-protocol request) cannot drop messages into the
+// sink, which bfd reads during first-run email verification.
+func (s *mailSession) Mail(from string, _ *smtp.MailOptions) error {
+	if !strings.EqualFold(from, mailSender) {
+		return &smtp.SMTPError{Code: 550, Message: "sender not accepted"}
+	}
+
+	return nil
+}
 
 func (s *mailSession) Rcpt(to string, _ *smtp.RcptOptions) error {
 	s.to = append(s.to, to)

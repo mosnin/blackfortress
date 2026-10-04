@@ -116,11 +116,13 @@ final class SSEClient {
     }
 
     private let url: URL
+    private let token: () -> String?
     private let session: URLSession
     private var task: Task<Void, Never>?
 
-    init(url: URL) {
+    init(url: URL, token: @escaping () -> String? = { nil }) {
         self.url = url
+        self.token = token
         let config = URLSessionConfiguration.ephemeral
         // timeoutIntervalForRequest is the *idle* timeout between bytes. bfd
         // may be quiet for a while; reconnecting after a long idle is fine.
@@ -143,6 +145,7 @@ final class SSEClient {
         task?.cancel()
         let url = self.url
         let session = self.session
+        let token = self.token
         task = Task.detached(priority: .utility) {
             var parser = SSEParser()
             var attempt = 0
@@ -151,6 +154,9 @@ final class SSEClient {
                 var request = URLRequest(url: url)
                 request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                 request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+                if let bearer = token() {
+                    request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+                }
                 if let last = parser.lastEventID {
                     request.setValue(last, forHTTPHeaderField: "Last-Event-ID")
                 }
