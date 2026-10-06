@@ -1,0 +1,144 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package drivers
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestSentryDriver(t *testing.T) {
+	t.Parallel()
+
+	rec := newRecorder(t, "testdata/sentry", "SENTRY_TOKEN")
+	client := newVCRClient(rec, bearerAuth(os.Getenv("SENTRY_TOKEN")))
+
+	orgSlug := os.Getenv("SENTRY_ORG_SLUG")
+	if orgSlug == "" {
+		orgSlug = "acme-corp"
+	}
+
+	driver := NewSentryDriver(client, orgSlug, "https://sentry.io/api/0")
+	records, err := driver.ListAccounts(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, records)
+
+	r := records[0]
+	assert.NotEmpty(t, r.Email)
+	assert.NotEmpty(t, r.FullName)
+	assert.NotEmpty(t, r.ExternalID)
+	assert.NotEmpty(t, r.Roles)
+}
+
+// TestSentryDriverRequestsTrailingSlashPaths pins the exact request paths
+// against Sentry's real routing: its API is Django-based and only matches
+// paths ending in a slash, answering 404 (no redirect) otherwise. A 404 is
+// indistinguishable from a revoked membership here, so dropping the slash
+// silently turns every campaign fetch into a bogus "reconnect" error.
+func TestSentryDriverRequestsTrailingSlashPaths(t *testing.T) {
+	t.Parallel()
+
+	var gotPaths []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+
+		// Mimic Sentry: unslashed paths do not route.
+		if !strings.HasSuffix(r.URL.Path, "/") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"detail":"The requested resource does not exist"}`))
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[{"id":"42","email":"alice@example.com","name":"Alice","orgRole":"member"}]`))
+	}))
+	defer srv.Close()
+
+	client := &http.Client{Transport: &hostRewriter{target: srv.URL}}
+
+	records, err := NewSentryDriver(client, "acme-corp", "https://sentry.io/api/0").ListAccounts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	assert.Equal(t, "alice@example.com", records[0].Email)
+	assert.Equal(t, []string{"/api/0/organizations/acme-corp/members/"}, gotPaths)
+}
+
+func TestSentryDriverListAccountsStaleSlug(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/api/0/organizations/acme-old/members/", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"detail":"The requested resource does not exist"}`))
+	}))
+	defer srv.Close()
+
+	client := &http.Client{Transport: &hostRewriter{target: srv.URL}}
+
+	_, err := NewSentryDriver(client, "acme-old", "https://sentry.io/api/0").ListAccounts(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"acme-old"`)
+	assert.Contains(t, err.Error(), "not accessible")
+	assert.Contains(t, err.Error(), "reconnect")
+	assert.ErrorIs(t, err, errSentryOrgNotAccessible)
+}
+
+func TestSentryDriverListAccountsAutoDiscoversSlug(t *testing.T) {
+	t.Parallel()
+
+	const discoveredSlug = "discovered-org"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/api/0/organizations/":
+			assert.Equal(t, "true", r.URL.Query().Get("member"))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"slug":"` + discoveredSlug + `","name":"Discovered Org"}]`))
+		case "/api/0/organizations/" + discoveredSlug + "/members/":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"id":"42","email":"alice@example.com","name":"Alice","orgRole":"member"}]`))
+		default:
+			t.Errorf("unexpected request to %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	client := &http.Client{Transport: &hostRewriter{target: srv.URL}}
+
+	records, err := NewSentryDriver(client, "", "https://sentry.io/api/0").ListAccounts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	assert.Equal(t, "alice@example.com", records[0].Email)
+}

@@ -1,0 +1,54 @@
+{
+  "title": "Documents",
+  "tabs": {
+    "all": "Tous",
+    "public": "Public",
+    "restricted": "Restreints"
+  },
+  "sections": {
+    "reports": "Rapports de conformité"
+  },
+  "types": {
+    "OTHER": "Autres",
+    "GOVERNANCE": "Gouvernance",
+    "POLICY": "Politiques",
+    "PROCEDURE": "Procédures",
+    "PLAN": "Plans",
+    "REGISTER": "Registres",
+    "RECORD": "Enregistrements",
+    "REPORT": "Rapports",
+    "TEMPLATE": "Modèles",
+    "STATEMENT_OF_APPLICABILITY": "Déclaration d'applicabilité"
+  },
+  "actions": {
+    "view": "Consulter",
+    "getAccess": "Demander l'accès",
+    "requested": "Accès demandé"
+  },
+  "selection": {
+    "count": "{{count}} sélectionné(s)",
+    "clear": "Effacer la sélection",
+    "selectAll": "Tout sélectionner",
+    "requestAccess": "Demander l'accès ({{count}})",
+    "selectRow": "Sélectionner {{title}}"
+  },
+  "empty": {
+    "title": "Aucun document disponible",
+    "description": "Ce portail de conformité n'a pas encore publié de documents.",
+    "filteredTitle": "Aucun document ne correspond à ce filtre",
+    "filteredDescription": "Essayez un autre onglet pour voir les documents disponibles."
+  },
+  "viewer": {
+    "back": "Documents",
+    "copyLink": "Copier le lien",
+    "linkCopied": "Lien copié dans le presse-papiers",
+    "download": "Télécharger",
+    "previewUnavailable": "Aperçu indisponible",
+    "downloadToView": "Ce type de fichier ne peut pas être prévisualisé ici. Téléchargez-le pour le consulter.",
+    "locked": {
+      "title": "Accès requis",
+      "description": "Vous n'avez pas encore accès à ce document.",
+      "signNda": "Lire et signer le NDA"
+    }
+  }
+}

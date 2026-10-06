@@ -1,0 +1,328 @@
+# Changelog
+
+All notable changes to the `probo-agent` device posture agent will be
+documented in this file.
+
+## Unreleased
+
+## [0.7.1] - 2026-09-14
+
+### Fixed
+
+- macOS installs that still ran the privileged daemon from
+  `/usr/local/bin/probo-agent` now migrate themselves to
+  `/Library/Probo/probo-agent` on next run: the launchd plist, tray
+  autostart entry, and Team ID/identifier check are rewritten, the
+  service reloads, and the legacy binary is removed.
+- Windows no longer flashes a console window when Explorer starts the
+  tray at logon. The installer now includes `probo-agent.exe` for CLI
+  and service use, and `probo-agentw.exe` for tray and deeplink use.
+  Thus, shells wait for CLI commands and propagate `ERRORLEVEL`.
+- Windows enrollment no longer trusts a user-forged
+  `ProgramData\Probo\run\enrolled` marker file. Production paths now
+  require a SYSTEM or Administrators owner, and `Probo`, `run`, and
+  `agent` directories are created with a protected DACL so standard
+  users cannot write to them.
+- Windows agent state directories under `%ProgramData%\Probo` now trust
+  the Administrators group (not just SYSTEM), set it as owner on create,
+  rewrite child DACLs, and re-secure the directory before token exchange
+  and when loading state — closing a gap where UAC enroll or an
+  inherited ACE could block or weaken protection.
+
+## [0.7.1-rc.2] - 2026-09-14
+
+### Fixed
+
+- macOS installs that still ran the privileged daemon from
+  `/usr/local/bin/probo-agent` now migrate themselves to
+  `/Library/Probo/probo-agent` on next run: the launchd plist, tray
+  autostart entry, and Team ID/identifier check are rewritten, the
+  service reloads, and the legacy binary is removed.
+- Windows no longer flashes a console window when Explorer starts the
+  tray at logon. The installer now includes `probo-agent.exe` for CLI
+  and service use, and `probo-agentw.exe` for tray and deeplink use.
+  Thus, shells wait for CLI commands and propagate `ERRORLEVEL`.
+
+## [0.7.1-rc.1] - 2026-09-11
+
+### Fixed
+
+- Windows enrollment no longer trusts a user-forged
+  `ProgramData\Probo\run\enrolled` marker file. Production paths now
+  require a SYSTEM or Administrators owner, and `Probo`, `run`, and
+  `agent` directories are created with a protected DACL so standard
+  users cannot write to them.
+- Windows agent state directories under `%ProgramData%\Probo` now trust
+  the Administrators group (not just SYSTEM), set it as owner on create,
+  rewrite child DACLs, and re-secure the directory before token exchange
+  and when loading state — closing a gap where UAC enroll or an
+  inherited ACE could block or weaken protection.
+
+## [0.7.0] - 2026-09-11
+
+### Added
+
+- Tags of the form `probo-agent/vX.Y.Z-rc.N` now produce a GitHub
+  prerelease, with installer versions stripped to `X.Y.Z`. Hosts that
+  set `allow_prereleases` (install flag, MDM, or `config.json`) follow
+  those RCs; everyone else stays on the last stable, so a test fleet can
+  exercise a real signed build before it reaches every enrolled host.
+
+### Fixed
+
+- On macOS the agent binary lives at `/Library/Probo/probo-agent`. The
+  privileged helper and LaunchDaemon no longer exec `/usr/local/bin/probo-agent`,
+  which is user-writable on many Homebrew machines. The helper checks the
+  Team ID and identifier before it runs the binary. An upgrade moves an
+  existing daemon off the old path.
+- Browser enrollment (`probo://` deep links) asks the user to confirm the
+  server URL before a privileged install, except when TLS presents a
+  pinned Probo leaf public key. Cancel leaves the device unenrolled.
+  The dialog warns on cleartext HTTP and on hosts that are not pinned.
+- API calls to `us.probo.com` and `eu.probo.com` require a pinned Probo
+  leaf key. A Probo certificate key change fails enroll and heartbeats
+  until the agent is updated. Self-hosted servers are unchanged.
+- Windows agent state under `%ProgramData%\Probo\agent` uses an explicit
+  DACL for SYSTEM and Administrators. A standard user cannot read
+  `agent.key` or replace `config.json`. A user-owned or junction squat
+  is refused, and existing files are re-ACL'd when the service starts.
+
+## [0.6.6] - 2026-09-10
+
+### Added
+
+- Posture pushes are stamped with the agent's version, so the server can
+  tell which agent observed a given check
+
+### Fixed
+
+- The Windows screen lock check keeps the last PASS or FAIL when no
+  interactive user hives are loaded, so a signed-out host no longer flaps
+  to UNKNOWN after a user was once observed
+- The Windows screen lock check treats Entra ID users (`S-1-12-1-*`) as
+  interactive hives, so a signed-in cloud account is no longer reported as
+  "no interactive user hives loaded"
+- The Windows password policy check reads the effective SAM minimum from
+  `secedit` and the Intune DeviceLock PIN length, so domain- and
+  Entra-joined machines no longer report UNKNOWN
+
+## [0.6.5] - 2026-09-09
+
+### Fixed
+
+- The Windows firewall check no longer falls back to parsing localized `netsh`
+  output, which reported a fully enabled firewall as off on non-English
+  systems. It now reads the firewall COM API, which returns booleans and needs
+  no module load, and both probes report the same evidence shape
+- A firewall state that cannot be read reports Unknown instead of Off
+- Posture runs cut short by sleep or shutdown are no longer sent, queued, or
+  replayed as reports. A partial run described the host as it was powering off,
+  and could surface a check as Unknown hours later when the queue drained
+- The Windows screen lock check reads machine-wide policy — the machine
+  inactivity limit, the MDM DeviceLock policy, and the full screensaver policy
+  rather than only whether the screensaver is secure — so a managed host no
+  longer reports Unknown when nobody is signed in
+- `probo-agent collect` no longer truncates its own run on busy hosts, and
+  reports an error rather than silently printing a short list
+
+## [0.6.4] - 2026-09-09
+
+### Fixed
+
+- Windows auto-update and time-sync checks now inspect stable service
+  configuration instead of transient running state, and posture commands have
+  more time to complete on busy systems.
+- The agent no longer aborts with cobra's "command line tool" splash when
+  Windows launches it with explorer.exe as the parent process, which broke
+  browser-driven enrollment (probo:// deep links) and tray auto-start from
+  the HKLM Run key.
+
+## [0.6.3] - 2026-08-18
+
+### Fixed
+
+- Windows checks for BitLocker protection, minimum password length, and
+  time sync now parse structured state instead of matching English-only
+  CLI substrings, fixing posture showing as Unknown on non-English
+  Windows systems. A suspended BitLocker volume and a stopped time
+  service now report Off instead of Unknown.
+
+## [0.6.2] - 2026-08-17
+
+### Changed
+
+- Re-released with an updated code-signing certificate; no functional
+  changes.
+
+## [0.6.1] - 2026-08-14
+
+### Changed
+
+- Re-released with an updated code-signing certificate; no functional
+  changes.
+
+## [0.6.0] - 2026-08-13
+
+### Added
+
+- Devices list now shows the agent's last reported version alongside OS
+  version, so rollouts can be tracked without opening each device.
+
+### Changed
+
+- Windows exe/MSI/tray icons are now generated from two shared master PNGs
+  (a color mark and a macOS menu-bar outline) instead of separate
+  per-platform rasters, so the icons can no longer drift out of sync.
+- Devices list now shows short Windows OS version strings (e.g.
+  `10.0.26200`) instead of the full localized `ver` banner, matching
+  Darwin.
+
+### Fixed
+
+- Windows service now speaks the SCM service protocol after enroll, fixing
+  the agent being stopped right after install (error 1053); the tray now
+  autostarts via an HKLM-persisted entry with a proper ICO instead of being
+  missing or blank.
+- macOS PKG postinstall now calls the same `setup-tray` path as the Windows
+  installer, fixing tray bootstrap being skipped on a PKG upgrade when the
+  LaunchAgent plist was already up to date.
+
+## [0.5.1] - 2026-08-12
+
+### Fixed
+
+- Windows MSI now embeds its cabinet instead of shipping it as a sidecar
+  file, fixing installs that paired a downloaded MSI with the wrong
+  arch's cabinet.
+
+## [0.5.0] - 2026-08-12
+
+### Added
+
+- Windows installs now ship an Authenticode-signed MSI (Azure Trusted
+  Signing) for initial install, alongside the existing zip archive used
+  for auto-update.
+
+## [0.4.2] - 2026-07-30
+
+### Fixed
+
+- macOS auto-update no longer spawns new Background Task Management
+  entries (and the generic executable icon) on every release; updated
+  darwin archives are now signed with a stable identifier, signature
+  downgrades are refused, and daemon/tray jobs are attributed to
+  `Probo Agent.app`.
+
+## [0.4.1] - 2026-07-29
+
+### Changed
+
+- Simplified the macOS PKG installer's welcome and conclusion screens to
+  point straight at browser-based `/enroll` enrollment, dropping the CLI
+  install steps, path inventories, and MDM notes.
+
+## [0.4.0] - 2026-07-29
+
+### Added
+
+- Posture check submissions now carry a correlation ID grouping each agent push into a single report, powering paginated report history in the console
+
+## [0.3.1] - 2026-07-27
+
+### Fixed
+
+- Removed the white frame around the `Probo Agent.app` Finder/Dock icon by
+  swapping in artwork with transparent corners.
+
+## [0.3.0] - 2026-07-24
+
+### Added
+
+- Branded Finder icon for `Probo Agent.app` (generated from a master PNG
+  via `sips`/`iconutil` at PKG build time).
+
+### Fixed
+
+- macOS auto-update posture check now reads all five Software Update
+  preferences backing the System Settings toggles, resolving managed
+  (MDM) values before system ones, so disabled downloads/installs are
+  correctly reported as failing instead of PASS.
+
+## [0.2.0] - 2026-07-24
+
+### Added
+
+- macOS privileged helper (`com.probo.agent.helper`) embedded in
+  `Probo Agent.app` and installed by PKG postinstall for XPC-driven
+  browser enrollment (no SMJobBless / admin prompt on enroll).
+- Hidden `probo-agent enroll-url --preflight` JSON output for the URL handler.
+- `make -C cmd/probo-agent install|uninstall|clean` for local macOS PKG
+  test loops (install tears down leftovers first).
+
+### Changed
+
+- Browser enrollment via `Probo Agent.app` uses HelperClient + XPC only
+  (osascript elevation and enroll-time SMJobBless removed).
+- macOS PKG / app builds require `CODESIGN_IDENTITY` and `APPLE_TEAM_ID`.
+- CLI `enroll-url` on macOS refuses elevation; use the signed app deeplink
+  or `sudo probo-agent install`.
+- macOS `probo-agent uninstall` requires root (`sudo`).
+- PKG preinstall removes stale privileged helper files on upgrade;
+  postinstall reinstalls the helper as root.
+- macOS release now ships a single universal (arm64 + x86_64) fat
+  `probo-agent_<version>_darwin.pkg` instead of separate per-arch packages.
+
+### Fixed
+
+- Windows elevated install/uninstall no longer reports success when the
+  user cancels the UAC prompt.
+
+## [0.1.1] - 2026-06-11
+
+### Changed
+
+- Support email updated to hello@probo.com
+
+## [0.1.0] - 2026-05-26
+
+### Added
+
+- Initial release of the Probo device posture agent.
+- `probo-agent install`, `uninstall`, `run`, `status`, `collect` CLI
+  commands.
+- Managed OS service installation for macOS (`launchd`), Linux
+  (`systemd`), FreeBSD (`rc.d`), and Windows (Service Control Manager).
+- v1 posture check set per OS: disk encryption, screen lock, firewall,
+  time sync, OS version, auto update, password policy, remote login.
+- Enrollment / heartbeat / posture reporting against the new
+  `/api/agent/v1` Probo REST API.
+- Auto-update: the agent periodically checks GitHub Releases for a
+  newer `probo-agent/v*` tag and self-installs it. The running binary
+  is swapped atomically and the OS service supervisor is asked to
+  restart via a dedicated exit code (`75`).
+- Cosign signature verification of every release before installation:
+  `checksums.txt.bundle` is verified with `sigstore-go` against the
+  Sigstore public-good trust root, pinned to the GitHub Actions OIDC
+  identity for `release-probo-agent.yaml` on a tagged commit. Releases
+  without a Sigstore bundle, with an invalid bundle, or signed by a
+  different workflow are rejected without touching the running
+  binary.
+- `probo-agent update [--check]` command for manual one-shot upgrade.
+- `probo-agent install --no-auto-update` flag to opt out of automatic
+  upgrades; the flag is persisted in `config.json` as
+  `updates_disabled`.
+- `probo-agent status` now reports the configured update interval and
+  whether auto-update is enabled.
+- Screen lock detection for additional Linux desktop environments: KDE
+  Plasma, i3, Sway, Hyprland, Xfce, MATE, Cinnamon, UKUI, and LightDM.
+
+### Fixed
+
+- macOS launchd service label corrected to `com.probo.agent`.
+- FreeBSD check command failures are now handled before reading service
+  status.
+- macOS postinstall script no longer uses `eval` to parse configuration.
+- Windows agent key file replacement is now performed atomically.
+- Windows service uninstall is now idempotent.
+- FreeBSD `rc.d` install validates executable and state directory paths
+  to prevent shell injection.

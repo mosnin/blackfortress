@@ -1,0 +1,247 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package validator
+
+import (
+	"fmt"
+	"net/url"
+	"regexp"
+	"slices"
+	"strings"
+
+	"go.probo.inc/probo/pkg/gid"
+)
+
+var (
+	domainRegex = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+	slugRegex   = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+)
+
+// URL validates that a string is a valid URL with http or https scheme.
+func URL() ValidatorFunc {
+	return func(value any) *ValidationError {
+		actualValue, isNil := dereferenceValue(value)
+		if isNil {
+			return nil
+		}
+
+		str, ok := actualValue.(string)
+		if !ok {
+			return newValidationError(ErrorCodeInvalidURL, "value must be a string")
+		}
+
+		if str == "" {
+			return nil
+		}
+
+		parsedURL, err := url.Parse(str)
+		if err != nil {
+			return newValidationError(ErrorCodeInvalidURL, "invalid URL format")
+		}
+
+		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+			return newValidationError(ErrorCodeInvalidURL, "URL must use http or https scheme")
+		}
+
+		if parsedURL.Host == "" {
+			return newValidationError(ErrorCodeInvalidURL, "URL must have a host")
+		}
+
+		return nil
+	}
+}
+
+// HTTPSUrl validates that a string is a valid HTTPS URL (not HTTP).
+func HTTPSUrl() ValidatorFunc {
+	return func(value any) *ValidationError {
+		actualValue, isNil := dereferenceValue(value)
+		if isNil {
+			return nil
+		}
+
+		str, ok := actualValue.(string)
+		if !ok {
+			return newValidationError(ErrorCodeInvalidURL, "value must be a string")
+		}
+
+		if str == "" {
+			return nil
+		}
+
+		parsedURL, err := url.Parse(str)
+		if err != nil {
+			return newValidationError(ErrorCodeInvalidURL, "invalid URL format")
+		}
+
+		if parsedURL.Scheme != "https" {
+			return newValidationError(ErrorCodeInvalidURL, "URL must use https scheme")
+		}
+
+		if parsedURL.Host == "" {
+			return newValidationError(ErrorCodeInvalidURL, "URL must have a host")
+		}
+
+		return nil
+	}
+}
+
+// GID validates that a string is a valid GID using gid.ParseGID.
+// Optionally validates the entity type if provided.
+//
+// Example usage:
+//   - GID() validates any GID format
+//   - GID(100) validates GID with entity type 100
+//   - GID(100, 200) validates GID with entity type 100 or 200
+func GID(entityTypes ...uint16) ValidatorFunc {
+	return func(value any) *ValidationError {
+		if value == nil {
+			return nil
+		}
+
+		var gidValue gid.GID
+
+		switch v := value.(type) {
+		case gid.GID:
+			gidValue = v
+		case *gid.GID:
+			if v == nil {
+				return nil
+			}
+
+			gidValue = *v
+		default:
+			return newValidationError(ErrorCodeInvalidGID, "value must be a GID")
+		}
+
+		if len(entityTypes) > 0 {
+			parsedEntityType := gidValue.EntityType()
+
+			valid := slices.Contains(entityTypes, parsedEntityType)
+			if !valid {
+				return newValidationError(ErrorCodeInvalidGID, "GID has invalid entity type")
+			}
+		}
+
+		return nil
+	}
+}
+
+// Origin validates that a string is a valid web origin (scheme + host + optional port).
+// No path, query, fragment, or userinfo is allowed.
+func Origin() ValidatorFunc {
+	return func(value any) *ValidationError {
+		actualValue, isNil := dereferenceValue(value)
+		if isNil {
+			return nil
+		}
+
+		str, ok := actualValue.(string)
+		if !ok {
+			return newValidationError(ErrorCodeInvalidFormat, "value must be a string")
+		}
+
+		if str == "" {
+			return nil
+		}
+
+		parsedURL, err := url.Parse(str)
+		if err != nil {
+			return newValidationError(ErrorCodeInvalidFormat, "must be a valid origin (e.g. https://example.com)")
+		}
+
+		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+			return newValidationError(ErrorCodeInvalidFormat, "must be a valid origin (e.g. https://example.com)")
+		}
+
+		if parsedURL.Host == "" || parsedURL.Hostname() == "" || strings.HasSuffix(parsedURL.Host, ":") {
+			return newValidationError(ErrorCodeInvalidFormat, "must be a valid origin (e.g. https://example.com)")
+		}
+
+		if parsedURL.Path != "" && parsedURL.Path != "/" {
+			return newValidationError(ErrorCodeInvalidFormat, "must be a valid origin (e.g. https://example.com)")
+		}
+
+		if parsedURL.RawQuery != "" || parsedURL.Fragment != "" || parsedURL.User != nil {
+			return newValidationError(ErrorCodeInvalidFormat, "must be a valid origin (e.g. https://example.com)")
+		}
+
+		return nil
+	}
+}
+
+// Slug validates that a string is a lowercase alphanumeric slug (with hyphens, no
+// leading/trailing hyphens, no consecutive hyphens) and does not exceed maxLen.
+func Slug(maxLen int) ValidatorFunc {
+	return func(value any) *ValidationError {
+		actualValue, isNil := dereferenceValue(value)
+		if isNil {
+			return nil
+		}
+
+		str, ok := actualValue.(string)
+		if !ok {
+			return newValidationError(ErrorCodeInvalidFormat, "value must be a string")
+		}
+
+		if str == "" {
+			return nil
+		}
+
+		if len(str) > maxLen {
+			return newValidationError(ErrorCodeTooLong, fmt.Sprintf("slug must be at most %d characters", maxLen))
+		}
+
+		if !slugRegex.MatchString(str) {
+			return newValidationError(ErrorCodeInvalidFormat, "slug must contain only lowercase letters, numbers, and hyphens")
+		}
+
+		return nil
+	}
+}
+
+// Domain validates that a string is a valid domain name.
+func Domain() ValidatorFunc {
+	return func(value any) *ValidationError {
+		actualValue, isNil := dereferenceValue(value)
+		if isNil {
+			return nil
+		}
+
+		str, ok := actualValue.(string)
+		if !ok {
+			return newValidationError(ErrorCodeInvalidFormat, "value must be a string")
+		}
+
+		if str == "" {
+			return nil
+		}
+
+		if len(str) > 253 {
+			return newValidationError(ErrorCodeInvalidFormat, "domain name too long (max 253 characters)")
+		}
+
+		if !domainRegex.MatchString(str) {
+			return newValidationError(ErrorCodeInvalidFormat, "invalid domain name format")
+		}
+
+		return nil
+	}
+}

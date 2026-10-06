@@ -1,0 +1,204 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package testutil
+
+import (
+	"cmp"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+type PageInfo struct {
+	HasNextPage     bool    `json:"hasNextPage"`
+	HasPreviousPage bool    `json:"hasPreviousPage"`
+	StartCursor     *string `json:"startCursor"`
+	EndCursor       *string `json:"endCursor"`
+}
+
+func AssertFirstPage(t *testing.T, edgeCount int, pageInfo PageInfo, expectedCount int, expectMore bool) {
+	t.Helper()
+	assert.Equal(t, expectedCount, edgeCount, "unexpected number of edges")
+	assert.Equal(t, expectMore, pageInfo.HasNextPage, "hasNextPage mismatch")
+	assert.False(t, pageInfo.HasPreviousPage, "first page should not have previous page")
+}
+
+func AssertMiddlePage(t *testing.T, edgeCount int, pageInfo PageInfo, expectedCount int) {
+	t.Helper()
+	assert.Equal(t, expectedCount, edgeCount, "unexpected number of edges")
+	assert.True(t, pageInfo.HasNextPage, "middle page should have next page")
+	assert.True(t, pageInfo.HasPreviousPage, "middle page should have previous page")
+}
+
+func AssertLastPage(t *testing.T, edgeCount int, pageInfo PageInfo, expectedCount int, expectPrevious bool) {
+	t.Helper()
+	assert.Equal(t, expectedCount, edgeCount, "unexpected number of edges")
+	assert.False(t, pageInfo.HasNextPage, "last page should not have next page")
+	assert.Equal(t, expectPrevious, pageInfo.HasPreviousPage, "hasPreviousPage mismatch")
+}
+
+func AssertHasMorePages(t *testing.T, pageInfo PageInfo) {
+	t.Helper()
+	assert.True(t, pageInfo.HasNextPage, "expected more pages")
+	assert.NotNil(t, pageInfo.EndCursor, "endCursor should be set when there are more pages")
+}
+
+func AssertHasPreviousPages(t *testing.T, pageInfo PageInfo) {
+	t.Helper()
+	assert.True(t, pageInfo.HasPreviousPage, "expected previous pages")
+	assert.NotNil(t, pageInfo.StartCursor, "startCursor should be set when there are previous pages")
+}
+
+func AssertTimestampsOnCreate(t *testing.T, createdAt, updatedAt, beforeCreate time.Time) {
+	t.Helper()
+	assert.True(t, createdAt.After(beforeCreate), "createdAt should be after test start")
+	assert.True(t, updatedAt.After(beforeCreate), "updatedAt should be after test start")
+	assert.Equal(t, createdAt, updatedAt, "createdAt and updatedAt should be equal on create")
+}
+
+func AssertTimestampsOnUpdate(t *testing.T, createdAt, updatedAt, originalCreatedAt, originalUpdatedAt time.Time) {
+	t.Helper()
+	assert.WithinDuration(
+		t,
+		originalCreatedAt,
+		createdAt,
+		time.Microsecond,
+		"createdAt should not change on update",
+	)
+	assert.True(
+		t,
+		updatedAt.After(originalUpdatedAt),
+		"updatedAt should be strictly after previous updatedAt",
+	)
+}
+
+func AssertOptionalStringEqual(t *testing.T, expected, actual *string, fieldName string) {
+	t.Helper()
+
+	if expected == nil {
+		assert.Nil(t, actual, "%s should be nil", fieldName)
+	} else {
+		require.NotNil(t, actual, "%s should not be nil", fieldName)
+		assert.Equal(t, *expected, *actual, "%s mismatch", fieldName)
+	}
+}
+
+func AssertOrderedAscending[T cmp.Ordered](t *testing.T, values []T, fieldName string) {
+	t.Helper()
+	assert.True(t, slices.IsSorted(values), "%s should be in ascending order, got: %v", fieldName, values)
+}
+
+func AssertOrderedDescending[T cmp.Ordered](t *testing.T, values []T, fieldName string) {
+	t.Helper()
+
+	reversed := slices.Clone(values)
+	slices.Reverse(reversed)
+	assert.True(t, slices.IsSorted(reversed), "%s should be in descending order, got: %v", fieldName, values)
+}
+
+func AssertTimesOrderedAscending(t *testing.T, times []time.Time, fieldName string) {
+	t.Helper()
+
+	isSorted := slices.IsSortedFunc(times, func(a, b time.Time) int {
+		return a.Compare(b)
+	})
+	assert.True(t, isSorted, "%s should be in ascending order", fieldName)
+}
+
+func AssertTimesOrderedDescending(t *testing.T, times []time.Time, fieldName string) {
+	t.Helper()
+
+	isSorted := slices.IsSortedFunc(times, func(a, b time.Time) int {
+		return b.Compare(a)
+	})
+	assert.True(t, isSorted, "%s should be in descending order", fieldName)
+}
+
+func AssertEqualEmail(t *testing.T, got, want string) {
+	t.Helper()
+
+	if got != want {
+		t.Fatal("email mismatch")
+	}
+}
+
+func AssertEmailPresent(t *testing.T, emails []string, email string) {
+	t.Helper()
+
+	if !slices.Contains(emails, email) {
+		t.Fatal("email missing")
+	}
+}
+
+func AssertEmailAbsent(t *testing.T, emails []string, email string) {
+	t.Helper()
+
+	if slices.Contains(emails, email) {
+		t.Fatal("email unexpectedly present")
+	}
+}
+
+func AssertNodeNotAccessible(t *testing.T, err error, nodeIsNil bool, resourceType string) {
+	t.Helper()
+
+	if err == nil {
+		assert.True(t, nodeIsNil, "should not be able to access %s from another org", resourceType)
+	}
+
+	// If there's an error, that's also acceptable (access denied)
+}
+
+func RequireForbiddenError(t *testing.T, err error, msgAndArgs ...any) {
+	t.Helper()
+	RequireErrorCode(t, err, "FORBIDDEN", msgAndArgs...)
+}
+
+func RequireConflictError(t *testing.T, err error, msgAndArgs ...any) {
+	t.Helper()
+	RequireErrorCode(t, err, "CONFLICT", msgAndArgs...)
+}
+
+func RequireMembershipRequiredError(t *testing.T, err error, msgAndArgs ...any) {
+	t.Helper()
+	RequireErrorCode(t, err, "MEMBERSHIP_REQUIRED", msgAndArgs...)
+}
+
+func RequireErrorCode(t *testing.T, err error, code string, msgAndArgs ...any) {
+	t.Helper()
+	require.Error(t, err, msgAndArgs...)
+
+	var gqlErrors GraphQLErrors
+	if !assert.ErrorAs(t, err, &gqlErrors) {
+		t.Fatalf("expected GraphQL error, got: %T: %v", err, err)
+	}
+
+	if len(gqlErrors) == 0 {
+		t.Fatalf("expected at least one GraphQL error, got none")
+	}
+
+	if gqlErrors[0].Code() != code {
+		t.Fatalf("expected %s error code, got %q with message: %q",
+			code, gqlErrors[0].Code(), gqlErrors[0].Message)
+	}
+}

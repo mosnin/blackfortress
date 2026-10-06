@@ -1,0 +1,283 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package types
+
+import (
+	"fmt"
+	"strings"
+
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/page"
+	"go.probo.inc/probo/pkg/prosemirror"
+)
+
+func proseMirrorJSONToMarkdown(pmJSON string) (string, error) {
+	if strings.TrimSpace(pmJSON) == "" {
+		return "", nil
+	}
+
+	node, err := prosemirror.Parse(pmJSON)
+	if err != nil {
+		return "", fmt.Errorf("cannot parse prosemirror json: %w", err)
+	}
+
+	md, err := prosemirror.RenderMarkdown(node)
+	if err != nil {
+		return "", fmt.Errorf("cannot render markdown: %w", err)
+	}
+
+	return md, nil
+}
+
+// richTextToMarkdown converts stored ProseMirror JSON to markdown.
+func richTextToMarkdown(s string) (string, error) {
+	return proseMirrorJSONToMarkdown(s)
+}
+
+func optionalRichTextToMarkdown(s *string) (*string, error) {
+	if s == nil {
+		return nil, nil
+	}
+
+	md, err := richTextToMarkdown(*s)
+	if err != nil {
+		return nil, err
+	}
+
+	return &md, nil
+}
+
+func NewDocument(d *coredata.Document) *Document {
+	return &Document{
+		ID:                    d.ID,
+		OrganizationID:        d.OrganizationID,
+		CurrentPublishedMajor: d.CurrentPublishedMajor,
+		CurrentPublishedMinor: d.CurrentPublishedMinor,
+		WriteMode:             d.WriteMode,
+		Status:                d.Status,
+		ArchivedAt:            d.ArchivedAt,
+		CreatedAt:             d.CreatedAt,
+		UpdatedAt:             d.UpdatedAt,
+	}
+}
+
+func NewListControlDocumentsOutput(documentPage *page.Page[*coredata.Document, coredata.DocumentOrderField]) ListControlDocumentsOutput {
+	documents := make([]*Document, 0, len(documentPage.Data))
+	for _, d := range documentPage.Data {
+		documents = append(documents, NewDocument(d))
+	}
+
+	var nextCursor *page.CursorKey
+
+	if len(documentPage.Data) > 0 {
+		cursorKey := documentPage.Data[len(documentPage.Data)-1].CursorKey(documentPage.Cursor.OrderBy.Field)
+		nextCursor = &cursorKey
+	}
+
+	return ListControlDocumentsOutput{
+		NextCursor: nextCursor,
+		Documents:  documents,
+	}
+}
+
+func NewListMeasureDocumentsOutput(documentPage *page.Page[*coredata.Document, coredata.DocumentOrderField]) ListMeasureDocumentsOutput {
+	documents := make([]*Document, 0, len(documentPage.Data))
+	for _, d := range documentPage.Data {
+		documents = append(documents, NewDocument(d))
+	}
+
+	var nextCursor *page.CursorKey
+
+	if len(documentPage.Data) > 0 {
+		cursorKey := documentPage.Data[len(documentPage.Data)-1].CursorKey(documentPage.Cursor.OrderBy.Field)
+		nextCursor = &cursorKey
+	}
+
+	return ListMeasureDocumentsOutput{
+		NextCursor: nextCursor,
+		Documents:  documents,
+	}
+}
+
+func NewListDocumentsOutput(documentPage *page.Page[*coredata.Document, coredata.DocumentOrderField]) ListDocumentsOutput {
+	documents := make([]*Document, 0, len(documentPage.Data))
+	for _, d := range documentPage.Data {
+		documents = append(documents, NewDocument(d))
+	}
+
+	var nextCursor *page.CursorKey
+
+	if len(documentPage.Data) > 0 {
+		cursorKey := documentPage.Data[len(documentPage.Data)-1].CursorKey(documentPage.Cursor.OrderBy.Field)
+		nextCursor = &cursorKey
+	}
+
+	return ListDocumentsOutput{
+		NextCursor: nextCursor,
+		Documents:  documents,
+	}
+}
+
+func NewAddDocumentOutput(doc *coredata.Document, docVersion *coredata.DocumentVersion) AddDocumentOutput {
+	return AddDocumentOutput{
+		Document:        NewDocument(doc),
+		DocumentVersion: NewDocumentVersion(docVersion),
+	}
+}
+
+func NewDocumentVersion(dv *coredata.DocumentVersion) *DocumentVersion {
+	contentMD, err := proseMirrorJSONToMarkdown(dv.Content)
+	if err != nil {
+		panic(fmt.Errorf("cannot convert document version content to markdown: %w", err))
+	}
+
+	return &DocumentVersion{
+		ID:             dv.ID,
+		OrganizationID: dv.OrganizationID,
+		DocumentID:     dv.DocumentID,
+		Title:          dv.Title,
+		Major:          dv.Major,
+		Minor:          dv.Minor,
+		Classification: dv.Classification,
+		DocumentType:   dv.DocumentType,
+		Content:        contentMD,
+		Changelog:      dv.Changelog,
+		Status:         dv.Status,
+		PublishedAt:    dv.PublishedAt,
+		CreatedAt:      dv.CreatedAt,
+		UpdatedAt:      dv.UpdatedAt,
+	}
+}
+
+func NewListDocumentVersionsOutput(versionPage *page.Page[*coredata.DocumentVersion, coredata.DocumentVersionOrderField]) ListDocumentVersionsOutput {
+	versions := make([]*DocumentVersion, 0, len(versionPage.Data))
+	for _, v := range versionPage.Data {
+		versions = append(versions, NewDocumentVersion(v))
+	}
+
+	var nextCursor *page.CursorKey
+
+	if len(versionPage.Data) > 0 {
+		cursorKey := versionPage.Data[len(versionPage.Data)-1].CursorKey(versionPage.Cursor.OrderBy.Field)
+		nextCursor = &cursorKey
+	}
+
+	return ListDocumentVersionsOutput{
+		NextCursor:       nextCursor,
+		DocumentVersions: versions,
+	}
+}
+
+func NewDocumentVersionSignature(dvs *coredata.DocumentVersionSignature) *DocumentVersionSignature {
+	return &DocumentVersionSignature{
+		ID:                dvs.ID,
+		OrganizationID:    dvs.OrganizationID,
+		DocumentVersionID: dvs.DocumentVersionID,
+		State:             dvs.State,
+		SignedBy:          dvs.SignedBy,
+		SignedAt:          dvs.SignedAt,
+		RequestedAt:       dvs.RequestedAt,
+		CreatedAt:         dvs.CreatedAt,
+		UpdatedAt:         dvs.UpdatedAt,
+	}
+}
+
+func NewListDocumentVersionSignaturesOutput(signaturePage *page.Page[*coredata.DocumentVersionSignature, coredata.DocumentVersionSignatureOrderField]) ListDocumentVersionSignaturesOutput {
+	signatures := make([]*DocumentVersionSignature, 0, len(signaturePage.Data))
+	for _, s := range signaturePage.Data {
+		signatures = append(signatures, NewDocumentVersionSignature(s))
+	}
+
+	var nextCursor *page.CursorKey
+
+	if len(signaturePage.Data) > 0 {
+		cursorKey := signaturePage.Data[len(signaturePage.Data)-1].CursorKey(signaturePage.Cursor.OrderBy.Field)
+		nextCursor = &cursorKey
+	}
+
+	return ListDocumentVersionSignaturesOutput{
+		NextCursor:                nextCursor,
+		DocumentVersionSignatures: signatures,
+	}
+}
+
+func NewDocumentVersionApprovalQuorum(q *coredata.DocumentVersionApprovalQuorum) *DocumentVersionApprovalQuorum {
+	return &DocumentVersionApprovalQuorum{
+		ID:             q.ID,
+		OrganizationID: q.OrganizationID,
+		VersionID:      q.VersionID,
+		Status:         q.Status,
+		CreatedAt:      q.CreatedAt,
+		UpdatedAt:      q.UpdatedAt,
+	}
+}
+
+func NewListDocumentVersionApprovalQuorumsOutput(quorumPage *page.Page[*coredata.DocumentVersionApprovalQuorum, coredata.DocumentVersionApprovalQuorumOrderField]) ListDocumentVersionApprovalQuorumsOutput {
+	quorums := make([]*DocumentVersionApprovalQuorum, 0, len(quorumPage.Data))
+	for _, q := range quorumPage.Data {
+		quorums = append(quorums, NewDocumentVersionApprovalQuorum(q))
+	}
+
+	var nextCursor *page.CursorKey
+
+	if len(quorumPage.Data) > 0 {
+		cursorKey := quorumPage.Data[len(quorumPage.Data)-1].CursorKey(quorumPage.Cursor.OrderBy.Field)
+		nextCursor = &cursorKey
+	}
+
+	return ListDocumentVersionApprovalQuorumsOutput{
+		NextCursor:      nextCursor,
+		ApprovalQuorums: quorums,
+	}
+}
+
+func NewDocumentVersionApprovalDecision(d *coredata.DocumentVersionApprovalDecision) *DocumentVersionApprovalDecision {
+	return &DocumentVersionApprovalDecision{
+		ID:             d.ID,
+		OrganizationID: d.OrganizationID,
+		QuorumID:       d.QuorumID,
+		ApproverID:     d.ApproverID,
+		State:          d.State,
+		Comment:        d.Comment,
+		DecidedAt:      d.DecidedAt,
+		CreatedAt:      d.CreatedAt,
+		UpdatedAt:      d.UpdatedAt,
+	}
+}
+
+func NewListDocumentVersionApprovalDecisionsOutput(decisionPage *page.Page[*coredata.DocumentVersionApprovalDecision, coredata.DocumentVersionApprovalDecisionOrderField]) ListDocumentVersionApprovalDecisionsOutput {
+	decisions := make([]*DocumentVersionApprovalDecision, 0, len(decisionPage.Data))
+	for _, d := range decisionPage.Data {
+		decisions = append(decisions, NewDocumentVersionApprovalDecision(d))
+	}
+
+	var nextCursor *page.CursorKey
+
+	if len(decisionPage.Data) > 0 {
+		cursorKey := decisionPage.Data[len(decisionPage.Data)-1].CursorKey(decisionPage.Cursor.OrderBy.Field)
+		nextCursor = &cursorKey
+	}
+
+	return ListDocumentVersionApprovalDecisionsOutput{
+		NextCursor:        nextCursor,
+		ApprovalDecisions: decisions,
+	}
+}

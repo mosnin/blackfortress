@@ -1,0 +1,132 @@
+model Organization {
+  id                          String      @id @default(dbgenerated("generate_prefixed_cuid('org'::text)"))
+  name                        String
+  slug                        String      @unique @default(dbgenerated("generate_prefixed_cuid('slug'::text)"))
+  logo                        String?
+  createdAt                   DateTime    @default(now())
+  metadata                    String?
+  onboarding                  Onboarding?
+  website                     String?
+  onboardingCompleted         Boolean     @default(false)
+  hasAccess                   Boolean     @default(false)
+  // Internal (platform-operated) organization — e.g. Comp AI's own org.
+  // When true, platform admins are treated as real participants of this org
+  // (assignable, counted in compliance, notified). Off for all customer orgs.
+  isInternal                  Boolean     @default(false)
+  advancedModeEnabled         Boolean     @default(false)
+  evidenceApprovalEnabled     Boolean     @default(false)
+  deviceAgentStepEnabled      Boolean     @default(true)
+  securityTrainingStepEnabled Boolean     @default(true)
+  backgroundCheckStepEnabled  Boolean     @default(true)
+  whistleblowerReportEnabled  Boolean     @default(true)
+  accessRequestFormEnabled    Boolean     @default(true)
+
+  // FleetDM
+  fleetDmLabelId        Int?
+  isFleetSetupCompleted Boolean @default(false)
+
+  // Employee sync provider (e.g., 'google-workspace', 'rippling')
+  // When set, the scheduled sync will only use this provider
+  employeeSyncProvider String?
+
+  // Device sync provider (e.g., 'jamf', 'kandji')
+  // When set, the scheduled sync will import devices from this provider
+  deviceSyncProvider String?
+
+  // 2FA source provider (e.g., 'google-workspace')
+  // When set, the People tab reads per-user 2FA status from this integration's latest check run
+  twoFactorSource String?
+
+  apiKeys                            ApiKey[]
+  mcpOrgBindings                     McpOrgBinding[]
+  auditLog                           AuditLog[]
+  controls                           Control[]
+  frameworkInstances                 FrameworkInstance[]
+  integrations                       Integration[]
+  invitations                        Invitation[]
+  members                            Member[]
+  policy                             Policy[]
+  risk                               Risk[]
+  riskAcceptances                    RiskAcceptance[]
+  vendors                            Vendor[]
+  tasks                              Task[]
+  taskItems                          TaskItem[]
+  comments                           Comment[]
+  attachments                        Attachment[]
+  evidenceSubmissions                EvidenceSubmission[]
+  evidenceFormSettings               EvidenceFormSetting[]
+  trust                              Trust[]
+  context                            Context[]
+  secrets                            Secret[]
+  securityPenetrationTestRuns        SecurityPenetrationTestRun[]
+  securityPenetrationTestFindingContexts SecurityPenetrationTestFindingContext[]
+  trustAccessRequests                TrustAccessRequest[]
+  trustNdaAgreements                 TrustNDAAgreement[]
+  trustDocuments                     TrustDocument[]
+  trustResources                     TrustResource[]                     @relation("OrganizationTrustResources")
+  trustCustomLinks                   TrustCustomLink[]
+  trustCustomFrameworks              TrustCustomFramework[]
+  knowledgeBaseDocuments             KnowledgeBaseDocument[]
+  questionnaires                     Questionnaire[]
+  securityQuestionnaireManualAnswers SecurityQuestionnaireManualAnswer[]
+  soaDocuments                       SOADocument[]
+  ismsDocuments                      IsmsDocument[]
+  ismsProfiles                       IsmsProfile[]
+  primaryColor                       String?
+  trustPortalFaqs                    Json? // Array of { question: string, answer: string, order: number }
+
+  // Integration Platform
+  integrationConnections IntegrationConnection[]
+  integrationOAuthApps   IntegrationOAuthApp[]
+  integrationSyncLogs    IntegrationSyncLog[]
+  checkDefinitions       CheckDefinition[]
+  findingExceptions      FindingException[]
+  findingResolutions     FindingResolution[]
+  findingRegressions     FindingRegression[]
+
+  // Pentest credits — wallet of run-credits an org can spend.
+  // Source of credits (trial / future Stripe subscription / top-up)
+  // is metadata on the row; balance is unified.
+  pentestCredits       PentestCredits?
+  billing              OrganizationBilling?
+  billingSubscriptions OrganizationBillingSubscription[]
+  billingUsageEvents   BillingUsageEvent[]
+  billingAuditEvents   BillingAuditEvent[]
+  billingCreditBalances BillingCreditBalance[]
+  billingCreditEvents   BillingCreditEvent[]
+
+  // Browser Automation
+  browserbaseContext  BrowserbaseContext?
+  browserAuthProfiles BrowserAuthProfile[]
+  fleetPolicyResults FleetPolicyResult[]
+
+  // Findings
+  findings Finding[]
+
+  // Device Agent
+  devices Device[]
+
+  // Background Checks
+  backgroundCheckRequests BackgroundCheckRequest[]
+
+  // Org Chart
+  organizationChart OrganizationChart?
+
+  // RBAC
+  organizationRoles        OrganizationRole[]
+  roleNotificationSettings RoleNotificationSetting[]
+
+  // Timeline
+  timelineInstances TimelineInstance[]
+
+  // Custom frameworks / requirements authored by this org
+  customFrameworks   CustomFramework[]
+  customRequirements CustomRequirement[]
+
+  // Offboarding Checklist
+  offboardingChecklistTemplates    OffboardingChecklistTemplate[]
+  offboardingChecklistCompletions  OffboardingChecklistCompletion[]
+  offboardingAccessRevocations     OffboardingAccessRevocation[]
+
+  @@index([slug])
+}

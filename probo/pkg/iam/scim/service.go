@@ -1,0 +1,1828 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package scim
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"strings"
+	"time"
+
+	"github.com/elimity-com/scim"
+	scimerrors "github.com/elimity-com/scim/errors"
+	"github.com/elimity-com/scim/optional"
+	"github.com/prometheus/client_golang/prometheus"
+	scimfilter "github.com/scim2/filter-parser/v2"
+	"go.gearno.de/kit/log"
+	"go.gearno.de/kit/pg"
+	"go.gearno.de/x/ref"
+	"go.opentelemetry.io/otel/trace"
+	"go.probo.inc/probo/pkg/connector"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/crypto/cipher"
+	"go.probo.inc/probo/pkg/crypto/hash"
+	"go.probo.inc/probo/pkg/crypto/rand"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/mail"
+	"go.probo.inc/probo/pkg/page"
+	"go.probo.inc/probo/pkg/webhook"
+	webhooktypes "go.probo.inc/probo/pkg/webhook/types"
+)
+
+const scimEventLogTimeout = 5 * time.Second
+
+type (
+	Service struct {
+		pg           *pg.Client
+		logger       *log.Logger
+		bridgeRunner *BridgeRunner
+	}
+
+	ServiceConfig struct {
+		TracerProvider    trace.TracerProvider
+		Registerer        prometheus.Registerer
+		EncryptionKey     cipher.EncryptionKey
+		ConnectorRegistry *connector.Registry
+		BridgeRunner      BridgeRunnerConfig
+	}
+)
+
+func NewService(
+	pg *pg.Client,
+	logger *log.Logger,
+	cfg ServiceConfig,
+) *Service {
+	bridgeRunner := NewBridgeRunner(
+		pg,
+		logger.Named("bridge-runner"),
+		cfg.TracerProvider,
+		cfg.Registerer,
+		cfg.EncryptionKey,
+		cfg.ConnectorRegistry,
+		cfg.BridgeRunner,
+	)
+
+	return &Service{
+		pg:           pg,
+		logger:       logger,
+		bridgeRunner: bridgeRunner,
+	}
+}
+
+// Run starts the SCIM service background processes.
+func (s *Service) Run(ctx context.Context) error {
+	return s.bridgeRunner.Run(ctx)
+}
+
+func HashToken(token string) []byte {
+	return hash.SHA256String(token)
+}
+
+func GenerateToken() (string, error) {
+	return rand.HexString(32)
+}
+
+// ValidateToken validates a bearer token and returns the SCIM configuration
+func (s *Service) ValidateToken(ctx context.Context, token string) (*coredata.SCIMConfiguration, error) {
+	hashedToken := HashToken(token)
+	config := &coredata.SCIMConfiguration{}
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := config.LoadByHashedToken(ctx, conn, hashedToken)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSCIMInvalidTokenError()
+				}
+
+				return fmt.Errorf("cannot load SCIM configuration: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+func (s *Service) CreateUser(
+	ctx context.Context,
+	config *coredata.SCIMConfiguration,
+	attributes scim.ResourceAttributes,
+) (scim.Resource, error) {
+	attrs := ParseUserFromAttributes(attributes)
+	if attrs.UserName == "" {
+		return scim.Resource{}, scimerrors.ScimErrorBadRequest("userName is required")
+	}
+
+	if attrs.Email == "" {
+		return scim.Resource{}, scimerrors.ScimErrorBadRequest("a valid email is required (via emails array or userName)")
+	}
+
+	emailAddr, err := mail.ParseAddr(attrs.Email)
+	if err != nil {
+		return scim.Resource{}, scimerrors.ScimErrorBadRequest("invalid email format")
+	}
+
+	now := time.Now()
+
+	profileState := coredata.ProfileStateActive
+	if !attrs.Active {
+		profileState = coredata.ProfileStateDeactivated
+	}
+
+	var externalIdPtr *string
+	if attrs.ExternalID != "" {
+		externalIdPtr = &attrs.ExternalID
+	}
+
+	var (
+		membership *coredata.Membership
+		profile    *coredata.MembershipProfile
+	)
+
+	scope := coredata.NewScopeFromObjectID(config.OrganizationID)
+
+	err = s.pg.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		identity := &coredata.Identity{}
+		if err := identity.LoadByEmail(ctx, tx, emailAddr); err != nil {
+			if errors.Is(err, coredata.ErrResourceNotFound) {
+				identity = &coredata.Identity{
+					ID:                   gid.New(gid.NilTenant, coredata.IdentityEntityType),
+					EmailAddress:         emailAddr,
+					FullName:             attrs.FullName,
+					HashedPassword:       nil,
+					EmailAddressVerified: false,
+					CreatedAt:            now,
+					UpdatedAt:            now,
+				}
+
+				if err := identity.Insert(ctx, tx); err != nil {
+					return fmt.Errorf("cannot insert identity: %w", err)
+				}
+			} else {
+				return fmt.Errorf("cannot load identity: %w", err)
+			}
+		}
+
+		eventType := coredata.WebhookEventTypeUserUpdated
+		profile = &coredata.MembershipProfile{}
+
+		var previousProfile *coredata.MembershipProfile
+
+		if err := profile.LoadByIdentityIDAndOrganizationID(
+			ctx,
+			tx,
+			coredata.NewScopeFromObjectID(config.OrganizationID),
+			identity.ID,
+			config.OrganizationID,
+		); err != nil {
+			if !errors.Is(err, coredata.ErrResourceNotFound) {
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			// Profile not found by identity. Try by external ID to
+			// handle email renames in identity providers (e.g. Google
+			// Workspace) where the external ID stays the same but the
+			// email changes. If found, update it to point to the new
+			// identity.
+			if externalIdPtr != nil {
+				if err := profile.LoadByExternalIDAndOrganizationID(
+					ctx,
+					tx,
+					scope,
+					*externalIdPtr,
+					config.OrganizationID,
+				); err == nil {
+					snapshot := *profile
+					previousProfile = &snapshot
+
+					// Migrate the existing membership to the new identity
+					// so the user's role is preserved.
+					oldIdentityID := profile.IdentityID
+
+					existingMembership := &coredata.Membership{}
+					if err := existingMembership.LoadByIdentityIDAndOrganizationID(
+						ctx,
+						tx,
+						scope,
+						oldIdentityID,
+						config.OrganizationID,
+					); err == nil {
+						existingMembership.IdentityID = identity.ID
+
+						existingMembership.UpdatedAt = now
+						if err := existingMembership.Update(ctx, tx, scope); err != nil {
+							return fmt.Errorf("cannot update membership identity: %w", err)
+						}
+					} else if !errors.Is(err, coredata.ErrResourceNotFound) {
+						return fmt.Errorf("cannot load membership for identity migration: %w", err)
+					}
+
+					profile.IdentityID = identity.ID
+					profile.EmailAddress = emailAddr
+					applyUserAttributes(profile, attrs, externalIdPtr, profileState, now)
+
+					if err := profile.Update(ctx, tx, scope); err != nil {
+						return fmt.Errorf("cannot update profile: %w", err)
+					}
+				} else if !errors.Is(err, coredata.ErrResourceNotFound) {
+					return fmt.Errorf("cannot load profile by external id: %w", err)
+				}
+			}
+
+			if profile.ID == (gid.GID{}) {
+				profile = &coredata.MembershipProfile{
+					ID:             gid.New(config.OrganizationID.TenantID(), coredata.MembershipProfileEntityType),
+					IdentityID:     identity.ID,
+					OrganizationID: config.OrganizationID,
+					EmailAddress:   emailAddr,
+					CreatedAt:      now,
+				}
+				applyUserAttributes(profile, attrs, externalIdPtr, profileState, now)
+
+				err = profile.Insert(ctx, tx)
+				if err != nil {
+					if errors.Is(err, coredata.ErrResourceAlreadyExists) {
+						return scimerrors.ScimErrorUniqueness
+					}
+
+					return fmt.Errorf("cannot insert profile: %w", err)
+				}
+
+				eventType = coredata.WebhookEventTypeUserCreated
+			}
+		} else {
+			if previousProfile == nil {
+				snapshot := *profile
+				previousProfile = &snapshot
+			}
+
+			if profile.Source == coredata.ProfileSourceSCIM {
+				return scimerrors.ScimErrorUniqueness
+			}
+
+			if externalIdPtr != nil {
+				if err := profile.ClearExternalID(
+					ctx,
+					tx,
+					scope,
+					*externalIdPtr,
+					config.OrganizationID,
+				); err != nil {
+					return fmt.Errorf("cannot clear conflicting external id: %w", err)
+				}
+			}
+
+			applyUserAttributes(profile, attrs, externalIdPtr, profileState, now)
+
+			if err := profile.Update(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot update profile: %w", err)
+			}
+		}
+
+		if !attrs.Active {
+			invitations := &coredata.Invitations{}
+
+			onlyPending := coredata.NewInvitationFilter([]coredata.InvitationStatus{coredata.InvitationStatusPending})
+			if err := invitations.ExpireByUserID(
+				ctx,
+				tx,
+				coredata.NewScopeFromObjectID(profile.OrganizationID),
+				profile.ID,
+				onlyPending,
+			); err != nil {
+				return fmt.Errorf("cannot expire pending invitations: %w", err)
+			}
+
+			signatures := &coredata.DocumentVersionSignatures{}
+			if err := signatures.DeleteRequestedBySignatory(ctx, tx, scope, profile.ID); err != nil {
+				return fmt.Errorf("cannot delete requested signatures: %w", err)
+			}
+		}
+
+		membership = &coredata.Membership{}
+		if err := membership.LoadByIdentityIDAndOrganizationID(
+			ctx,
+			tx,
+			scope,
+			identity.ID,
+			config.OrganizationID,
+		); err != nil {
+			if errors.Is(err, coredata.ErrResourceNotFound) {
+				membership = &coredata.Membership{
+					ID:             gid.New(config.OrganizationID.TenantID(), coredata.MembershipEntityType),
+					IdentityID:     identity.ID,
+					OrganizationID: config.OrganizationID,
+					Role:           coredata.MembershipRoleEmployee,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				}
+
+				err = membership.Insert(ctx, tx, scope)
+				if err != nil {
+					return fmt.Errorf("cannot insert membership: %w", err)
+				}
+			} else {
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+		}
+
+		var previousUser any
+		if eventType == coredata.WebhookEventTypeUserUpdated && previousProfile != nil {
+			previousUser = webhooktypes.NewUser(previousProfile, membership)
+		}
+
+		if err := webhook.InsertUpdateData(ctx, tx, scope, config.OrganizationID, eventType, webhooktypes.NewUser(profile, membership), previousUser); err != nil {
+			return fmt.Errorf("cannot insert webhook event: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return scim.Resource{}, err
+	}
+
+	return userToResource(profile), nil
+}
+
+func (s *Service) GetUser(
+	ctx context.Context,
+	config *coredata.SCIMConfiguration,
+	profileID gid.GID,
+) (scim.Resource, error) {
+	scope := coredata.NewScopeFromObjectID(config.OrganizationID)
+
+	var profile *coredata.MembershipProfile
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			profile = &coredata.MembershipProfile{}
+			if err := profile.LoadByID(ctx, conn, scope, profileID); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return scimerrors.ScimErrorResourceNotFound(profileID.String())
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.OrganizationID != config.OrganizationID {
+				return scimerrors.ScimErrorResourceNotFound(profileID.String())
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return scim.Resource{}, err
+	}
+
+	return userToResource(profile), nil
+}
+
+func (s *Service) ListUsers(
+	ctx context.Context,
+	config *coredata.SCIMConfiguration,
+	filterExpr scimfilter.Expression,
+	startIndex int,
+	count int,
+) ([]scim.Resource, int, error) {
+	filter, err := ParseUserFilter(filterExpr)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Only return SCIM-managed users. This ensures that:
+	// 1. Users created through other means (manual, SAML) are not deactivated
+	//    when they don't exist in the identity provider.
+	// 2. When a manual user exists in the identity provider but not in the
+	//    SCIM list, CreateUser is called which enrolls them into SCIM management.
+	filter.WithSource(coredata.ProfileSourceSCIM)
+
+	scope := coredata.NewScopeFromObjectID(config.OrganizationID)
+
+	var profiles coredata.MembershipProfiles
+
+	err = s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			loaded, err := page.LoadAll(
+				ctx,
+				page.OrderBy[coredata.MembershipProfileOrderField]{
+					Field:     coredata.MembershipProfileOrderFieldCreatedAt,
+					Direction: page.OrderDirectionAsc,
+				},
+				func(ctx context.Context, cursor *page.Cursor[coredata.MembershipProfileOrderField]) ([]*coredata.MembershipProfile, error) {
+					var batch coredata.MembershipProfiles
+					if err := batch.LoadByOrganizationID(ctx, conn, scope, config.OrganizationID, cursor, filter); err != nil {
+						return nil, fmt.Errorf("cannot load profiles: %w", err)
+					}
+
+					return batch, nil
+				},
+			)
+			if err != nil {
+				return err
+			}
+
+			profiles = loaded
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	resources := make([]scim.Resource, 0, len(profiles))
+	for _, p := range profiles {
+		resources = append(resources, userToResource(p))
+	}
+
+	return resources, len(resources), nil
+}
+
+func (s *Service) ReplaceUser(
+	ctx context.Context,
+	config *coredata.SCIMConfiguration,
+	profileID gid.GID,
+	attributes scim.ResourceAttributes,
+) (scim.Resource, error) {
+	attrs := ParseUserFromReplaceAttributes(attributes)
+
+	profile, err := s.updateUser(ctx, config, profileID, attrs)
+	if err != nil {
+		return scim.Resource{}, err
+	}
+
+	return userToResource(profile), nil
+}
+
+func (s *Service) PatchUser(
+	ctx context.Context,
+	config *coredata.SCIMConfiguration,
+	profileID gid.GID,
+	operations []scim.PatchOperation,
+) (scim.Resource, error) {
+	attrs := ParseUserFromPatchOperations(operations)
+
+	profile, err := s.updateUser(ctx, config, profileID, attrs)
+	if err != nil {
+		return scim.Resource{}, err
+	}
+
+	return userToResource(profile), nil
+}
+
+func (s *Service) updateUser(
+	ctx context.Context,
+	config *coredata.SCIMConfiguration,
+	profileID gid.GID,
+	attrs scimReplaceAttributes,
+) (*coredata.MembershipProfile, error) {
+	scope := coredata.NewScopeFromObjectID(config.OrganizationID)
+	now := time.Now()
+
+	var (
+		membership *coredata.Membership
+		profile    *coredata.MembershipProfile
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			profile = &coredata.MembershipProfile{}
+			if err := profile.LoadByID(ctx, tx, scope, profileID); err != nil {
+				if errors.Is(err, coredata.ErrResourceNotFound) {
+					return scimerrors.ScimErrorResourceNotFound(profileID.String())
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.OrganizationID != config.OrganizationID {
+				return scimerrors.ScimErrorResourceNotFound(profileID.String())
+			}
+
+			membership = &coredata.Membership{}
+			if err := membership.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, profile.IdentityID, profile.OrganizationID); err != nil {
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			previousProfile := *profile
+			previousMembership := *membership
+			previousUser := webhooktypes.NewUser(&previousProfile, &previousMembership)
+
+			shouldReactivate := attrs.Active != nil && *attrs.Active && profile.State == coredata.ProfileStateDeactivated
+			shouldDeactivate := attrs.Active != nil && !*attrs.Active && profile.State != coredata.ProfileStateDeactivated
+
+			if attrs.FullName != "" {
+				profile.FullName = attrs.FullName
+				profile.UpdatedAt = now
+			}
+
+			if attrs.Title != nil {
+				if *attrs.Title == "" {
+					profile.Position = nil
+				} else {
+					profile.Position = attrs.Title
+				}
+			}
+
+			if attrs.UserName != nil {
+				profile.UserName = attrs.UserName
+				profile.UpdatedAt = now
+			}
+
+			if attrs.ExternalID != nil {
+				if *attrs.ExternalID == "" {
+					profile.ExternalID = nil
+				} else {
+					profile.ExternalID = attrs.ExternalID
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.UserType != nil {
+				if *attrs.UserType == "" {
+					profile.Kind = nil
+				} else {
+					profile.Kind = attrs.UserType
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.Nickname != nil {
+				if *attrs.Nickname == "" {
+					profile.Nickname = nil
+				} else {
+					profile.Nickname = attrs.Nickname
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.Locale != nil {
+				if *attrs.Locale == "" {
+					profile.Locale = nil
+				} else {
+					profile.Locale = attrs.Locale
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.Timezone != nil {
+				if *attrs.Timezone == "" {
+					profile.Timezone = nil
+				} else {
+					profile.Timezone = attrs.Timezone
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.ProfileUrl != nil {
+				if *attrs.ProfileUrl == "" {
+					profile.ProfileUrl = nil
+				} else {
+					profile.ProfileUrl = attrs.ProfileUrl
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.PreferredLanguage != nil {
+				if *attrs.PreferredLanguage == "" {
+					profile.PreferredLanguage = nil
+				} else {
+					profile.PreferredLanguage = attrs.PreferredLanguage
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.GivenName != nil {
+				if *attrs.GivenName == "" {
+					profile.GivenName = nil
+				} else {
+					profile.GivenName = attrs.GivenName
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.FamilyName != nil {
+				if *attrs.FamilyName == "" {
+					profile.FamilyName = nil
+				} else {
+					profile.FamilyName = attrs.FamilyName
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.FormattedName != nil {
+				if *attrs.FormattedName == "" {
+					profile.FormattedName = nil
+				} else {
+					profile.FormattedName = attrs.FormattedName
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.MiddleName != nil {
+				if *attrs.MiddleName == "" {
+					profile.MiddleName = nil
+				} else {
+					profile.MiddleName = attrs.MiddleName
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.HonorificPrefix != nil {
+				if *attrs.HonorificPrefix == "" {
+					profile.HonorificPrefix = nil
+				} else {
+					profile.HonorificPrefix = attrs.HonorificPrefix
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.HonorificSuffix != nil {
+				if *attrs.HonorificSuffix == "" {
+					profile.HonorificSuffix = nil
+				} else {
+					profile.HonorificSuffix = attrs.HonorificSuffix
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.EmployeeNumber != nil {
+				if *attrs.EmployeeNumber == "" {
+					profile.EmployeeNumber = nil
+				} else {
+					profile.EmployeeNumber = attrs.EmployeeNumber
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.Department != nil {
+				if *attrs.Department == "" {
+					profile.Department = nil
+				} else {
+					profile.Department = attrs.Department
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.CostCenter != nil {
+				if *attrs.CostCenter == "" {
+					profile.CostCenter = nil
+				} else {
+					profile.CostCenter = attrs.CostCenter
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.EnterpriseOrganization != nil {
+				if *attrs.EnterpriseOrganization == "" {
+					profile.EnterpriseOrganization = nil
+				} else {
+					profile.EnterpriseOrganization = attrs.EnterpriseOrganization
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.Division != nil {
+				if *attrs.Division == "" {
+					profile.Division = nil
+				} else {
+					profile.Division = attrs.Division
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if attrs.ManagerValue != nil {
+				if *attrs.ManagerValue == "" {
+					profile.ManagerValue = nil
+				} else {
+					profile.ManagerValue = attrs.ManagerValue
+				}
+
+				profile.UpdatedAt = now
+			}
+
+			if shouldReactivate {
+				profile.MarkActive(now)
+			} else if shouldDeactivate {
+				profile.MarkDeactivated(now)
+			}
+
+			if profile.Source != coredata.ProfileSourceSCIM {
+				profile.Source = coredata.ProfileSourceSCIM
+				profile.UpdatedAt = now
+			}
+
+			if attrs.ExternalID != nil && *attrs.ExternalID != "" {
+				if err := profile.ClearExternalID(
+					ctx,
+					tx,
+					scope,
+					*attrs.ExternalID,
+					config.OrganizationID,
+				); err != nil {
+					return fmt.Errorf("cannot clear conflicting external id: %w", err)
+				}
+			}
+
+			if err := profile.Update(ctx, tx, scope); err != nil {
+				if errors.Is(err, coredata.ErrResourceAlreadyExists) {
+					return scimerrors.ScimErrorUniqueness
+				}
+
+				return fmt.Errorf("cannot update membership profile: %w", err)
+			}
+
+			if shouldDeactivate {
+				invitations := &coredata.Invitations{}
+
+				onlyPending := coredata.NewInvitationFilter([]coredata.InvitationStatus{coredata.InvitationStatusPending})
+				if err := invitations.ExpireByUserID(
+					ctx,
+					tx,
+					coredata.NewScopeFromObjectID(profile.OrganizationID),
+					profile.ID,
+					onlyPending,
+				); err != nil {
+					return fmt.Errorf("cannot expire pending invitations: %w", err)
+				}
+
+				signatures := &coredata.DocumentVersionSignatures{}
+				if err := signatures.DeleteRequestedBySignatory(ctx, tx, scope, profile.ID); err != nil {
+					return fmt.Errorf("cannot delete requested signatures: %w", err)
+				}
+			}
+
+			needsUpdate := shouldReactivate || shouldDeactivate
+
+			if attrs.Active != nil {
+				identity := &coredata.Identity{}
+				if err := identity.LoadByID(ctx, tx, membership.IdentityID); err != nil {
+					return fmt.Errorf("cannot load identity: %w", err)
+				}
+
+				if shouldReactivate {
+					membership.Role = coredata.MembershipRoleEmployee
+				}
+			}
+
+			if needsUpdate {
+				membership.UpdatedAt = now
+				if err := membership.Update(ctx, tx, scope); err != nil {
+					return fmt.Errorf("cannot update membership: %w", err)
+				}
+			}
+
+			if err := webhook.InsertUpdateData(ctx, tx, scope, config.OrganizationID, coredata.WebhookEventTypeUserUpdated, webhooktypes.NewUser(profile, membership), previousUser); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return profile, nil
+}
+
+func applyUserAttributes(
+	profile *coredata.MembershipProfile,
+	attrs scimUserAttributes,
+	externalID *string,
+	state coredata.ProfileState,
+	now time.Time,
+) {
+	profile.Source = coredata.ProfileSourceSCIM
+	switch {
+	case state == coredata.ProfileStateActive && profile.State != coredata.ProfileStateActive:
+		profile.MarkActive(now)
+	case state == coredata.ProfileStateDeactivated && profile.State != coredata.ProfileStateDeactivated:
+		profile.MarkDeactivated(now)
+	default:
+		profile.State = state
+	}
+
+	profile.FullName = attrs.FullName
+	profile.Position = &attrs.Title
+	profile.UserName = &attrs.UserName
+	profile.ExternalID = externalID
+	profile.Nickname = ref.RefOrNil(attrs.Nickname)
+	profile.Locale = ref.RefOrNil(attrs.Locale)
+	profile.Timezone = ref.RefOrNil(attrs.Timezone)
+	profile.ProfileUrl = ref.RefOrNil(attrs.ProfileUrl)
+	profile.PreferredLanguage = ref.RefOrNil(attrs.PreferredLanguage)
+	profile.GivenName = ref.RefOrNil(attrs.GivenName)
+	profile.FamilyName = ref.RefOrNil(attrs.FamilyName)
+	profile.FormattedName = ref.RefOrNil(attrs.FormattedName)
+	profile.MiddleName = ref.RefOrNil(attrs.MiddleName)
+	profile.HonorificPrefix = ref.RefOrNil(attrs.HonorificPrefix)
+	profile.HonorificSuffix = ref.RefOrNil(attrs.HonorificSuffix)
+	profile.EmployeeNumber = ref.RefOrNil(attrs.EmployeeNumber)
+	profile.Department = ref.RefOrNil(attrs.Department)
+	profile.CostCenter = ref.RefOrNil(attrs.CostCenter)
+	profile.EnterpriseOrganization = ref.RefOrNil(attrs.EnterpriseOrganization)
+	profile.Division = ref.RefOrNil(attrs.Division)
+	profile.ManagerValue = ref.RefOrNil(attrs.ManagerValue)
+	profile.UpdatedAt = now
+
+	if attrs.UserType != "" {
+		kind := attrs.UserType
+		profile.Kind = &kind
+	}
+}
+
+func (s *Service) DeleteUser(
+	ctx context.Context,
+	config *coredata.SCIMConfiguration,
+	profileID gid.GID,
+) error {
+	scope := coredata.NewScopeFromObjectID(config.OrganizationID)
+
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			profile := &coredata.MembershipProfile{}
+			if err := profile.LoadByID(ctx, tx, scope, profileID); err != nil {
+				if errors.Is(err, coredata.ErrResourceNotFound) {
+					return scimerrors.ScimErrorResourceNotFound(profileID.String())
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.OrganizationID != config.OrganizationID {
+				return scimerrors.ScimErrorResourceNotFound(profileID.String())
+			}
+
+			var membership *coredata.Membership
+
+			m := &coredata.Membership{}
+			if err := m.LoadByIdentityIDAndOrganizationID(
+				ctx, tx, scope, profile.IdentityID, config.OrganizationID,
+			); err != nil {
+				if !errors.Is(err, coredata.ErrResourceNotFound) {
+					return fmt.Errorf("cannot load membership: %w", err)
+				}
+			} else {
+				membership = m
+			}
+
+			deleteErr := tx.Savepoint(
+				ctx,
+				func(ctx context.Context, sp pg.Tx) error {
+					if err := profile.Delete(ctx, sp, scope, profile.ID); err != nil {
+						return fmt.Errorf("cannot delete profile: %w", err)
+					}
+
+					return nil
+				},
+			)
+			if deleteErr != nil {
+				if errors.Is(deleteErr, coredata.ErrResourceInUse) {
+					s.logger.WarnCtx(
+						ctx,
+						"SCIM user delete skipped, profile is in use",
+						log.String("profile_id", profileID.String()),
+					)
+
+					if err := s.deactivateProfileInTx(ctx, tx, scope, config, profile, membership); err != nil {
+						return fmt.Errorf("cannot deactivate profile: %w", err)
+					}
+
+					return nil
+				}
+
+				return fmt.Errorf("cannot delete profile in savepoint: %w", deleteErr)
+			}
+
+			invitations := &coredata.Invitations{}
+
+			onlyPending := coredata.NewInvitationFilter([]coredata.InvitationStatus{coredata.InvitationStatusPending})
+			if err := invitations.ExpireByUserID(
+				ctx,
+				tx,
+				scope,
+				profile.ID,
+				onlyPending,
+			); err != nil {
+				return fmt.Errorf("cannot expire pending invitations: %w", err)
+			}
+
+			if err := webhook.InsertData(ctx, tx, scope, config.OrganizationID, coredata.WebhookEventTypeUserDeleted, webhooktypes.NewUser(profile, membership)); err != nil {
+				return fmt.Errorf("cannot insert webhook event: %w", err)
+			}
+
+			if membership != nil {
+				if err := membership.Delete(ctx, tx, scope, membership.ID); err != nil {
+					return fmt.Errorf("cannot delete membership: %w", err)
+				}
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s *Service) deactivateProfileInTx(
+	ctx context.Context,
+	tx pg.Tx,
+	scope coredata.Scoper,
+	config *coredata.SCIMConfiguration,
+	profile *coredata.MembershipProfile,
+	membership *coredata.Membership,
+) error {
+	if profile.State == coredata.ProfileStateDeactivated {
+		return nil
+	}
+
+	previousUser := webhooktypes.NewUser(profile, membership)
+
+	now := time.Now()
+	profile.MarkDeactivated(now)
+
+	if err := profile.Update(ctx, tx, scope); err != nil {
+		return fmt.Errorf("cannot deactivate profile: %w", err)
+	}
+
+	invitations := &coredata.Invitations{}
+
+	onlyPending := coredata.NewInvitationFilter([]coredata.InvitationStatus{coredata.InvitationStatusPending})
+	if err := invitations.ExpireByUserID(
+		ctx,
+		tx,
+		scope,
+		profile.ID,
+		onlyPending,
+	); err != nil {
+		return fmt.Errorf("cannot expire pending invitations: %w", err)
+	}
+
+	signatures := &coredata.DocumentVersionSignatures{}
+	if err := signatures.DeleteRequestedBySignatory(ctx, tx, scope, profile.ID); err != nil {
+		return fmt.Errorf("cannot delete requested signatures: %w", err)
+	}
+
+	if membership != nil {
+		membership.UpdatedAt = now
+		if err := membership.Update(ctx, tx, scope); err != nil {
+			return fmt.Errorf("cannot update membership: %w", err)
+		}
+	}
+
+	if err := webhook.InsertUpdateData(ctx, tx, scope, config.OrganizationID, coredata.WebhookEventTypeUserUpdated, webhooktypes.NewUser(profile, membership), previousUser); err != nil {
+		return fmt.Errorf("cannot insert webhook event: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) LogEvent(
+	ctx context.Context,
+	config *coredata.SCIMConfiguration,
+	method string,
+	path string,
+	userName string,
+	ipAddress net.IP,
+	statusCode int,
+	errorMessage *string,
+	requestBody *string,
+	responseBody *string,
+) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scimEventLogTimeout)
+	defer cancel()
+
+	scope := coredata.NewScopeFromObjectID(config.OrganizationID)
+
+	event := s.createEvent(
+		config,
+		method,
+		path,
+		userName,
+		ipAddress,
+		statusCode,
+		errorMessage,
+		requestBody,
+		responseBody,
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := event.Insert(ctx, tx, scope)
+			if err != nil {
+				return fmt.Errorf("cannot insert SCIM event: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		s.logger.ErrorCtx(ctx, "cannot log SCIM event", log.Error(err))
+	}
+}
+
+func (s *Service) createEvent(
+	config *coredata.SCIMConfiguration,
+	method string,
+	path string,
+	userName string,
+	ipAddress net.IP,
+	statusCode int,
+	errorMessage *string,
+	requestBody *string,
+	responseBody *string,
+) *coredata.SCIMEvent {
+	event := &coredata.SCIMEvent{
+		ID:                  gid.New(config.OrganizationID.TenantID(), coredata.SCIMEventEntityType),
+		OrganizationID:      config.OrganizationID,
+		SCIMConfigurationID: config.ID,
+		Method:              method,
+		Path:                path,
+		RequestBody:         requestBody,
+		ResponseBody:        responseBody,
+		StatusCode:          statusCode,
+		ErrorMessage:        errorMessage,
+		IPAddress:           ipAddress,
+		UserName:            userName,
+		CreatedAt:           time.Now(),
+	}
+
+	return event
+}
+
+type scimUserAttributes struct {
+	UserName               string
+	Email                  string
+	FullName               string
+	Active                 bool
+	Title                  string
+	ExternalID             string
+	UserType               string
+	Nickname               string
+	Locale                 string
+	Timezone               string
+	ProfileUrl             string
+	PreferredLanguage      string
+	GivenName              string
+	FamilyName             string
+	FormattedName          string
+	MiddleName             string
+	HonorificPrefix        string
+	HonorificSuffix        string
+	EmployeeNumber         string
+	Department             string
+	CostCenter             string
+	EnterpriseOrganization string
+	Division               string
+	ManagerValue           string
+}
+
+func ParseUserFromAttributes(attributes scim.ResourceAttributes) scimUserAttributes {
+	var attrs scimUserAttributes
+
+	attrs.UserName, _ = attributes["userName"].(string)
+	displayName, _ := attributes["displayName"].(string)
+	attrs.ExternalID, _ = attributes["externalId"].(string)
+
+	attrs.Active = true
+	if a, ok := attributes["active"].(bool); ok {
+		attrs.Active = a
+	}
+
+	var givenName, familyName string
+	if name, ok := attributes["name"].(map[string]any); ok {
+		givenName, _ = name["givenName"].(string)
+		familyName, _ = name["familyName"].(string)
+		attrs.FormattedName, _ = name["formatted"].(string)
+		attrs.MiddleName, _ = name["middleName"].(string)
+		attrs.HonorificPrefix, _ = name["honorificPrefix"].(string)
+		attrs.HonorificSuffix, _ = name["honorificSuffix"].(string)
+	}
+
+	attrs.GivenName = givenName
+	attrs.FamilyName = familyName
+
+	if emails, ok := attributes["emails"].([]any); ok && len(emails) > 0 {
+		for _, e := range emails {
+			if emailMap, ok := e.(map[string]any); ok {
+				if primary, _ := emailMap["primary"].(bool); primary {
+					if value, ok := emailMap["value"].(string); ok {
+						attrs.Email = value
+						break
+					}
+				}
+			}
+		}
+
+		if attrs.Email == "" {
+			if emailMap, ok := emails[0].(map[string]any); ok {
+				if value, ok := emailMap["value"].(string); ok {
+					attrs.Email = value
+				}
+			}
+		}
+	}
+
+	if attrs.Email == "" {
+		if _, err := mail.ParseAddr(attrs.UserName); err == nil {
+			attrs.Email = attrs.UserName
+		}
+	}
+
+	attrs.FullName = strings.TrimSpace(displayName)
+	if attrs.FullName == "" {
+		attrs.FullName = strings.TrimSpace(givenName + " " + familyName)
+	}
+
+	if attrs.FullName == "" {
+		attrs.FullName = strings.TrimSpace(attrs.UserName)
+	}
+
+	attrs.Title, _ = attributes["title"].(string)
+	attrs.UserType, _ = attributes["userType"].(string)
+	attrs.Nickname, _ = attributes["nickName"].(string)
+	attrs.Locale, _ = attributes["locale"].(string)
+	attrs.Timezone, _ = attributes["timezone"].(string)
+	attrs.ProfileUrl, _ = attributes["profileUrl"].(string)
+	attrs.PreferredLanguage, _ = attributes["preferredLanguage"].(string)
+
+	if enterprise, ok := attributes["urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"].(map[string]any); ok {
+		attrs.EmployeeNumber, _ = enterprise["employeeNumber"].(string)
+		attrs.Department, _ = enterprise["department"].(string)
+		attrs.CostCenter, _ = enterprise["costCenter"].(string)
+		attrs.EnterpriseOrganization, _ = enterprise["organization"].(string)
+
+		attrs.Division, _ = enterprise["division"].(string)
+		if manager, ok := enterprise["manager"].(map[string]any); ok {
+			attrs.ManagerValue, _ = manager["value"].(string)
+		}
+	}
+
+	return attrs
+}
+
+type scimReplaceAttributes struct {
+	FullName               string
+	Active                 *bool
+	Title                  *string
+	UserName               *string
+	ExternalID             *string
+	UserType               *string
+	Nickname               *string
+	Locale                 *string
+	Timezone               *string
+	ProfileUrl             *string
+	PreferredLanguage      *string
+	GivenName              *string
+	FamilyName             *string
+	FormattedName          *string
+	MiddleName             *string
+	HonorificPrefix        *string
+	HonorificSuffix        *string
+	EmployeeNumber         *string
+	Department             *string
+	CostCenter             *string
+	EnterpriseOrganization *string
+	Division               *string
+	ManagerValue           *string
+}
+
+func ParseUserFromReplaceAttributes(attributes scim.ResourceAttributes) scimReplaceAttributes {
+	var attrs scimReplaceAttributes
+
+	displayName, _ := attributes["displayName"].(string)
+
+	var givenName, familyName string
+	if name, ok := attributes["name"].(map[string]any); ok {
+		givenName, _ = name["givenName"].(string)
+
+		familyName, _ = name["familyName"].(string)
+		if fn, ok := name["formatted"].(string); ok {
+			attrs.FormattedName = &fn
+		}
+
+		if mn, ok := name["middleName"].(string); ok {
+			attrs.MiddleName = &mn
+		}
+
+		if hp, ok := name["honorificPrefix"].(string); ok {
+			attrs.HonorificPrefix = &hp
+		}
+
+		if hs, ok := name["honorificSuffix"].(string); ok {
+			attrs.HonorificSuffix = &hs
+		}
+	}
+
+	attrs.GivenName = &givenName
+	attrs.FamilyName = &familyName
+
+	attrs.FullName = strings.TrimSpace(displayName)
+	if attrs.FullName == "" {
+		attrs.FullName = strings.TrimSpace(givenName + " " + familyName)
+	}
+
+	activeVal := true
+	if a, ok := attributes["active"].(bool); ok {
+		activeVal = a
+	}
+
+	attrs.Active = &activeVal
+
+	t, _ := attributes["title"].(string)
+	attrs.Title = &t
+
+	if un, ok := attributes["userName"].(string); ok && un != "" {
+		attrs.UserName = &un
+	}
+
+	if eid, ok := attributes["externalId"].(string); ok && eid != "" {
+		attrs.ExternalID = &eid
+	}
+
+	if ut, ok := attributes["userType"].(string); ok {
+		attrs.UserType = &ut
+	}
+
+	if nn, ok := attributes["nickName"].(string); ok {
+		attrs.Nickname = &nn
+	}
+
+	if l, ok := attributes["locale"].(string); ok {
+		attrs.Locale = &l
+	}
+
+	if tz, ok := attributes["timezone"].(string); ok {
+		attrs.Timezone = &tz
+	}
+
+	if pu, ok := attributes["profileUrl"].(string); ok {
+		attrs.ProfileUrl = &pu
+	}
+
+	if pl, ok := attributes["preferredLanguage"].(string); ok {
+		attrs.PreferredLanguage = &pl
+	}
+
+	if enterprise, ok := attributes["urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"].(map[string]any); ok {
+		if en, ok := enterprise["employeeNumber"].(string); ok {
+			attrs.EmployeeNumber = &en
+		}
+
+		if dept, ok := enterprise["department"].(string); ok {
+			attrs.Department = &dept
+		}
+
+		if cc, ok := enterprise["costCenter"].(string); ok {
+			attrs.CostCenter = &cc
+		}
+
+		if org, ok := enterprise["organization"].(string); ok {
+			attrs.EnterpriseOrganization = &org
+		}
+
+		if div, ok := enterprise["division"].(string); ok {
+			attrs.Division = &div
+		}
+
+		if manager, ok := enterprise["manager"].(map[string]any); ok {
+			if mv, ok := manager["value"].(string); ok {
+				attrs.ManagerValue = &mv
+			}
+		}
+	}
+
+	return attrs
+}
+
+func ParseUserFromPatchOperations(operations []scim.PatchOperation) scimReplaceAttributes {
+	var (
+		attrs                 scimReplaceAttributes
+		givenName, familyName string
+	)
+
+	empty := ""
+
+	for _, op := range operations {
+		if strings.EqualFold(op.Op, "remove") {
+			path := ""
+			if op.Path != nil {
+				path = op.Path.String()
+			}
+
+			switch strings.ToLower(path) {
+			case "title":
+				attrs.Title = &empty
+			case "usertype":
+				attrs.UserType = &empty
+			case "nickname":
+				attrs.Nickname = &empty
+			case "locale":
+				attrs.Locale = &empty
+			case "timezone":
+				attrs.Timezone = &empty
+			case "profileurl":
+				attrs.ProfileUrl = &empty
+			case "externalid":
+				attrs.ExternalID = &empty
+			case "preferredlanguage":
+				attrs.PreferredLanguage = &empty
+			case "name":
+				attrs.GivenName = &empty
+				attrs.FamilyName = &empty
+				attrs.FormattedName = &empty
+				attrs.MiddleName = &empty
+				attrs.HonorificPrefix = &empty
+				attrs.HonorificSuffix = &empty
+			case "name.givenname":
+				attrs.GivenName = &empty
+			case "name.familyname":
+				attrs.FamilyName = &empty
+			case "name.formatted":
+				attrs.FormattedName = &empty
+			case "name.middlename":
+				attrs.MiddleName = &empty
+			case "name.honorificprefix":
+				attrs.HonorificPrefix = &empty
+			case "name.honorificsuffix":
+				attrs.HonorificSuffix = &empty
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user":
+				attrs.EmployeeNumber = &empty
+				attrs.Department = &empty
+				attrs.CostCenter = &empty
+				attrs.EnterpriseOrganization = &empty
+				attrs.Division = &empty
+				attrs.ManagerValue = &empty
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:employeenumber":
+				attrs.EmployeeNumber = &empty
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:department":
+				attrs.Department = &empty
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:costcenter":
+				attrs.CostCenter = &empty
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:organization":
+				attrs.EnterpriseOrganization = &empty
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:division":
+				attrs.Division = &empty
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:manager",
+				"urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:manager.value":
+				attrs.ManagerValue = &empty
+			}
+
+			continue
+		}
+
+		if strings.EqualFold(op.Op, "replace") || strings.EqualFold(op.Op, "add") {
+			path := ""
+			if op.Path != nil {
+				path = op.Path.String()
+			}
+
+			if path == "" {
+				if valueMap, ok := op.Value.(map[string]any); ok {
+					if a, ok := valueMap["active"].(bool); ok {
+						attrs.Active = &a
+					}
+
+					if name, ok := valueMap["displayName"].(string); ok {
+						attrs.FullName = strings.TrimSpace(name)
+					}
+
+					if nameMap, ok := valueMap["name"].(map[string]any); ok {
+						if gn, ok := nameMap["givenName"].(string); ok {
+							givenName = gn
+						}
+
+						if fn, ok := nameMap["familyName"].(string); ok {
+							familyName = fn
+						}
+
+						if fm, ok := nameMap["formatted"].(string); ok {
+							attrs.FormattedName = &fm
+						}
+
+						if mn, ok := nameMap["middleName"].(string); ok {
+							attrs.MiddleName = &mn
+						}
+
+						if hp, ok := nameMap["honorificPrefix"].(string); ok {
+							attrs.HonorificPrefix = &hp
+						}
+
+						if hs, ok := nameMap["honorificSuffix"].(string); ok {
+							attrs.HonorificSuffix = &hs
+						}
+					}
+
+					if un, ok := valueMap["userName"].(string); ok && un != "" {
+						attrs.UserName = &un
+					}
+
+					if eid, ok := valueMap["externalId"].(string); ok && eid != "" {
+						attrs.ExternalID = &eid
+					}
+
+					if t, ok := valueMap["title"].(string); ok {
+						attrs.Title = &t
+					}
+
+					if ut, ok := valueMap["userType"].(string); ok {
+						attrs.UserType = &ut
+					}
+
+					if nn, ok := valueMap["nickName"].(string); ok {
+						attrs.Nickname = &nn
+					}
+
+					if l, ok := valueMap["locale"].(string); ok {
+						attrs.Locale = &l
+					}
+
+					if tz, ok := valueMap["timezone"].(string); ok {
+						attrs.Timezone = &tz
+					}
+
+					if pu, ok := valueMap["profileUrl"].(string); ok {
+						attrs.ProfileUrl = &pu
+					}
+
+					if pl, ok := valueMap["preferredLanguage"].(string); ok {
+						attrs.PreferredLanguage = &pl
+					}
+
+					if enterprise, ok := valueMap["urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"].(map[string]any); ok {
+						if en, ok := enterprise["employeeNumber"].(string); ok {
+							attrs.EmployeeNumber = &en
+						}
+
+						if dept, ok := enterprise["department"].(string); ok {
+							attrs.Department = &dept
+						}
+
+						if cc, ok := enterprise["costCenter"].(string); ok {
+							attrs.CostCenter = &cc
+						}
+
+						if org, ok := enterprise["organization"].(string); ok {
+							attrs.EnterpriseOrganization = &org
+						}
+
+						if div, ok := enterprise["division"].(string); ok {
+							attrs.Division = &div
+						}
+
+						if manager, ok := enterprise["manager"].(map[string]any); ok {
+							if mv, ok := manager["value"].(string); ok {
+								attrs.ManagerValue = &mv
+							}
+						}
+					}
+
+					for key, val := range valueMap {
+						switch strings.ToLower(key) {
+						case "name.givenname":
+							if s, ok := val.(string); ok {
+								givenName = s
+								attrs.GivenName = &givenName
+							}
+						case "name.familyname":
+							if s, ok := val.(string); ok {
+								familyName = s
+								attrs.FamilyName = &familyName
+							}
+						case "name.formatted":
+							if s, ok := val.(string); ok {
+								attrs.FormattedName = &s
+							}
+						case "name.middlename":
+							if s, ok := val.(string); ok {
+								attrs.MiddleName = &s
+							}
+						case "name.honorificprefix":
+							if s, ok := val.(string); ok {
+								attrs.HonorificPrefix = &s
+							}
+						case "name.honorificsuffix":
+							if s, ok := val.(string); ok {
+								attrs.HonorificSuffix = &s
+							}
+						case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:employeenumber":
+							if s, ok := val.(string); ok {
+								attrs.EmployeeNumber = &s
+							}
+						case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:department":
+							if s, ok := val.(string); ok {
+								attrs.Department = &s
+							}
+						case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:costcenter":
+							if s, ok := val.(string); ok {
+								attrs.CostCenter = &s
+							}
+						case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:organization":
+							if s, ok := val.(string); ok {
+								attrs.EnterpriseOrganization = &s
+							}
+						case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:division":
+							if s, ok := val.(string); ok {
+								attrs.Division = &s
+							}
+						case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:manager.value":
+							if s, ok := val.(string); ok {
+								attrs.ManagerValue = &s
+							}
+						}
+					}
+				}
+
+				continue
+			}
+
+			switch strings.ToLower(path) {
+			case "active":
+				if a, ok := op.Value.(bool); ok {
+					attrs.Active = &a
+				}
+			case "displayname":
+				if name, ok := op.Value.(string); ok {
+					attrs.FullName = strings.TrimSpace(name)
+				}
+			case "name":
+				if nameMap, ok := op.Value.(map[string]any); ok {
+					if gn, ok := nameMap["givenName"].(string); ok {
+						givenName = gn
+						attrs.GivenName = &givenName
+					}
+
+					if fn, ok := nameMap["familyName"].(string); ok {
+						familyName = fn
+						attrs.FamilyName = &familyName
+					}
+
+					if fm, ok := nameMap["formatted"].(string); ok {
+						attrs.FormattedName = &fm
+					}
+
+					if mn, ok := nameMap["middleName"].(string); ok {
+						attrs.MiddleName = &mn
+					}
+
+					if hp, ok := nameMap["honorificPrefix"].(string); ok {
+						attrs.HonorificPrefix = &hp
+					}
+
+					if hs, ok := nameMap["honorificSuffix"].(string); ok {
+						attrs.HonorificSuffix = &hs
+					}
+				}
+			case "name.givenname":
+				if name, ok := op.Value.(string); ok {
+					givenName = name
+					attrs.GivenName = &givenName
+				}
+			case "name.familyname":
+				if name, ok := op.Value.(string); ok {
+					familyName = name
+					attrs.FamilyName = &familyName
+				}
+			case "name.formatted":
+				if fm, ok := op.Value.(string); ok {
+					attrs.FormattedName = &fm
+				}
+			case "name.middlename":
+				if mn, ok := op.Value.(string); ok {
+					attrs.MiddleName = &mn
+				}
+			case "name.honorificprefix":
+				if hp, ok := op.Value.(string); ok {
+					attrs.HonorificPrefix = &hp
+				}
+			case "name.honorificsuffix":
+				if hs, ok := op.Value.(string); ok {
+					attrs.HonorificSuffix = &hs
+				}
+			case "title":
+				if t, ok := op.Value.(string); ok {
+					attrs.Title = &t
+				}
+			case "username":
+				if un, ok := op.Value.(string); ok && un != "" {
+					attrs.UserName = &un
+				}
+			case "externalid":
+				if eid, ok := op.Value.(string); ok && eid != "" {
+					attrs.ExternalID = &eid
+				}
+			case "usertype":
+				if ut, ok := op.Value.(string); ok {
+					attrs.UserType = &ut
+				}
+			case "nickname":
+				if nn, ok := op.Value.(string); ok {
+					attrs.Nickname = &nn
+				}
+			case "locale":
+				if l, ok := op.Value.(string); ok {
+					attrs.Locale = &l
+				}
+			case "timezone":
+				if tz, ok := op.Value.(string); ok {
+					attrs.Timezone = &tz
+				}
+			case "profileurl":
+				if pu, ok := op.Value.(string); ok {
+					attrs.ProfileUrl = &pu
+				}
+			case "preferredlanguage":
+				if pl, ok := op.Value.(string); ok {
+					attrs.PreferredLanguage = &pl
+				}
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user":
+				if enterprise, ok := op.Value.(map[string]any); ok {
+					if en, ok := enterprise["employeeNumber"].(string); ok {
+						attrs.EmployeeNumber = &en
+					}
+
+					if dept, ok := enterprise["department"].(string); ok {
+						attrs.Department = &dept
+					}
+
+					if cc, ok := enterprise["costCenter"].(string); ok {
+						attrs.CostCenter = &cc
+					}
+
+					if org, ok := enterprise["organization"].(string); ok {
+						attrs.EnterpriseOrganization = &org
+					}
+
+					if div, ok := enterprise["division"].(string); ok {
+						attrs.Division = &div
+					}
+
+					if manager, ok := enterprise["manager"].(map[string]any); ok {
+						if mv, ok := manager["value"].(string); ok {
+							attrs.ManagerValue = &mv
+						}
+					}
+				}
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:employeenumber":
+				if en, ok := op.Value.(string); ok {
+					attrs.EmployeeNumber = &en
+				}
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:department":
+				if dept, ok := op.Value.(string); ok {
+					attrs.Department = &dept
+				}
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:costcenter":
+				if cc, ok := op.Value.(string); ok {
+					attrs.CostCenter = &cc
+				}
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:organization":
+				if org, ok := op.Value.(string); ok {
+					attrs.EnterpriseOrganization = &org
+				}
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:division":
+				if div, ok := op.Value.(string); ok {
+					attrs.Division = &div
+				}
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:manager":
+				if manager, ok := op.Value.(map[string]any); ok {
+					if mv, ok := manager["value"].(string); ok {
+						attrs.ManagerValue = &mv
+					}
+				} else if mv, ok := op.Value.(string); ok {
+					attrs.ManagerValue = &mv
+				}
+			case "urn:ietf:params:scim:schemas:extension:enterprise:2.0:user:manager.value":
+				if mv, ok := op.Value.(string); ok {
+					attrs.ManagerValue = &mv
+				}
+			}
+		}
+	}
+
+	if attrs.FullName == "" && (givenName != "" || familyName != "") {
+		attrs.FullName = strings.TrimSpace(givenName + " " + familyName)
+	}
+
+	attrs.FullName = strings.TrimSpace(attrs.FullName)
+
+	if givenName != "" && attrs.GivenName == nil {
+		attrs.GivenName = &givenName
+	}
+
+	if familyName != "" && attrs.FamilyName == nil {
+		attrs.FamilyName = &familyName
+	}
+
+	return attrs
+}
+
+func userToResource(p *coredata.MembershipProfile) scim.Resource {
+	externalID := optional.NewString(p.ID.String())
+	if p.ExternalID != nil {
+		externalID = optional.NewString(*p.ExternalID)
+	}
+
+	formattedName := p.FullName
+	if p.FormattedName != nil {
+		formattedName = *p.FormattedName
+	}
+
+	nameMap := map[string]any{
+		"formatted":       formattedName,
+		"givenName":       ref.UnrefOrZero(p.GivenName),
+		"familyName":      ref.UnrefOrZero(p.FamilyName),
+		"middleName":      ref.UnrefOrZero(p.MiddleName),
+		"honorificPrefix": ref.UnrefOrZero(p.HonorificPrefix),
+		"honorificSuffix": ref.UnrefOrZero(p.HonorificSuffix),
+	}
+
+	enterpriseAttrs := map[string]any{
+		"employeeNumber": ref.UnrefOrZero(p.EmployeeNumber),
+		"department":     ref.UnrefOrZero(p.Department),
+		"costCenter":     ref.UnrefOrZero(p.CostCenter),
+		"organization":   ref.UnrefOrZero(p.EnterpriseOrganization),
+		"division":       ref.UnrefOrZero(p.Division),
+		"manager": map[string]any{
+			"value": ref.UnrefOrZero(p.ManagerValue),
+		},
+	}
+
+	return scim.Resource{
+		ID:         p.ID.String(),
+		ExternalID: externalID,
+		Attributes: scim.ResourceAttributes{
+			"userName":    *p.UserName,
+			"displayName": p.FullName,
+			"active":      p.State == coredata.ProfileStateActive,
+			"name":        nameMap,
+			"emails": []map[string]any{
+				{
+					"value":   p.EmailAddress.String(),
+					"type":    "work",
+					"primary": true,
+				},
+			},
+			"title":             p.Position,
+			"userType":          string(ref.UnrefOrZero(p.Kind)),
+			"nickName":          ref.UnrefOrZero(p.Nickname),
+			"locale":            ref.UnrefOrZero(p.Locale),
+			"timezone":          ref.UnrefOrZero(p.Timezone),
+			"profileUrl":        ref.UnrefOrZero(p.ProfileUrl),
+			"preferredLanguage": ref.UnrefOrZero(p.PreferredLanguage),
+			"urn:ietf:params:scim:schemas:extension:enterprise:2.0:User": enterpriseAttrs,
+		},
+		Meta: scim.Meta{
+			Created:      &p.CreatedAt,
+			LastModified: &p.UpdatedAt,
+		},
+	}
+}

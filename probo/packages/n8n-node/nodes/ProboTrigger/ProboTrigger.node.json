@@ -1,0 +1,19 @@
+{
+  "node": "@probo/n8n-nodes-probo.proboTrigger",
+  "nodeVersion": "1.0",
+  "codexVersion": "1.0",
+  "categories": ["Development", "Utility"],
+  "resources": {
+    "credentialDocumentation": [
+      {
+        "url": "https://www.probo.com/docs"
+      }
+    ],
+    "primaryDocumentation": [
+      {
+        "url": "https://www.probo.com/docs"
+      }
+    ],
+    "generic": []
+  }
+}

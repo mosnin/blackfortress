@@ -1,0 +1,157 @@
+import {
+  ADMIN_PERMISSIONS,
+  AUDITOR_PERMISSIONS,
+  mockHasPermission,
+  setMockPermissions,
+} from '@/test-utils/mocks/permissions';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({ permissions: {}, hasPermission: mockHasPermission }),
+}));
+
+vi.mock('@trycompai/design-system/icons', () => ({
+  Add: () => <span data-testid="icon-add" />,
+  Renew: () => <span data-testid="icon-renew" />,
+  Calendar: () => <span data-testid="icon-calendar" />,
+  ChevronDown: () => <span data-testid="icon-chevron" />,
+  OverflowMenuVertical: () => <span data-testid="icon-overflow" />,
+}));
+vi.mock('@/components/VendorLogo', () => ({
+  VendorLogo: () => <span data-testid="vendor-logo" />,
+}));
+
+vi.mock('./AutomationItem', () => ({
+  AutomationItem: ({
+    automation,
+    readOnly,
+    isExpanded,
+  }: {
+    automation: { id: string; name: string };
+    readOnly?: boolean;
+    isExpanded?: boolean;
+  }) => (
+    <div
+      data-testid={`automation-item-${automation.id}`}
+      data-readonly={String(readOnly)}
+      data-expanded={String(isExpanded)}
+    >
+      {automation.name}
+    </div>
+  ),
+}));
+
+import type { BrowserAuthProfile, BrowserAutomation } from '../../hooks/types';
+import { BrowserAutomationsList } from './BrowserAutomationsList';
+
+const mockAutomations: BrowserAutomation[] = [
+  {
+    id: 'auto_1',
+    name: 'Test Automation',
+    targetUrl: 'https://example.com',
+    instruction: 'Take screenshot',
+    isEnabled: true,
+    createdAt: '2024-01-01T00:00:00Z',
+  },
+];
+
+function profile(status: BrowserAuthProfile['status']): BrowserAuthProfile {
+  return {
+    id: 'bap_1',
+    hostname: 'example.com',
+    loginIdentity: '',
+    displayName: 'example.com',
+    contextId: 'ctx_1',
+    status,
+  };
+}
+
+const defaultProps = {
+  automations: mockAutomations,
+  profiles: [] as BrowserAuthProfile[],
+  runningAutomationId: null,
+  onRun: vi.fn(),
+  onReconnect: vi.fn(),
+  onCreate: vi.fn(),
+  onConnectAnother: vi.fn(),
+  onEditClick: vi.fn(),
+  onDelete: vi.fn(),
+  onToggleEnabled: vi.fn(),
+  onSetTaskSchedule: vi.fn(),
+};
+
+describe('BrowserAutomationsList', () => {
+  beforeEach(() => {
+    setMockPermissions({});
+    vi.clearAllMocks();
+  });
+
+  it('renders the heading', () => {
+    render(<BrowserAutomationsList {...defaultProps} />);
+    expect(screen.getByText('Browser evidence')).toBeInTheDocument();
+  });
+
+  it('shows create actions for admin with integration:create', () => {
+    setMockPermissions(ADMIN_PERMISSIONS);
+    render(<BrowserAutomationsList {...defaultProps} />);
+    expect(screen.getByText('New evidence')).toBeInTheDocument();
+    expect(screen.getByText('Connect another vendor')).toBeInTheDocument();
+  });
+
+  it('hides create actions for an auditor without integration:create', () => {
+    setMockPermissions(AUDITOR_PERMISSIONS);
+    render(<BrowserAutomationsList {...defaultProps} />);
+    expect(screen.queryByText('New evidence')).not.toBeInTheDocument();
+    expect(screen.queryByText('Connect another vendor')).not.toBeInTheDocument();
+  });
+
+  it('hides each action when its callback is not provided (manual task)', () => {
+    setMockPermissions(ADMIN_PERMISSIONS);
+    render(
+      <BrowserAutomationsList {...defaultProps} onCreate={undefined} onConnectAnother={undefined} />,
+    );
+    expect(screen.queryByText('New evidence')).not.toBeInTheDocument();
+    expect(screen.queryByText('Connect another vendor')).not.toBeInTheDocument();
+  });
+
+  it('passes readOnly to AutomationItem based on integration:update', () => {
+    setMockPermissions(ADMIN_PERMISSIONS);
+    const { rerender } = render(<BrowserAutomationsList {...defaultProps} />);
+    expect(screen.getByTestId('automation-item-auto_1')).toHaveAttribute('data-readonly', 'false');
+
+    setMockPermissions(AUDITOR_PERMISSIONS);
+    rerender(<BrowserAutomationsList {...defaultProps} />);
+    expect(screen.getByTestId('automation-item-auto_1')).toHaveAttribute('data-readonly', 'true');
+  });
+
+  it('auto-expands the row of a just-finished manual run', () => {
+    setMockPermissions(ADMIN_PERMISSIONS);
+    const { rerender } = render(<BrowserAutomationsList {...defaultProps} />);
+    expect(screen.getByTestId('automation-item-auto_1')).toHaveAttribute(
+      'data-expanded',
+      'false',
+    );
+
+    // The hook hands down a fresh { id } when a run finishes → row expands.
+    rerender(<BrowserAutomationsList {...defaultProps} autoExpand={{ id: 'auto_1' }} />);
+    expect(screen.getByTestId('automation-item-auto_1')).toHaveAttribute(
+      'data-expanded',
+      'true',
+    );
+  });
+
+  it('flags a row whose connection needs reconnect and calls onReconnect', () => {
+    setMockPermissions(ADMIN_PERMISSIONS);
+    const onReconnect = vi.fn();
+    render(
+      <BrowserAutomationsList
+        {...defaultProps}
+        profiles={[profile('needs_reauth')]}
+        onReconnect={onReconnect}
+      />,
+    );
+    fireEvent.click(screen.getByText('Reconnect'));
+    expect(onReconnect).toHaveBeenCalledWith('https://example.com');
+  });
+});

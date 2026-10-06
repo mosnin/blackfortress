@@ -1,0 +1,299 @@
+{
+  "bannerTranslationSection": {
+    "title": "Bannière",
+    "policyLinkHelp": "Utilisez {{cookie_policy_link}} et {{privacy_policy_link}} pour insérer des liens vers les politiques."
+  },
+  "panelTranslationSection": {
+    "title": "Panneau de préférences",
+    "necessaryCategoryHelp": "Utilisez {{necessary_category}} pour désigner la catégorie de cookies obligatoire.",
+    "accessibilityLabels": "Libellés d'accessibilité",
+    "categoryNames": "Noms des catégories",
+    "translatedName": "Nom traduit",
+    "translatedDescription": "Description traduite"
+  },
+  "placeholderTranslationSection": {
+    "title": "Espace réservé",
+    "description": "Affiché à la place du contenu bloqué jusqu'à ce que le visiteur donne son consentement.",
+    "categoryHelp": "Utilisez {{category}} pour désigner la catégorie de contenu."
+  },
+  "translationEditor": {
+    "messages": {
+      "successTitle": "Succès",
+      "saved": "Traduction enregistrée"
+    },
+    "errors": {
+      "title": "Erreur",
+      "save": "Échec de l’enregistrement de la traduction"
+    },
+    "exampleCategory": "Analytique",
+    "actions": {
+      "saving": "Enregistrement...",
+      "save": "Enregistrer les traductions"
+    },
+    "labels": {
+      "bannerTitle": "Titre de la bannière",
+      "bannerDescription": "Description de la bannière",
+      "acceptAllButton": "Bouton Tout accepter",
+      "rejectAllButton": "Bouton Tout refuser",
+      "customizeButton": "Bouton Personnaliser",
+      "cookiePolicyLinkText": "Texte du lien vers la politique relative aux cookies",
+      "privacyPolicyLinkText": "Texte du lien vers la politique de confidentialité",
+      "panelTitle": "Titre du panneau",
+      "panelDescription": "Description du panneau",
+      "saveButton": "Bouton Enregistrer",
+      "ariaClose": "Fermer (ARIA)",
+      "ariaShowDetails": "Afficher les détails (ARIA)",
+      "ariaHideDetails": "Masquer les détails (ARIA)",
+      "ariaCookieSettings": "Paramètres des cookies (ARIA)",
+      "placeholderText": "Texte de l'espace réservé",
+      "placeholderButton": "Bouton de l'espace réservé"
+    }
+  },
+  "translationsPage": {
+    "necessaryFallback": "Nécessaire",
+    "languageDefault": "{{language}} (par défaut)",
+    "defaultLanguageDescription": "Il s’agit de la langue par défaut. Ces traductions sont affichées lorsque la langue d’un visiteur n’est pas disponible."
+  },
+  "trackerAttribution": {
+    "firstParty": "Première partie",
+    "thirdParty": "Tierce partie",
+    "visitorSoftware": "Logiciel du visiteur",
+    "undetermined": "Indéterminé"
+  },
+  "trackerPatternRow": {
+    "messages": { "trackerDeleted": "Traceur supprimé", "cookieMoved": "Cookie déplacé" },
+    "errors": { "deleteTracker": "Échec de la suppression du traceur", "moveCookie": "Échec du déplacement du cookie", "updateCookie": "Échec de la mise à jour du cookie" },
+    "deleteConfirmation": "Voulez-vous vraiment supprimer \"{{name}}\" ?",
+    "dialogs": { "deleteTitle": "Supprimer le traceur" },
+    "actions": { "include": "Inclure", "exclude": "Exclure", "delete": "Supprimer", "cancel": "Annuler", "more": "Plus d’actions", "description": "Afficher la description" },
+    "types": { "cookie": "Cookie", "localStorage": "localStorage", "sessionStorage": "sessionStorage", "indexedDb": "IndexedDB", "cacheStorage": "Stockage en cache" },
+    "sources": { "script": "Script", "preExisting": "Préexistant", "http": "HTTP", "extension": "Extension" },
+    "duration": { "session": "Session", "persistent": "Persistant" }
+  },
+  "trackerProperties": {
+    "messages": { "moved": "Cookie déplacé", "updated": "Traceur mis à jour", "copiedTitle": "Copié", "idCopied": "ID du traceur commun copié dans le presse-papiers" },
+    "errors": { "title": "Erreur", "move": "Échec du déplacement du cookie", "update": "Échec de la mise à jour du traceur", "copy": "Échec de la copie de l’ID du traceur commun" },
+    "properties": { "attribution": "Attribution", "sourceId": "Source", "category": "Catégorie", "maxAge": "Âge maximal", "maxAgeUnit": "Unité", "description": "Description", "descriptionPlaceholder": "Description" },
+    "actions": { "back": "Traceurs", "copyId": "Copier l’ID du traceur commun" },
+    "attribution": {
+      "firstParty": "Il s’agit d’un traceur de première partie.",
+      "visitorSoftware": "Ce traceur est défini par le logiciel du visiteur.",
+      "thirdParty": "Il s’agit d’un traceur tiers de {{name}}.",
+      "thirdPartyUnnamed": "Il s’agit d’un traceur tiers.",
+      "undetermined": "L’attribution de ce traceur n’est pas déterminée."
+    },
+    "manual": "Manuel"
+  },
+  "detectedTrackersSection": {
+    "title": "Détections",
+    "columns": { "identifier": "Identifiant", "initiatorUrl": "URL initiatrice", "maxAge": "Âge maximal (secondes)", "source": "Source", "detectionTime": "Heure de détection" },
+    "empty": "Aucune détection pour ce traceur pour le moment.",
+    "sort": { "initiatorUrl": "Trier par URL initiatrice", "detectionTime": "Trier par heure de détection" },
+    "actions": { "showMore": "Afficher plus" },
+    "summary_one": "{{count}} détection · Dernière correspondance {{date}}",
+    "summary_other": "{{count}} détections · Dernière correspondance {{date}}",
+    "summaryNever_one": "{{count}} détection · Pas encore de correspondance",
+    "summaryNever_other": "{{count}} détections · Pas encore de correspondance"
+  },
+  "moveToCategorySelect": { "empty": "Aucune catégorie" },
+  "detectedTrackerRow": {
+    "duration": { "second_one": "{{count}} seconde", "second_other": "{{count}} secondes" }
+  },
+  "trackersPage": {
+    "title": "Traceurs",
+    "description": "Traceurs détectés par cette bannière et la catégorie à laquelle chacun appartient.",
+    "filters": { "search": "Rechercher par nom ou description...", "allThirdParties": "Tous les tiers", "allCategories": "Toutes les catégories", "source": "Source", "type": "Type", "category": "Catégorie", "thirdParty": "Tiers" },
+    "types": { "all": "Tous les types", "cookie": "Cookie", "localStorage": "localStorage", "sessionStorage": "sessionStorage", "indexedDb": "IndexedDB", "cacheStorage": "Stockage en cache" },
+    "sources": { "all": "Toutes les sources", "script": "Script", "preExisting": "Préexistant", "http": "HTTP", "extension": "Extension" },
+    "columns": { "name": "Nom", "attribution": "Attribution", "source": "Source", "category": "Catégorie", "maxAge": "Âge maximal", "lastMatched": "Dernière correspondance" },
+    "sort": { "name": "Trier par nom", "source": "Trier par source", "lastMatched": "Trier par dernière correspondance" },
+    "actions": { "previous": "Précédent", "next": "Suivant" },
+    "empty": { "title": "Aucun traceur", "description": "Aucun traceur n’a encore été détecté. Ils apparaîtront ici lorsqu’ils seront détectés." },
+    "emptyFiltered": "Aucun traceur correspondant"
+  },
+  "codeSnippets": {
+    "title": "Extrait JavaScript",
+    "messages": { "copiedTitle": "Copié", "copied": "Code copié dans le presse-papiers" },
+    "errors": { "title": "Erreur", "copy": "Échec de la copie dans le presse-papiers" },
+    "actions": { "copy": "Copier" },
+    "documentation": "Vous recherchez une intégration de module ES ou headless ? <link>Consultez notre documentation pour des guides d’intégration détaillés.</link>",
+    "tcfNote": "Cette bannière utilise le script IAB TCF. Placez l’extrait le plus haut possible dans la page pour que les partenaires puissent mettre leurs appels en file avant le chargement du SDK."
+  },
+  "bannerSettingsForm": {
+    "title": "Paramètres",
+    "messages": { "successTitle": "Succès", "updated": "Paramètres de la bannière mis à jour" },
+    "errors": { "title": "Erreur", "update": "Échec de la mise à jour", "publisherCountryCode": "Doit être AA ou un code pays ISO 3166-1 alpha-2" },
+    "fields": {
+      "name": "Nom",
+      "origin": "URL d’origine",
+      "cookiePolicyUrl": "URL de la politique de cookies",
+      "privacyPolicyUrl": "URL de la politique de confidentialité",
+      "consentExpiryDays": "Expiration du consentement (jours)",
+      "defaultLanguage": "Langue par défaut",
+      "publisherCountryCode": "Pays de l’éditeur",
+      "publisherCountryCodeHelp": "Pays d’établissement IAB TCF (ISO 3166-1 alpha-2). Utilisez AA s’il n’est pas précisé.",
+      "resourceReportingEnabled": "Rapport de ressources",
+      "resourceReportingEnabledHelp": "Lorsqu’il est activé, le SDK de la bannière détecte et signale les scripts tiers, iframes et autres ressources."
+    },
+    "languages": { "english": "Anglais", "french": "Français", "german": "Allemand", "spanish": "Espagnol", "dutch": "Néerlandais" },
+    "actions": { "saving": "Enregistrement...", "save": "Enregistrer" }
+  },
+  "trackerResourceRow": {
+    "messages": { "deleted": "Ressource supprimée", "moved": "Ressource déplacée" },
+    "errors": { "delete": "Échec de la suppression de la ressource", "move": "Échec du déplacement de la ressource", "update": "Échec de la mise à jour de la ressource" },
+    "deleteConfirmation": "Voulez-vous vraiment supprimer \"{{name}}\" ?",
+    "dialogs": { "deleteTitle": "Supprimer la ressource" },
+    "actions": { "include": "Inclure", "exclude": "Exclure", "delete": "Supprimer", "cancel": "Annuler", "more": "Plus d’actions" },
+    "types": { "script": "Script", "iframe": "Iframe", "image": "Image", "stylesheet": "Feuille de style", "font": "Police", "beacon": "Balise", "fetch": "Fetch", "media": "Média", "serviceWorker": "Service worker" }
+  },
+  "resourcesPage": {
+    "title": "Ressources",
+    "description": "Scripts, iframes et autres ressources détectés par cette bannière.",
+    "filters": { "search": "Rechercher par origine ou chemin...", "type": "Type" },
+    "types": { "all": "Tous les types", "script": "Script", "iframe": "Iframe", "image": "Image", "stylesheet": "Feuille de style", "font": "Police", "beacon": "Balise", "fetch": "Fetch", "media": "Média", "serviceWorker": "Service worker" },
+    "columns": { "type": "Type", "origin": "Origine", "path": "Chemin", "category": "Catégorie", "lastDetected": "Dernière détection" },
+    "sort": { "origin": "Trier par origine", "lastDetected": "Trier par dernière détection" },
+    "actions": { "previous": "Précédent", "next": "Suivant" },
+    "empty": { "title": "Aucune ressource non catégorisée", "description": "Toutes les ressources détectées ont été catégorisées. Les nouvelles ressources apparaîtront ici lorsqu’elles seront détectées." },
+    "emptyFiltered": "Aucune ressource correspondante"
+  },
+  "themePreview": {
+    "title": "Thème", "defaultSnippet": "/* Thème par défaut utilisé — aucune surcharge nécessaire */",
+    "messages": { "copiedTitle": "Copié", "copied": "Extrait CSS copié dans le presse-papiers" },
+    "actions": { "reset": "Réinitialiser les valeurs par défaut", "copy": "Copier" },
+    "variables": { "bg": "Arrière-plan", "text": "Texte", "textsecondary": "Texte secondaire", "border": "Bordure", "accent": "Accent", "accenttext": "Texte d’accent", "radius": "Rayon de bordure", "btnradius": "Rayon des boutons", "fontsize": "Taille de police", "fontfamily": "Famille de police", "shadow": "Ombre" },
+    "banner": { "title": "Préférences de cookies", "description": "Nous utilisons des cookies pour améliorer votre expérience et analyser le trafic du site. <policy>Politique de confidentialité</policy>", "acceptAll": "Tout accepter", "rejectAll": "Tout refuser", "customize": "Personnaliser", "privacyBy": "Confidentialité par" }
+  },
+  "editCookieRow": {
+    "includeTitle": "Inclure ce cookie dans la bannière",
+    "fields": { "descriptionPlaceholder": "Description" },
+    "actions": { "save": "Enregistrer", "cancel": "Annuler" },
+    "trackerTypes": { "cookie": "Cookie", "localStorage": "localStorage", "sessionStorage": "sessionStorage", "indexedDb": "IndexedDB", "cacheStorage": "Stockage en cache" }
+  },
+  "editCategoryForm": {
+    "fields": { "namePlaceholder": "Nom de la catégorie", "slugPlaceholder": "Identifiant de la catégorie", "descriptionPlaceholder": "Description de la catégorie" },
+    "googleConsentMode": { "title": "Mode de consentement Google", "description": "Sélectionnez les signaux Google Consent Mode contrôlés par cette catégorie." },
+    "tcfPurposes": { "title": "Finalités TCF", "description": "Lorsque TCF est activé, cette catégorie n’est accordée que si chaque finalité sélectionnée est consentie ou couverte par un intérêt légitime." },
+    "posthog": { "title": "PostHog", "description": "Contrôlez le consentement au suivi PostHog selon cette catégorie.", "checkbox": "Activer ou désactiver le suivi PostHog" },
+    "actions": { "saving": "Enregistrement...", "save": "Enregistrer", "cancel": "Annuler" }
+  },
+  "categorySection": {
+    "messages": { "successTitle": "Succès", "updated": "Catégorie mise à jour", "cookieAdded": "Cookie ajouté", "cookieUpdated": "Cookie mis à jour", "cookieDeleted": "Cookie supprimé", "categoryDeleted": "Catégorie supprimée", "cookieMoved": "Cookie déplacé" },
+    "errors": { "title": "Erreur", "updateCategory": "Échec de la mise à jour de la catégorie", "duplicateCookie": "Un cookie portant ce nom existe déjà dans cette bannière", "addCookie": "Échec de l’ajout du cookie", "updateCookie": "Échec de la mise à jour du cookie", "deleteCookie": "Échec de la suppression du cookie", "deleteCategory": "Échec de la suppression de la catégorie", "reorder": "Échec du réordonnancement", "moveCookie": "Échec du déplacement du cookie" },
+    "deleteCookieConfirmation": "Voulez-vous vraiment supprimer \"{{name}}\" ?",
+    "deleteCategoryConfirmation": "Voulez-vous vraiment supprimer la catégorie \"{{name}}\" ? Tous les cookies de cette catégorie seront déplacés vers Non catégorisé.",
+    "required": "Obligatoire", "blockHint": "Bloquer les éléments jusqu’à l’obtention du consentement :", "googleConsentMode": "Mode de consentement Google :", "tcfPurposes": "Finalités TCF :", "posthog": "PostHog :", "trackingConsent": "Consentement au suivi",
+    "columns": { "name": "Nom", "type": "Type", "duration": "Durée" },
+    "actions": { "edit": "Modifier", "delete": "Supprimer", "include": "Inclure", "exclude": "Exclure", "addCookie": "Ajouter un cookie" },
+    "trackerTypes": { "cookie": "Cookie", "localStorage": "localStorage", "sessionStorage": "sessionStorage", "indexedDb": "IndexedDB", "cacheStorage": "Stockage en cache" },
+    "duration": { "session": "Session", "persistent": "Persistant", "year_one": "{{count}} an", "year_other": "{{count}} ans", "month_one": "{{count}} mois", "month_other": "{{count}} mois", "week_one": "{{count}} semaine", "week_other": "{{count}} semaines", "day_one": "{{count}} jour", "day_other": "{{count}} jours", "hour_one": "{{count}} heure", "hour_other": "{{count}} heures", "minute_one": "{{count}} minute", "minute_other": "{{count}} minutes", "second_one": "{{count}} seconde", "second_other": "{{count}} secondes" }
+  },
+  "categoryDialog": {
+    "title": "Ajouter une catégorie",
+    "messages": { "successTitle": "Succès", "created": "Catégorie créée" },
+    "errors": { "title": "Erreur", "create": "Échec de la création de la catégorie" },
+    "fields": { "name": "Nom", "slug": "Identifiant", "slugHelp": "Utilisé comme valeur de l’attribut data-cookie-consent", "description": "Description" },
+    "actions": { "saving": "Enregistrement...", "create": "Créer" }
+  },
+  "addCookieRow": {
+    "fields": { "namePlaceholder": "Nom du cookie", "descriptionPlaceholder": "Description" },
+    "actions": { "save": "Enregistrer", "cancel": "Annuler" }
+  },
+  "displayPage": {
+    "description": "Organisez les cookies en catégories et déclarez les cookies utilisés par votre site.",
+    "actions": { "addCategory": "Ajouter une catégorie" },
+    "empty": "Aucune catégorie pour le moment. Ajoutez une catégorie pour commencer à gérer les cookies."
+  },
+  "consentRecordsPage": {
+    "title": "Journal",
+    "description": "Choix de consentement effectués par les visiteurs sur cette bannière.",
+    "filters": { "allActions": "Toutes les actions", "visitorId": "ID du visiteur", "bannerVersion": "Version de la bannière" },
+    "actions": { "acceptAll": "Tout accepter", "rejectAll": "Tout refuser", "customize": "Personnaliser", "gpc": "GPC", "acknowledge": "Accusé de réception" },
+    "columns": { "visitorId": "ID du visiteur", "action": "Action", "bannerVersion": "Version de la bannière", "ipAddress": "Adresse IP", "sdkVersion": "Version du SDK", "regulation": "Réglementation", "source": "Source", "country": "Pays", "subdivision": "Subdivision", "date": "Date" },
+    "empty": { "title": "Aucun enregistrement de consentement", "description": "Les enregistrements de consentement apparaîtront ici dès que des visiteurs interagiront avec votre bannière de cookies." }
+  },
+  "consentRecordPage": {
+    "title": "Enregistrement de consentement",
+    "properties": { "visitorId": "ID du visiteur", "action": "Action", "bannerVersion": "Version de la bannière", "ipAddress": "Adresse IP", "userAgent": "Agent utilisateur", "sdkVersion": "Version du SDK", "regulation": "Réglementation", "regulationSource": "Source réglementaire", "country": "Pays", "subdivision": "Subdivision", "tc": "Chaîne TC", "date": "Date" },
+    "actions": { "accept_all": "Tout accepter", "reject_all": "Tout refuser", "customize": "Personnaliser", "gpc": "GPC", "acknowledge": "Accusé de réception" },
+    "consentData": "Données de consentement",
+    "required": "(Obligatoire)",
+    "consent": { "accepted": "Accepté", "rejected": "Refusé" },
+    "cookies": { "columns": { "cookie": "Cookie", "duration": "Durée", "description": "Description" } }
+    },
+  "configLayout": {
+    "version": "v{{version}}",
+    "draft": " (brouillon)",
+    "metadata": { "origin": "Origine", "id": "ID", "cookiePolicy": "Politique de cookies" },
+    "messages": { "successTitle": "Succès", "copiedTitle": "Copié", "activated": "Bannière activée", "deactivated": "Bannière désactivée", "published": "Version publiée", "idCopied": "ID de la bannière copié dans le presse-papiers", "deleted": "Bannière de cookies supprimée avec succès" },
+    "errors": { "title": "Erreur", "activate": "Échec de l’activation", "deactivate": "Échec de la désactivation", "publish": "Échec de la publication", "delete": "Échec de la suppression de la bannière de cookies" },
+    "deleteConfirmation": "Cette action supprimera définitivement la bannière de cookies \"{{name}}\". Elle est irréversible.",
+    "status": { "active": "Active", "inactive": "Inactive" },
+    "actions": { "publishing": "Publication...", "publish": "Publier les modifications", "activate": "Activer", "deactivate": "Désactiver", "delete": "Supprimer" },
+    "tabs": { "display": "Affichage", "settings": "Paramètres", "translations": "Traductions" }
+  },
+  "newCookieBannerPage": {
+    "pageTitle": "Nouvelle bannière de cookies",
+    "title": "Créer une bannière de cookies",
+    "description": "Configurez une nouvelle bannière de consentement aux cookies avec son URL d’origine et ses paramètres de consentement.",
+    "messages": { "successTitle": "Succès", "created": "Bannière de cookies créée avec succès" },
+    "errors": { "title": "Erreur", "create": "Échec de la création de la bannière de cookies" },
+    "fields": {
+      "name": "Nom", "namePlaceholder": "Mon site web",
+      "origin": "URL d’origine", "originPlaceholder": "https://example.com",
+      "cookiePolicyUrl": "URL de la politique de cookies", "cookiePolicyUrlPlaceholder": "https://example.com/cookies",
+      "privacyPolicyUrl": "URL de la politique de confidentialité", "privacyPolicyUrlPlaceholder": "https://example.com/privacy",
+      "consentExpiryDays": "Expiration du consentement (jours)"
+    },
+    "actions": { "creating": "Création...", "create": "Créer la bannière" }
+  },
+  "tcfPage": {
+    "title": "Fournisseurs TCF",
+    "description": "Choisissez les fournisseurs de la Global Vendor List IAB que cette bannière divulgue.",
+    "searchPlaceholder": "Rechercher",
+    "stats": {
+      "vendors": "Fournisseurs",
+      "catalog": "Catalogue",
+      "draft": "brouillon",
+      "live": "en ligne",
+      "gvl": "GVL",
+      "tcfPolicy": "Politique TCF",
+      "empty": "—",
+      "version": "v{{version}}",
+      "catalogTotal_one": "{{count}} fournisseur",
+      "catalogTotal_other": "{{count}} fournisseurs",
+      "unpublishedAdded_one": "{{count}} fournisseur à ajouter",
+      "unpublishedAdded_other": "{{count}} fournisseurs à ajouter",
+      "unpublishedRemoved_one": "{{count}} fournisseur à retirer",
+      "unpublishedRemoved_other": "{{count}} fournisseurs à retirer",
+      "unpublishedChanged": "{{added}} à ajouter, {{removed}} à retirer",
+      "unpublishedNever": "Pas encore publié"
+    },
+    "emptyCatalog": "Aucun fournisseur GVL n’est encore importé. Exécutez gvl-import pour remplir le catalogue.",
+    "emptyFiltered": "Aucun fournisseur correspondant",
+    "emptyFilteredDescription": "Essayez un autre nom, identifiant IAB ou filtre d’appartenance.",
+    "filter": {
+      "label": "Appartenance du fournisseur",
+      "all": "Tous les fournisseurs",
+      "on": "Sur cette bannière",
+      "off": "Hors de cette bannière"
+    },
+    "previous": "Préc.",
+    "next": "Suiv.",
+    "noUpdatePermission": "Vous n’avez pas l’autorisation de modifier les fournisseurs TCF.",
+    "iabVendorId": "IAB {{id}}",
+    "policy": "Politique de confidentialité",
+    "notFound": "Page introuvable",
+    "actions": {
+      "clearSearch": "Effacer les filtres",
+      "add": "Ajouter",
+      "remove": "Retirer",
+      "addVendor": "Ajouter {{name}} à cette bannière",
+      "removeVendor": "Retirer {{name}} de cette bannière"
+    },
+    "errors": {
+      "add": "Échec de l’ajout du fournisseur",
+      "remove": "Échec de la suppression du fournisseur"
+    }
+  }
+}

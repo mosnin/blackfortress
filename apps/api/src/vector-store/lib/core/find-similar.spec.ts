@@ -1,0 +1,223 @@
+jest.mock('./client', () => ({
+  vectorIndex: { query: jest.fn() },
+}));
+jest.mock('./generate-embedding', () => ({
+  generateEmbedding: jest.fn(),
+  batchGenerateEmbeddings: jest.fn(),
+}));
+
+import { vectorIndex } from './client';
+import {
+  generateEmbedding,
+  batchGenerateEmbeddings,
+} from './generate-embedding';
+import { findSimilarContent, findSimilarContentBatch } from './find-similar';
+import { organizationFilter } from './filter';
+
+const mockQuery = vectorIndex!.query as jest.Mock;
+const mockEmbed = generateEmbedding as jest.Mock;
+const mockBatchEmbed = batchGenerateEmbeddings as jest.Mock;
+
+/**
+ * Builds `count` Upstash results, each from a DISTINCT policy, with strictly
+ * descending scores starting at 0.9. This mirrors CS-594: a single question
+ * matching a chunk of nearly every published policy just above the 0.2 noise
+ * floor.
+ */
+function buildDistinctPolicyResults(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `vec_${i}`,
+    score: Number((0.9 - i * 0.02).toFixed(4)),
+    metadata: {
+      content: `Policy chunk ${i}`,
+      sourceType: 'policy',
+      sourceId: `pol_${i}`,
+      policyName: `Policy ${i}`,
+      organizationId: 'org_68d3f2f01a2b3c4d5e6f7a8b',
+    },
+  }));
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
+  mockBatchEmbed.mockResolvedValue([[0.1, 0.2, 0.3]]);
+});
+
+describe('findSimilarContent: result cap (CS-594)', () => {
+  it('caps the number of returned chunks even when many distinct policies clear the noise floor', async () => {
+    // 24 distinct policies all scoring >= 0.2 — reproduces Q#17 (24 sources).
+    const flood = buildDistinctPolicyResults(24);
+    expect(flood.every((r) => r.score >= 0.2)).toBe(true);
+    mockQuery.mockResolvedValue(flood);
+
+    const results = await findSimilarContent(
+      'Where is the business located?',
+      'org_68d3f2f01a2b3c4d5e6f7a8b',
+    );
+
+    // Bug: returned all 24. Fix: bounded to a small, relevant set.
+    expect(results.length).toBeLessThan(flood.length);
+    expect(results.length).toBeLessThanOrEqual(10);
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the highest-scoring chunks and drops the low-scoring tail', async () => {
+    const flood = buildDistinctPolicyResults(24);
+    mockQuery.mockResolvedValue(flood);
+
+    const results = await findSimilarContent(
+      'any question',
+      'org_68d3f2f01a2b3c4d5e6f7a8b',
+    );
+
+    // The most relevant chunk must be present, sorted highest-first.
+    expect(results[0].score).toBe(0.9);
+    const scores = results.map((r) => r.score);
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+    // The lowest-scoring chunks of the flood must be dropped, not surfaced.
+    const droppedScore = flood[flood.length - 1].score;
+    expect(scores).not.toContain(droppedScore);
+  });
+
+  it('still filters out chunks below the minimum similarity score', async () => {
+    mockQuery.mockResolvedValue([
+      { id: 'good', score: 0.8, metadata: { sourceType: 'policy' } },
+      { id: 'noise', score: 0.1, metadata: { sourceType: 'policy' } },
+    ]);
+
+    const results = await findSimilarContent(
+      'q',
+      'org_68d3f2f01a2b3c4d5e6f7a8b',
+    );
+
+    expect(results.map((r) => r.id)).toEqual(['good']);
+  });
+});
+
+describe('findSimilarContentBatch: result cap (CS-594)', () => {
+  it('caps each question to a small, relevant set instead of every above-threshold chunk', async () => {
+    const flood = buildDistinctPolicyResults(24);
+    mockBatchEmbed.mockResolvedValue([[0.1, 0.2, 0.3]]);
+    mockQuery.mockResolvedValue(flood);
+
+    const [perQuestion] = await findSimilarContentBatch(
+      ['Where is the business located?'],
+      'org_68d3f2f01a2b3c4d5e6f7a8b',
+    );
+
+    expect(perQuestion.length).toBeLessThan(flood.length);
+    expect(perQuestion.length).toBeLessThanOrEqual(10);
+    expect(perQuestion.length).toBeGreaterThan(0);
+    // Highest-scoring chunk preserved.
+    expect(perQuestion[0].score).toBe(0.9);
+  });
+});
+
+describe('organizationFilter: filter injection hardening (GH-043)', () => {
+  it('builds an equality filter for well-formed organization IDs', () => {
+    expect(organizationFilter('org_68d3f2f01a2b3c4d5e6f7a8b')).toBe(
+      'organizationId = "org_68d3f2f01a2b3c4d5e6f7a8b"',
+    );
+  });
+
+  it.each([
+    'zzz" OR organizationId GLOB "*',
+    'org_test',
+    'org_" OR "1"="1',
+    'org with space',
+    'ORG_68D3F2F01A2B3C4D5E6F7A8B',
+    '',
+  ])('rejects unsafe or malformed organizationId %j', (value) => {
+    expect(() => organizationFilter(value)).toThrow(
+      'Invalid organizationId for vector filter',
+    );
+  });
+
+  it('findSimilarContent never queries Upstash with an injected filter', async () => {
+    await expect(
+      findSimilarContent('q', 'zzz" OR organizationId GLOB "*'),
+    ).rejects.toThrow('Invalid organizationId for vector filter');
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('findSimilarContentBatch never queries Upstash with an injected filter', async () => {
+    // Invalid tenant IDs fail before embeddings or any vector query.
+    await expect(
+      findSimilarContentBatch(['q'], 'zzz" OR organizationId GLOB "*'),
+    ).rejects.toThrow('Invalid organizationId for vector filter');
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('interpolates only the validated value into the filter string', async () => {
+    mockQuery.mockResolvedValue([]);
+    const orgId = 'org_68d3f2f01a2b3c4d5e6f7a8b';
+
+    await findSimilarContent('q', orgId);
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ filter: `organizationId = "${orgId}"` }),
+    );
+  });
+});
+
+describe('findSimilarContent: organizationId filter injection guard (GH-103)', () => {
+  it('passes a normal organization id through to the Upstash filter unchanged', async () => {
+    mockQuery.mockResolvedValue([]);
+
+    await findSimilarContent('any question', 'org_cl9ebqhxk00003b600tymydho');
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter: 'organizationId = "org_cl9ebqhxk00003b600tymydho"',
+      }),
+    );
+  });
+
+  it('rejects an organization id containing a double quote before it ever queries Upstash', async () => {
+    const malicious = 'zzz" OR organizationId GLOB "*';
+
+    await expect(
+      findSimilarContent('any question', malicious),
+    ).rejects.toThrow();
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'org with spaces',
+    'org"quote',
+    "org'quote",
+    'org(paren',
+    'org*glob',
+    'org\\backslash',
+  ])(
+    'rejects organization ids containing filter metacharacters: %s',
+    async (malicious) => {
+      await expect(
+        findSimilarContent('any question', malicious),
+      ).rejects.toThrow();
+      expect(mockQuery).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('findSimilarContentBatch: organizationId filter injection guard (GH-103)', () => {
+  it('passes a normal organization id through to the Upstash filter unchanged', async () => {
+    mockQuery.mockResolvedValue([]);
+
+    await findSimilarContentBatch(['q1'], 'org_cl9ebqhxk00003b600tymydho');
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter: 'organizationId = "org_cl9ebqhxk00003b600tymydho"',
+      }),
+    );
+  });
+
+  it('rejects an organization id containing filter metacharacters before querying Upstash', async () => {
+    const malicious = 'zzz" OR organizationId GLOB "*';
+
+    await expect(findSimilarContentBatch(['q1'], malicious)).rejects.toThrow();
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+});

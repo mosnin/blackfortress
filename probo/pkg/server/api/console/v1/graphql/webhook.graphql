@@ -1,0 +1,223 @@
+enum WebhookEventType
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.WebhookEventType") {
+    THIRD_PARTY_CREATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeThirdPartyCreated")
+    THIRD_PARTY_UPDATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeThirdPartyUpdated")
+    THIRD_PARTY_DELETED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeThirdPartyDeleted")
+    USER_CREATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeUserCreated")
+    USER_UPDATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeUserUpdated")
+    USER_DELETED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeUserDeleted")
+    OBLIGATION_CREATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeObligationCreated")
+    OBLIGATION_UPDATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeObligationUpdated")
+    OBLIGATION_DELETED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeObligationDeleted")
+    RIGHT_REQUEST_CREATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeRightRequestCreated")
+    RIGHT_REQUEST_UPDATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeRightRequestUpdated")
+    RIGHT_REQUEST_DELETED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeRightRequestDeleted")
+    DOCUMENT_CREATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentCreated")
+    DOCUMENT_UPDATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentUpdated")
+    DOCUMENT_ARCHIVED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentArchived")
+    DOCUMENT_UNARCHIVED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentUnarchived")
+    DOCUMENT_DELETED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentDeleted")
+    DOCUMENT_VERSION_CREATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionCreated")
+    DOCUMENT_VERSION_UPDATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionUpdated")
+    DOCUMENT_VERSION_PUBLISHED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionPublished")
+    DOCUMENT_VERSION_REJECTED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionRejected")
+    DOCUMENT_VERSION_DELETED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionDeleted")
+    DOCUMENT_VERSION_SIGNATURE_REQUESTED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionSignatureRequested")
+    DOCUMENT_VERSION_SIGNATURE_SIGNED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionSignatureSigned")
+    DOCUMENT_VERSION_SIGNATURE_CANCELLED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionSignatureCancelled")
+    DOCUMENT_VERSION_APPROVAL_QUORUM_REQUESTED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionApprovalQuorumRequested")
+    DOCUMENT_VERSION_APPROVAL_QUORUM_UPDATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionApprovalQuorumUpdated")
+    DOCUMENT_VERSION_APPROVAL_QUORUM_APPROVED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionApprovalQuorumApproved")
+    DOCUMENT_VERSION_APPROVAL_QUORUM_REJECTED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionApprovalQuorumRejected")
+    DOCUMENT_VERSION_APPROVAL_QUORUM_VOIDED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeDocumentVersionApprovalQuorumVoided")
+    TASK_CREATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeTaskCreated")
+    TASK_UPDATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeTaskUpdated")
+    TASK_DELETED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeTaskDeleted")
+    TASK_COMMENT_CREATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeTaskCommentCreated")
+    TASK_COMMENT_UPDATED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeTaskCommentUpdated")
+    TASK_COMMENT_DELETED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventTypeTaskCommentDeleted")
+}
+
+enum WebhookEventStatus
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.WebhookEventStatus") {
+    PENDING
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventStatusPending")
+    SUCCEEDED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventStatusSucceeded")
+    FAILED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.WebhookEventStatusFailed")
+}
+
+enum WebhookSubscriptionOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.WebhookSubscriptionOrderField"
+    ) {
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.WebhookSubscriptionOrderFieldCreatedAt"
+        )
+}
+
+enum WebhookEventOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.WebhookEventOrderField"
+    ) {
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.WebhookEventOrderFieldCreatedAt"
+        )
+}
+
+input WebhookSubscriptionOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.WebhookSubscriptionOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: WebhookSubscriptionOrderField!
+}
+
+input WebhookEventOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.WebhookEventOrderBy"
+    ) {
+    field: WebhookEventOrderField!
+    direction: OrderDirection!
+}
+
+input WebhookEventFilter {
+    status: WebhookEventStatus
+}
+
+type WebhookSubscription implements Node {
+    id: ID!
+    organization: Organization @goField(forceResolver: true)
+    endpointUrl: String!
+    signingSecret: String! @goField(forceResolver: true)
+    selectedEvents: [WebhookEventType!]!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+
+    events(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: WebhookEventOrder
+        filter: WebhookEventFilter
+    ): WebhookEventConnection! @goField(forceResolver: true)
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type WebhookEvent implements Node {
+    id: ID!
+    webhookSubscriptionId: ID!
+    status: WebhookEventStatus!
+    payload: String
+    response: String
+    createdAt: Datetime!
+}
+
+type WebhookSubscriptionConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.WebhookSubscriptionConnection"
+    ) {
+    edges: [WebhookSubscriptionEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int! @goField(forceResolver: true)
+}
+
+type WebhookSubscriptionEdge {
+    cursor: CursorKey!
+    node: WebhookSubscription!
+}
+
+type WebhookEventConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.WebhookEventConnection"
+    ) {
+    edges: [WebhookEventEdge!]!
+    pageInfo: PageInfo!
+    totalCount: Int! @goField(forceResolver: true)
+}
+
+type WebhookEventEdge {
+    cursor: CursorKey!
+    node: WebhookEvent!
+}
+
+extend type Mutation {
+    createWebhookSubscription(
+        input: CreateWebhookSubscriptionInput!
+    ): CreateWebhookSubscriptionPayload!
+    updateWebhookSubscription(
+        input: UpdateWebhookSubscriptionInput!
+    ): UpdateWebhookSubscriptionPayload!
+    deleteWebhookSubscription(
+        input: DeleteWebhookSubscriptionInput!
+    ): DeleteWebhookSubscriptionPayload!
+}
+
+input CreateWebhookSubscriptionInput {
+    organizationId: ID!
+    endpointUrl: String!
+    selectedEvents: [WebhookEventType!]!
+}
+
+input UpdateWebhookSubscriptionInput {
+    id: ID!
+    endpointUrl: String
+    selectedEvents: [WebhookEventType!]
+}
+
+input DeleteWebhookSubscriptionInput {
+    webhookSubscriptionId: ID!
+}
+
+type CreateWebhookSubscriptionPayload {
+    webhookSubscriptionEdge: WebhookSubscriptionEdge!
+}
+
+type UpdateWebhookSubscriptionPayload {
+    webhookSubscription: WebhookSubscription!
+}
+
+type DeleteWebhookSubscriptionPayload {
+    deletedWebhookSubscriptionId: ID!
+}

@@ -1,0 +1,64 @@
+{
+  "slug": "microsoft-defender",
+  "name": "Microsoft Defender for Endpoint",
+  "description": "Connect Microsoft Defender for Endpoint to monitor device health, security alerts, and vulnerability management across your organization.",
+  "category": "Security",
+  "docsUrl": "https://learn.microsoft.com/en-us/defender-endpoint/api/",
+  "baseUrl": "https://api.security.microsoft.com",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Go to Azure Portal → Microsoft Entra ID → App registrations → New registration (e.g. 'CompAI Defender')\n2. From the Overview page, copy the Application (client) ID and Directory (tenant) ID\n3. Go to Certificates & secrets → New client secret, copy the value (only shown once)\n4. Go to API permissions → Add a permission → APIs my organization uses\n   IMPORTANT: pick \"APIs my organization uses\", NOT \"Microsoft Graph\".\n5. Search for and select WindowsDefenderATP (the Microsoft Defender for Endpoint API)\n6. Choose Application permissions and add:\n   - Machine.Read.All\n   - Alert.Read.All\n   - Vulnerability.Read.All\n7. Click 'Grant admin consent' for your organization\n8. Paste the Tenant ID, Client ID, and Client Secret below\n\nNotes:\n - The API is registered in Azure AD under the name 'WindowsDefenderATP' even though Microsoft brands the product as Microsoft Defender for Endpoint.\n - The OAuth resource/scope is https://api.securitycenter.microsoft.com/.default — Microsoft has consolidated the API URL to api.security.microsoft.com but the token resource remains the legacy URL.",
+      "credentialFields": [
+        {
+          "label": "Tenant ID",
+          "type": "text",
+          "required": true,
+          "helpText": "Your Azure AD (Entra ID) tenant ID. Found in Azure Portal → Microsoft Entra ID → Overview."
+        },
+        {
+          "label": "Client ID (Application ID)",
+          "type": "text",
+          "required": true,
+          "helpText": "The Application (client) ID from your Azure AD app registration."
+        },
+        {
+          "label": "Client Secret",
+          "type": "password",
+          "required": true,
+          "helpText": "A client secret generated for your Azure AD app registration."
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "microsoft_defender_device_list",
+      "name": "Device List",
+      "description": "Retrieves devices managed by Microsoft Defender for Endpoint and verifies they are active and reporting.",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "microsoft_defender_monitoring_alerting",
+      "name": "Monitoring & Alerting",
+      "description": "Checks for unresolved security alerts in Microsoft Defender for Endpoint and reports severity-based findings.",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "microsoft_defender_vulnerability_scanning",
+      "name": "Vulnerability Scanning",
+      "description": "Retrieves vulnerabilities detected by Microsoft Defender for Endpoint and reports critical and high severity findings.",
+      "defaultSeverity": "high",
+      "enabled": false
+    }
+  ],
+  "checkCount": 3,
+  "isActive": true
+}

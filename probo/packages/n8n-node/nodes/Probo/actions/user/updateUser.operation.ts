@@ -1,0 +1,187 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import type {
+	INodeProperties,
+	IExecuteFunctions,
+	INodeExecutionData,
+	IDataObject,
+} from 'n8n-workflow';
+import { proboConnectApiRequest, toPeriod } from '../../GenericFunctions';
+
+const kindOptions = [
+	{ name: 'Employee', value: 'EMPLOYEE' },
+	{ name: 'Contractor', value: 'CONTRACTOR' },
+	{ name: 'Service Account', value: 'SERVICE_ACCOUNT' },
+];
+
+export const description: INodeProperties[] = [
+	{
+		displayName: 'User ID',
+		name: 'userId',
+		type: 'string',
+		displayOptions: {
+			show: {
+				resource: ['user'],
+				operation: ['updateUser'],
+			},
+		},
+		default: '',
+		description: 'The ID of the user (profile) to update',
+		required: true,
+	},
+	{
+		displayName: 'Full Name',
+		name: 'fullName',
+		type: 'string',
+		displayOptions: {
+			show: {
+				resource: ['user'],
+				operation: ['updateUser'],
+			},
+		},
+		default: '',
+		description: 'Full name of the user',
+		required: true,
+	},
+	{
+		displayName: 'Kind',
+		name: 'kind',
+		type: 'options',
+		displayOptions: {
+			show: {
+				resource: ['user'],
+				operation: ['updateUser'],
+			},
+		},
+		options: kindOptions,
+		default: 'EMPLOYEE',
+		description: 'User kind',
+		required: true,
+	},
+	{
+		displayName: 'Additional Fields',
+		name: 'additionalFields',
+		type: 'collection',
+		placeholder: 'Add Field',
+		default: {},
+		displayOptions: {
+			show: {
+				resource: ['user'],
+				operation: ['updateUser'],
+			},
+		},
+		options: [
+			{
+				displayName: 'Additional Email Addresses',
+				name: 'additionalEmailAddresses',
+				type: 'string',
+				default: '',
+				description: 'Comma-separated additional email addresses',
+			},
+			{
+				displayName: 'Position',
+				name: 'position',
+				type: 'string',
+				default: '',
+				description: 'Job or role position',
+			},
+			{
+				displayName: 'Contract Start Date',
+				name: 'contractStartDate',
+				type: 'string',
+				default: '',
+				description: 'Contract start date (ISO 8601)',
+			},
+			{
+				displayName: 'Contract End Date',
+				name: 'contractEndDate',
+				type: 'string',
+				default: '',
+				description: 'Contract end date (ISO 8601)',
+			},
+		],
+	},
+];
+
+export async function execute(
+	this: IExecuteFunctions,
+	itemIndex: number,
+): Promise<INodeExecutionData> {
+	const userId = this.getNodeParameter('userId', itemIndex) as string;
+	const fullName = this.getNodeParameter('fullName', itemIndex) as string;
+	const kind = this.getNodeParameter('kind', itemIndex) as string;
+	const additionalFields = this.getNodeParameter('additionalFields', itemIndex, {}) as {
+		additionalEmailAddresses?: string;
+		position?: string;
+		contractStartDate?: string;
+		contractEndDate?: string;
+	};
+
+	const input: IDataObject = {
+		id: userId,
+		fullName,
+		kind,
+	};
+	if (additionalFields.additionalEmailAddresses !== undefined) {
+		input.additionalEmailAddresses = additionalFields.additionalEmailAddresses
+			? (additionalFields.additionalEmailAddresses as string)
+					.split(',')
+					.map((e: string) => e.trim())
+					.filter(Boolean)
+			: [];
+	}
+	if (additionalFields.position) {
+		input.position = additionalFields.position;
+	}
+	const contract = toPeriod(additionalFields.contractStartDate, additionalFields.contractEndDate);
+	if (contract) {
+		input.contract = contract;
+	}
+
+	const query = `
+		mutation UpdateUser($input: UpdateUserInput!) {
+			updateUser(input: $input) {
+				profile {
+					id
+					fullName
+					emailAddress
+					kind
+					position
+					contract {
+						start
+						end
+					}
+					createdAt
+					updatedAt
+					organization { id name }
+					membership { id role createdAt }
+				}
+			}
+		}
+	`;
+
+	const responseData = await proboConnectApiRequest.call(this, query, { input });
+
+	return {
+		json: responseData,
+		pairedItem: { item: itemIndex },
+	};
+}

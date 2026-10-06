@@ -1,0 +1,61 @@
+{
+  "slug": "jumpcloud",
+  "name": "JumpCloud",
+  "description": "Monitor JumpCloud users, MFA enrollment, and managed systems for identity and device compliance",
+  "category": "Identity & Access",
+  "docsUrl": "https://docs.jumpcloud.com/api/",
+  "baseUrl": "https://console.jumpcloud.com/",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to JumpCloud Admin Console\n2. Click your account name (bottom-left) and select 'My API Key'\n3. Note: API access must be enabled by an Admin with Billing role. If you see 'You don't have permission', contact your Billing Admin.\n4. Click 'Generate New API Key' if needed\n5. Copy the API key and paste it below",
+      "credentialFields": [
+        {
+          "label": "API Key",
+          "type": "password",
+          "required": true,
+          "helpText": "Found in JumpCloud Admin Console > API Settings"
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks",
+    "sync",
+    "device_sync"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": true,
+  "checks": [
+    {
+      "slug": "user_access",
+      "name": "Employee Access",
+      "description": "Reviews JumpCloud users for employee access management",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "mfa_enrollment",
+      "name": "2FA",
+      "description": "Verifies that JumpCloud users have TOTP MFA enrolled",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "systems",
+      "name": "Secure Devices",
+      "description": "Verifies all JumpCloud-managed devices have full disk encryption enabled and reports OS version",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "os_patching",
+      "name": "OS Version & Patching",
+      "description": "Verifies OS versions across managed devices and lists applied patches (Windows). Requires JumpCloud System Insights to be enabled.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 4,
+  "isActive": true
+}

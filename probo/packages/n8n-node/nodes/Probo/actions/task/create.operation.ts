@@ -1,0 +1,267 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import type { INodeProperties, IExecuteFunctions, INodeExecutionData, IDataObject } from 'n8n-workflow';
+import { plainTextToProseMirrorJSON, proboApiRequest, withPlainTextContent } from '../../GenericFunctions';
+
+export const description: INodeProperties[] = [
+	{
+		displayName: 'Organization ID',
+		name: 'organizationId',
+		type: 'string',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		default: '',
+		description: 'The ID of the organization',
+		required: true,
+	},
+	{
+		displayName: 'Measure ID',
+		name: 'measureId',
+		type: 'string',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		default: '',
+		description: 'The ID of the measure this task belongs to',
+	},
+	{
+		displayName: 'Name',
+		name: 'name',
+		type: 'string',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		default: '',
+		description: 'The name of the task',
+		required: true,
+	},
+	{
+		displayName: 'Content',
+		name: 'content',
+		type: 'string',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		default: '',
+		description: 'The content of the task',
+	},
+	{
+		displayName: 'State',
+		name: 'state',
+		type: 'options',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		options: [
+			{
+				name: 'Backlog',
+				value: 'BACKLOG',
+			},
+			{
+				name: 'Canceled',
+				value: 'CANCELED',
+			},
+			{
+				name: 'Done',
+				value: 'DONE',
+			},
+			{
+				name: 'Duplicate',
+				value: 'DUPLICATE',
+			},
+			{
+				name: 'In Progress',
+				value: 'IN_PROGRESS',
+			},
+			{
+				name: 'Todo',
+				value: 'TODO',
+			},
+		],
+		default: 'TODO',
+		description: 'The state of the task',
+	},
+	{
+		displayName: 'Priority',
+		name: 'priority',
+		type: 'options',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		options: [
+			{
+				name: 'Urgent',
+				value: 'URGENT',
+			},
+			{
+				name: 'High',
+				value: 'HIGH',
+			},
+			{
+				name: 'Medium',
+				value: 'MEDIUM',
+			},
+			{
+				name: 'Low',
+				value: 'LOW',
+			},
+		],
+		default: 'MEDIUM',
+		description: 'The priority of the task',
+	},
+	{
+		displayName: 'Time Estimate',
+		name: 'timeEstimate',
+		type: 'string',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		default: '',
+		description: 'The time estimate for the task',
+	},
+	{
+		displayName: 'Assigned To ID',
+		name: 'assignedToId',
+		type: 'string',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		default: '',
+		description: 'The ID of the user assigned to this task',
+	},
+	{
+		displayName: 'Deadline',
+		name: 'deadline',
+		type: 'dateTime',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		default: '',
+		description: 'The deadline for the task',
+	},
+	{
+		displayName: 'Recurrence Interval',
+		name: 'recurrenceInterval',
+		type: 'string',
+		displayOptions: {
+			show: {
+				resource: ['task'],
+				operation: ['create'],
+			},
+		},
+		default: '',
+		description: 'ISO-8601 duration for how often the task repeats, e.g. P7D, P1M or P1Y. Requires a deadline to be set.',
+	},
+];
+
+export async function execute(
+	this: IExecuteFunctions,
+	itemIndex: number,
+): Promise<INodeExecutionData> {
+	const organizationId = this.getNodeParameter('organizationId', itemIndex) as string;
+	const measureId = this.getNodeParameter('measureId', itemIndex, '') as string;
+	const name = this.getNodeParameter('name', itemIndex) as string;
+	const content = this.getNodeParameter('content', itemIndex, '') as string;
+	const state = this.getNodeParameter('state', itemIndex, '') as string;
+	const priority = this.getNodeParameter('priority', itemIndex, '') as string;
+	const timeEstimate = this.getNodeParameter('timeEstimate', itemIndex, '') as string;
+	const assignedToId = this.getNodeParameter('assignedToId', itemIndex, '') as string;
+	const deadline = this.getNodeParameter('deadline', itemIndex, '') as string;
+	const recurrenceInterval = this.getNodeParameter('recurrenceInterval', itemIndex, '') as string;
+
+	const query = `
+		mutation CreateTask($input: CreateTaskInput!) {
+			createTask(input: $input) {
+				taskEdge {
+					node {
+						id
+						name
+						content
+						state
+						priority
+						timeEstimate
+						deadline
+						recurrenceInterval
+						createdAt
+						updatedAt
+					}
+				}
+			}
+		}
+	`;
+
+	const variables = {
+		input: {
+			organizationId,
+			name,
+			...(measureId && { measureId }),
+			...(content && { content: plainTextToProseMirrorJSON(content) }),
+			...(state && { state }),
+			...(priority && { priority }),
+			...(timeEstimate && { timeEstimate }),
+			...(assignedToId && { assignedToId }),
+			...(deadline && { deadline }),
+			...(recurrenceInterval && { recurrenceInterval }),
+		},
+	};
+
+	const responseData = await proboApiRequest.call(this, query, variables);
+	const data = responseData.data as IDataObject | undefined;
+	const payload = data?.createTask as IDataObject | undefined;
+	const edge = payload?.taskEdge as IDataObject | undefined;
+	const node = edge?.node as IDataObject | undefined;
+	if (edge && node) {
+		edge.node = withPlainTextContent(node);
+	}
+
+	return {
+		json: responseData,
+		pairedItem: { item: itemIndex },
+	};
+}

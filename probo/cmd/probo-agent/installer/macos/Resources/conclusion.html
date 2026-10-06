@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Installation complete</title>
+    <style>
+        body {
+            font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+            font-size: 13px;
+            color: #1d1d1f;
+            margin: 24px;
+            line-height: 1.45;
+        }
+        h1 { font-size: 18px; margin-bottom: 6px; }
+        code {
+            font-family: Menlo, Consolas, monospace;
+            background: #f5f5f7;
+            border-radius: 4px;
+            padding: 2px 4px;
+        }
+        ul { margin: 4px 0 8px 18px; padding: 0; }
+        li { margin: 2px 0; }
+        @media (prefers-color-scheme: dark) {
+            body { color: #f5f5f7; }
+            code {
+                background: #3a3a3c;
+                color: #f5f5f7;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Installation complete</h1>
+
+    <p>
+        Enroll this device in your browser, or click the Probo icon in your
+        menu bar:
+    </p>
+    <ul>
+        <li>United States:
+            <code>https://us.probo.com/enroll</code></li>
+        <li>European Union:
+            <code>https://eu.probo.com/enroll</code></li>
+        <li>Self-hosted:
+            <code>https://&lt;your-host&gt;/enroll</code></li>
+    </ul>
+
+    <p>
+        When enrollment succeeds, the menu bar shows
+        <strong>Connected</strong> and the agent starts automatically.
+    </p>
+
+    <p>
+        To uninstall: <code>sudo probo-agent uninstall</code><br>
+        Logs: <code>/var/log/probo-agent.log</code>
+    </p>
+</body>
+</html>

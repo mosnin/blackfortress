@@ -1,0 +1,102 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package drivers
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+func TestApolloDriver(t *testing.T) {
+	t.Parallel()
+
+	rec := newRecorder(t, "testdata/apollo", "APOLLO_API_KEY")
+	// Apollo authenticates via the x-api-key header, not Authorization.
+	client := newVCRClientWithHeader(rec, "x-api-key", os.Getenv("APOLLO_API_KEY"))
+
+	driver := NewApolloDriver(client, "https://api.apollo.io/api/v1")
+	records, err := driver.ListAccounts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, records, 4)
+
+	admin := records[0]
+	assert.Equal(t, "5f0000000000000000000001", admin.ExternalID)
+	assert.Equal(t, "alice@example.com", admin.Email)
+	assert.Equal(t, "Alice Admin", admin.FullName)
+	assert.Equal(t, []string{"Admin"}, admin.Roles)
+	assert.Equal(t, new(true), admin.IsAdmin)
+	assert.Equal(t, coredata.AccessReviewEntryAccountTypeUser, admin.AccountType)
+
+	rep := records[1]
+	assert.Equal(t, []string{"Sales Rep"}, rep.Roles)
+	assert.Equal(t, new(false), rep.IsAdmin)
+
+	manager := records[2]
+	assert.Equal(t, []string{"Billing and Seat Manager"}, manager.Roles)
+	assert.Equal(t, new(false), manager.IsAdmin)
+
+	// No name and no first/last: the display name falls back to the email.
+	noName := records[3]
+	assert.Equal(t, "dave@example.com", noName.Email)
+	assert.Equal(t, "dave@example.com", noName.FullName)
+}
+
+func TestApolloIsAdmin(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, new(true), apolloIsAdmin("Admin"))
+	assert.Equal(t, new(true), apolloIsAdmin("admin"))
+	// Exact match only: profiles that merely contain "admin" are not admins.
+	assert.Equal(t, new(false), apolloIsAdmin("Master Admin"))
+	assert.Equal(t, new(false), apolloIsAdmin("Billing Admin"))
+	assert.Equal(t, new(false), apolloIsAdmin("Sales Rep"))
+	assert.Nil(t, apolloIsAdmin(""))
+}
+
+func TestApolloIsAdmin_UnreadableRoleIsUnknown(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{name: "absent"},
+		{name: "null", raw: json.RawMessage(`null`)},
+		{name: "unparseable", raw: json.RawMessage(`{`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+
+				assert.Nil(t, apolloIsAdmin(apolloRole(tt.raw)))
+			},
+		)
+	}
+}

@@ -1,0 +1,54 @@
+{
+  "title": "Documents",
+  "tabs": {
+    "all": "All",
+    "public": "Public",
+    "restricted": "Restricted"
+  },
+  "sections": {
+    "reports": "Compliance reports"
+  },
+  "types": {
+    "OTHER": "Other",
+    "GOVERNANCE": "Governance",
+    "POLICY": "Policies",
+    "PROCEDURE": "Procedures",
+    "PLAN": "Plans",
+    "REGISTER": "Registers",
+    "RECORD": "Records",
+    "REPORT": "Reports",
+    "TEMPLATE": "Templates",
+    "STATEMENT_OF_APPLICABILITY": "Statement of Applicability"
+  },
+  "actions": {
+    "view": "View",
+    "getAccess": "Request Access",
+    "requested": "Access requested"
+  },
+  "selection": {
+    "count": "{{count}} selected",
+    "clear": "Clear selection",
+    "selectAll": "Select all",
+    "requestAccess": "Request Access ({{count}})",
+    "selectRow": "Select {{title}}"
+  },
+  "empty": {
+    "title": "No documents available",
+    "description": "This compliance portal has not published any documents yet.",
+    "filteredTitle": "No documents match this filter",
+    "filteredDescription": "Try a different tab to see available documents."
+  },
+  "viewer": {
+    "back": "Documents",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied to clipboard",
+    "download": "Download",
+    "previewUnavailable": "Preview unavailable",
+    "downloadToView": "This file type can't be previewed here. Download it to view.",
+    "locked": {
+      "title": "Access required",
+      "description": "You don't have access to this document yet.",
+      "signNda": "Review and sign NDA"
+    }
+  }
+}

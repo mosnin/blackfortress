@@ -1,0 +1,1026 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { db, Prisma } from '@db';
+import { getManifest, runAllChecks } from '@trycompai/integration-platform';
+import { runs, tasks } from '@trigger.dev/sdk';
+import { CredentialVaultService } from '../integration-platform/services/credential-vault.service';
+import { OAuthCredentialsService } from '../integration-platform/services/oauth-credentials.service';
+import { GCPSecurityService } from './providers/gcp-security.service';
+import { AWSSecurityService } from './providers/aws-security.service';
+import { AzureSecurityService } from './providers/azure-security.service';
+import { AWS_SERVICE_TASK_MAPPINGS } from './aws-task-mappings';
+import { CloudReconciliationService } from './reconciliation.service';
+import { resolveAwsScanMode } from './aws-scan-mode';
+import {
+  GCP_SCAN_MODE_DIRECT,
+  GCP_SCAN_MODE_SCC,
+  formatCheckLog,
+  gcpCheckResultsToFindings,
+  isGcpCheckServiceDisabled,
+  isSccStructurallyUnavailable,
+  toCheckCredentials,
+  toCheckVariables,
+} from './gcp-scan-fallback';
+
+export interface SecurityFinding {
+  id: string;
+  title: string;
+  description: string;
+  severity: 'info' | 'low' | 'medium' | 'high' | 'critical';
+  resourceType: string;
+  resourceId: string;
+  remediation?: string;
+  evidence?: Record<string, unknown>;
+  createdAt: string;
+  passed?: boolean; // Whether this is a passing check (default: false)
+}
+
+export interface ScanResult {
+  success: boolean;
+  provider: string;
+  findings: SecurityFinding[];
+  scannedAt: string;
+  error?: string;
+}
+
+/**
+ * Outcome of resolving short-lived AWS session credentials for a connection.
+ * `not_configured` = nothing to do (check should no-op); `assume_failed` = the
+ * assume genuinely failed and the check should surface a finding.
+ */
+export type ResolveAwsSessionResult =
+  | {
+      ok: true;
+      session: {
+        accessKeyId: string;
+        secretAccessKey: string;
+        sessionToken: string;
+      };
+    }
+  | { ok: false; reason: 'not_configured' }
+  | { ok: false; reason: 'assume_failed'; error: string };
+
+export class ConnectionNotFoundError extends Error {
+  constructor() {
+    super('Connection not found');
+  }
+}
+
+@Injectable()
+export class CloudSecurityService {
+  private readonly logger = new Logger(CloudSecurityService.name);
+
+  constructor(
+    private readonly credentialVaultService: CredentialVaultService,
+    private readonly oauthCredentialsService: OAuthCredentialsService,
+    private readonly gcpService: GCPSecurityService,
+    private readonly awsService: AWSSecurityService,
+    private readonly azureService: AzureSecurityService,
+    private readonly reconciliation: CloudReconciliationService,
+  ) {}
+
+  async scan(
+    connectionId: string,
+    organizationId: string,
+  ): Promise<ScanResult> {
+    this.logger.log(
+      `Starting cloud security scan for connection ${connectionId}`,
+    );
+
+    // Get connection
+    const connection = await db.integrationConnection.findFirst({
+      where: {
+        id: connectionId,
+        organizationId,
+        status: 'active',
+      },
+      include: {
+        provider: true,
+      },
+    });
+
+    if (!connection) {
+      return {
+        success: false,
+        provider: 'unknown',
+        findings: [],
+        scannedAt: new Date().toISOString(),
+        error: 'Connection not found or inactive',
+      };
+    }
+
+    const providerSlug = connection.provider.slug;
+    this.logger.log(`Scanning ${providerSlug} provider`);
+
+    // Get credentials - for OAuth providers, handle token refresh
+    let credentials: Record<string, unknown>;
+    try {
+      const manifest = getManifest(providerSlug);
+      const isOAuth = manifest?.auth?.type === 'oauth2';
+
+      if (isOAuth && manifest.auth.type === 'oauth2') {
+        const oauthConfig = manifest.auth.config;
+
+        // Get OAuth app credentials (decrypted)
+        const oauthCreds = await this.oauthCredentialsService.getCredentials(
+          providerSlug,
+          organizationId,
+        );
+
+        if (!oauthCreds) {
+          return {
+            success: false,
+            provider: providerSlug,
+            findings: [],
+            scannedAt: new Date().toISOString(),
+            error: 'OAuth app not configured for this provider',
+          };
+        }
+
+        // Get valid access token (with refresh if needed)
+        const accessToken =
+          await this.credentialVaultService.getValidAccessToken(connectionId, {
+            tokenUrl: oauthConfig.tokenUrl,
+            refreshUrl: oauthConfig.refreshUrl,
+            clientId: oauthCreds.clientId,
+            clientSecret: oauthCreds.clientSecret,
+            clientAuthMethod: oauthConfig.clientAuthMethod,
+            scope: oauthCreds.scopes.join(' '),
+            tokenParams: oauthConfig.tokenParams,
+          });
+
+        if (!accessToken) {
+          const refreshedConnection = await db.integrationConnection.findUnique({
+            where: { id: connectionId },
+            select: { errorMessage: true },
+          });
+
+          return {
+            success: false,
+            provider: providerSlug,
+            findings: [],
+            scannedAt: new Date().toISOString(),
+            error:
+              refreshedConnection?.errorMessage ??
+              'OAuth token expired. Please reconnect the integration.',
+          };
+        }
+
+        // Get full credentials and update with fresh access token
+        const decrypted =
+          await this.credentialVaultService.getDecryptedCredentials(
+            connectionId,
+          );
+        credentials = { ...decrypted, access_token: accessToken };
+      } else {
+        // Non-OAuth (custom auth like AWS IAM Role)
+        const decrypted =
+          await this.credentialVaultService.getDecryptedCredentials(
+            connectionId,
+          );
+        if (!decrypted) {
+          return {
+            success: false,
+            provider: providerSlug,
+            findings: [],
+            scannedAt: new Date().toISOString(),
+            error: 'No credentials found',
+          };
+        }
+        credentials = decrypted;
+      }
+    } catch (error) {
+      this.logger.error(`Failed to get credentials: ${error}`);
+      return {
+        success: false,
+        provider: providerSlug,
+        findings: [],
+        scannedAt: new Date().toISOString(),
+        error: 'Failed to get credentials',
+      };
+    }
+
+    // Get variables for the scan
+    const variables = (connection.variables as Record<string, unknown>) || {};
+
+    // Provider baselines are always scanned regardless of toggles.
+    const BASELINE_SERVICES_BY_PROVIDER: Record<string, string[]> = {
+      aws: [
+        'cloudtrail',
+        'config',
+        'guardduty',
+        'iam-analyzer',
+        'cloudwatch',
+        'kms',
+      ],
+      gcp: ['security-command-center'],
+      azure: [],
+    };
+    const baselineServices = BASELINE_SERVICES_BY_PROVIDER[providerSlug] ?? [];
+
+    // Smart service filtering: auto-detect is additive, user can only exclude.
+    // Scan = (detectedServices MINUS disabledServices) UNION baselineServices.
+    const disabledServices = new Set<string>(
+      Array.isArray(variables.disabledServices)
+        ? (variables.disabledServices as string[])
+        : [],
+    );
+    let enabledServices: string[] | undefined;
+
+    if (
+      Array.isArray(variables.enabledServices) &&
+      (variables.enabledServices as string[]).length > 0
+    ) {
+      // Legacy format: explicit enabled list (backward compat) + baseline
+      const userEnabled = (variables.enabledServices as string[]).filter(
+        (s) => !disabledServices.has(s),
+      );
+      enabledServices = [...new Set([...userEnabled, ...baselineServices])];
+    } else if (
+      Array.isArray(variables.detectedServices) &&
+      (variables.detectedServices as string[]).length > 0
+    ) {
+      // New smart format: detected minus disabled + baseline always included
+      const filtered = (variables.detectedServices as string[]).filter(
+        (s) => !disabledServices.has(s),
+      );
+      enabledServices = [...new Set([...filtered, ...baselineServices])];
+    }
+    // else: undefined = scan all adapters (no detection data at all)
+
+    try {
+      let findings: SecurityFinding[];
+
+      // Auto-detect GCP org ID if not set
+      if (
+        providerSlug === 'gcp' &&
+        !variables.organization_id &&
+        credentials.access_token
+      ) {
+        this.logger.log('GCP org ID missing — auto-detecting...');
+        try {
+          const orgs = await this.gcpService.detectOrganizations(
+            credentials.access_token as string,
+          );
+          if (orgs.length > 0) {
+            variables.organization_id = orgs[0].id;
+            this.logger.log(
+              `Auto-detected GCP org: ${orgs[0].displayName} (${orgs[0].id})`,
+            );
+            // Save for future scans
+            await db.integrationConnection.update({
+              where: { id: connectionId },
+              data: {
+                variables: { ...variables } as unknown as Prisma.InputJsonValue,
+              },
+            });
+          } else {
+            this.logger.warn('No GCP organizations found for this account');
+          }
+        } catch (err) {
+          this.logger.warn(
+            `GCP org auto-detection failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
+      // Which detection engine produced this scan. Persisted on the run so
+      // reconciliation only diffs like-for-like — different engines emit
+      // findingKeys in different namespaces, so a cross-engine diff would mark
+      // every prior finding falsely "resolved". Null for Azure.
+      //   - AWS: 'comp_scanners' | 'security_hub'
+      //   - GCP: 'gcp_scc' (Security Command Center) | 'gcp_direct' (API checks)
+      let runScanMode: string | null = null;
+
+      switch (providerSlug) {
+        case 'gcp': {
+          const gcp = await this.scanGcp({
+            credentials,
+            variables,
+            enabledServices,
+            disabledServices,
+            connectionId,
+            organizationId,
+            providerSlug,
+          });
+          findings = gcp.findings;
+          runScanMode = gcp.scanMode;
+          break;
+        }
+        case 'aws': {
+          // AWS scan-mode lives on connection.metadata (non-secret, frontend-
+          // readable); credentials are encrypted blobs intended for the AWS
+          // SDK. Read from metadata so a single source of truth.
+          const metadata =
+            (connection.metadata as Record<string, unknown> | null) ?? {};
+          const awsScanMode = resolveAwsScanMode(metadata.awsScanMode);
+          runScanMode = awsScanMode;
+          findings = await this.awsService.scanSecurityFindings(
+            credentials,
+            variables,
+            enabledServices,
+            awsScanMode,
+          );
+          break;
+        }
+        case 'azure':
+          findings = await this.azureService.scanSecurityFindings(
+            credentials,
+            variables,
+            enabledServices,
+          );
+          break;
+        default:
+          return {
+            success: false,
+            provider: providerSlug,
+            findings: [],
+            scannedAt: new Date().toISOString(),
+            error: `Unsupported provider: ${providerSlug}`,
+          };
+      }
+
+      // Store findings in database
+      const currentRunId = await this.storeFindings(
+        connectionId,
+        providerSlug,
+        findings,
+        runScanMode,
+      );
+
+      // Reconcile against the prior scan to record resolutions and regressions.
+      // Failures must NOT fail the scan — log and continue so customers always
+      // see fresh findings even if the audit trail step hits an edge case.
+      try {
+        await this.reconciliation.reconcile({ currentRunId });
+      } catch (err) {
+        this.logger.error(
+          `Reconciliation failed for run ${currentRunId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      // Auto-satisfy evidence tasks based on passing scan results (AWS only)
+      if (providerSlug === 'aws') {
+        await this.autoSatisfyTasks(organizationId, findings);
+      }
+
+      // GCP & Azure: auto-detect services from scan findings
+      if (
+        (providerSlug === 'gcp' || providerSlug === 'azure') &&
+        findings.length > 0
+      ) {
+        const serviceIds = new Set<string>();
+        for (const f of findings) {
+          const evidence = f.evidence;
+          const serviceId = evidence?.serviceId as string | undefined;
+          if (serviceId) serviceIds.add(serviceId);
+        }
+        if (serviceIds.size > 0) {
+          const currentVars = variables ?? {};
+          const existingDetected = Array.isArray(currentVars.detectedServices)
+            ? new Set(currentVars.detectedServices as string[])
+            : new Set<string>();
+          const disabledSet = new Set(
+            Array.isArray(currentVars.disabledServices)
+              ? (currentVars.disabledServices as string[])
+              : [],
+          );
+          // Only auto-enable genuinely NEW services — don't override user's explicit disables
+          for (const id of serviceIds) {
+            if (!existingDetected.has(id)) disabledSet.delete(id);
+          }
+          // Merge: keep previously detected + add newly found (AFTER the new-check above)
+          for (const id of serviceIds) existingDetected.add(id);
+          await db.integrationConnection.update({
+            where: { id: connectionId },
+            data: {
+              variables: {
+                ...currentVars,
+                detectedServices: [...existingDetected],
+                disabledServices: [...disabledSet],
+              } as unknown as Prisma.InputJsonValue,
+            },
+          });
+          this.logger.log(
+            `${providerSlug.toUpperCase()}: detected ${serviceIds.size} service categories: ${[...serviceIds].join(', ')}`,
+          );
+        }
+      }
+
+      // Update last sync time (AWS detectedServices is handled by detectServices via Cost Explorer)
+      await db.integrationConnection.update({
+        where: { id: connectionId },
+        data: { lastSyncAt: new Date() },
+      });
+
+      this.logger.log(
+        `Scan complete: ${findings.length} findings for ${providerSlug}`,
+      );
+
+      return {
+        success: true,
+        provider: providerSlug,
+        findings,
+        scannedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`Scan failed for ${providerSlug}: ${errorMessage}`);
+
+      return {
+        success: false,
+        provider: providerSlug,
+        findings: [],
+        scannedAt: new Date().toISOString(),
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * GCP Cloud Tests scan = our direct-API checks (always) + Security Command
+   * Center (when available), combined into one finding list.
+   *
+   * Our direct-API manifest checks (storage / IAM / firewall / Cloud SQL / …)
+   * read the GCP APIs directly with the OAuth token, so they always work and
+   * are the baseline. SCC is a supplement that adds its own findings (60+
+   * detector categories) on top.
+   *
+   * Google retired the free "Legacy" SCC tier, so orgs that haven't activated
+   * SCC Standard/Premium error on every SCC query. That must NOT fail the scan
+   * — it previously aborted everything and froze the dashboard (CS issue,
+   * bevri.ai 2026-06). So an SCC error just drops the SCC layer for that run;
+   * the customer still gets the direct-API checks.
+   *
+   * Both sources run in parallel. The only hard failure is when our OWN checks
+   * can't run at all (e.g. a dead token) — `scanGcpDirectChecks` throws then so
+   * the outer catch preserves the prior good run rather than storing nothing.
+   *
+   * The returned scanMode tags the run by whether SCC contributed, so
+   * reconciliation never diffs an SCC-bearing run (findings carry findingKeys)
+   * against a direct-only run (no findingKeys) — a cross-source diff would mark
+   * every prior finding falsely "resolved".
+   */
+  private async scanGcp(params: {
+    credentials: Record<string, unknown>;
+    variables: Record<string, unknown>;
+    enabledServices: string[] | undefined;
+    disabledServices: ReadonlySet<string>;
+    connectionId: string;
+    organizationId: string;
+    providerSlug: string;
+  }): Promise<{ findings: SecurityFinding[]; scanMode: string }> {
+    const {
+      credentials,
+      variables,
+      enabledServices,
+      disabledServices,
+      connectionId,
+      organizationId,
+      providerSlug,
+    } = params;
+
+    const [directResult, sccResult] = await Promise.allSettled([
+      this.scanGcpDirectChecks({
+        credentials,
+        variables,
+        disabledServices,
+        connectionId,
+        organizationId,
+        providerSlug,
+      }),
+      this.gcpService.scanSecurityFindings(
+        credentials,
+        variables,
+        enabledServices,
+      ),
+    ]);
+
+    // Our checks are the baseline. If they couldn't run at all, fail the scan so
+    // the prior good run is preserved (don't overwrite it with a thin result).
+    if (directResult.status === 'rejected') {
+      throw directResult.reason;
+    }
+    const directFindings = directResult.value;
+
+    // SCC is best-effort. When it works, append its findings (one combined
+    // list); when it doesn't, log why and show the direct-API checks only.
+    if (sccResult.status === 'fulfilled') {
+      return {
+        findings: [...directFindings, ...sccResult.value],
+        scanMode: GCP_SCAN_MODE_SCC,
+      };
+    }
+
+    const err = sccResult.reason;
+    const message = err instanceof Error ? err.message : String(err);
+    this.logger.warn(
+      isSccStructurallyUnavailable(err)
+        ? `GCP SCC not available for connection ${connectionId} (${message}); showing direct-API checks only`
+        : `GCP SCC scan errored for connection ${connectionId} (${message}); showing direct-API checks only this run`,
+    );
+    return { findings: directFindings, scanMode: GCP_SCAN_MODE_DIRECT };
+  }
+
+  /**
+   * Run the GCP integration-platform manifest checks (direct GCP API reads)
+   * in-process and convert their results to SecurityFindings. This is the same
+   * check set the `run-connection-checks` task runs; we run it here so the
+   * manual "Scan" button refreshes findings even when SCC is dead.
+   *
+   * Honors the per-service disable toggle: checks mapped to a service the user
+   * disabled are skipped (matching how the SCC path drops disabled services), so
+   * a combined run never shows findings for a service the customer turned off.
+   *
+   * Guardrail: if EVERY check that ran errored (e.g. an invalid token or missing
+   * read access), throw instead of returning [] — an empty result would store a
+   * fresh "success" run with zero findings, hiding the prior good run and
+   * false-resolving every finding. Throwing lets the outer catch preserve the
+   * prior run. (Zero checks because the user disabled everything is NOT a
+   * failure — that returns [] legitimately.)
+   */
+  private async scanGcpDirectChecks(params: {
+    credentials: Record<string, unknown>;
+    variables: Record<string, unknown>;
+    disabledServices: ReadonlySet<string>;
+    connectionId: string;
+    organizationId: string;
+    providerSlug: string;
+  }): Promise<SecurityFinding[]> {
+    const {
+      credentials,
+      variables,
+      disabledServices,
+      connectionId,
+      organizationId,
+      providerSlug,
+    } = params;
+
+    const manifest = getManifest(providerSlug);
+    if (!manifest?.checks || manifest.checks.length === 0) {
+      throw new Error(
+        `GCP direct-API checks unavailable: no manifest checks for ${providerSlug}`,
+      );
+    }
+
+    const enabledChecks = manifest.checks.filter(
+      (check) => !isGcpCheckServiceDisabled(check.id, disabledServices),
+    );
+    if (enabledChecks.length === 0) {
+      // The user disabled every service these checks cover — scan nothing here
+      // (intentional empty, not a failure). SCC may still contribute findings.
+      return [];
+    }
+
+    const accessToken =
+      typeof credentials.access_token === 'string'
+        ? credentials.access_token
+        : undefined;
+
+    const result = await runAllChecks({
+      manifest: { ...manifest, checks: enabledChecks },
+      accessToken,
+      credentials: toCheckCredentials(credentials),
+      variables: toCheckVariables(variables),
+      connectionId,
+      organizationId,
+      logger: {
+        info: (msg, data) => this.logger.log(formatCheckLog(msg, data)),
+        warn: (msg, data) => this.logger.warn(formatCheckLog(msg, data)),
+        error: (msg, data) => this.logger.error(formatCheckLog(msg, data)),
+      },
+    });
+
+    const anyCheckSucceeded = result.results.some((r) => r.status !== 'error');
+    if (!anyCheckSucceeded) {
+      const firstError = result.results.find((r) => r.error)?.error;
+      throw new Error(
+        `GCP direct-API checks all failed${firstError ? `: ${firstError}` : ''}`,
+      );
+    }
+
+    return gcpCheckResultsToFindings(result);
+  }
+
+  /**
+   * Resolve short-lived, customer-scoped AWS credentials for a connection's
+   * IAM role — performed here in ECS, which holds the roleAssumer task role and
+   * the SECURITY_HUB_ROLE_ASSUMER_ARN env.
+   *
+   * The Cloud Tests CHECK path runs in the Trigger.dev runtime, which has no
+   * base AWS credentials or roleAssumer ARN, so it cannot assume the
+   * cross-account role itself. It calls this (via the internal `resolve-session`
+   * endpoint) and injects the returned temp creds into the check credentials,
+   * so the cross-tenant master credential never leaves ECS.
+   *
+   * Org-scoped: a service-token caller cannot resolve another org's connection.
+   */
+  async resolveAwsSession(
+    connectionId: string,
+    organizationId: string,
+  ): Promise<ResolveAwsSessionResult> {
+    const connection = await db.integrationConnection.findFirst({
+      where: { id: connectionId, organizationId, status: 'active' },
+      include: { provider: true },
+    });
+
+    if (!connection) {
+      throw new ConnectionNotFoundError();
+    }
+
+    if (connection.provider.slug !== 'aws') {
+      return { ok: false, reason: 'not_configured' };
+    }
+
+    const decrypted =
+      await this.credentialVaultService.getDecryptedCredentials(connectionId);
+    if (!decrypted || !(decrypted.roleArn && decrypted.externalId)) {
+      return { ok: false, reason: 'not_configured' };
+    }
+
+    const variables = (connection.variables as Record<string, unknown>) || {};
+
+    try {
+      const session = await this.awsService.resolveRoleSession(
+        decrypted,
+        variables,
+      );
+      return { ok: true, session };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: 'assume_failed',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Detect which AWS services are actively used (via Cost Explorer).
+   * Saves detected services to connection variables for the frontend.
+   */
+  async detectServices(
+    connectionId: string,
+    organizationId: string,
+  ): Promise<string[]> {
+    const connection = await db.integrationConnection.findFirst({
+      where: { id: connectionId, organizationId, status: 'active' },
+      include: { provider: true },
+    });
+
+    if (!connection) {
+      throw new ConnectionNotFoundError();
+    }
+
+    const decrypted =
+      await this.credentialVaultService.getDecryptedCredentials(connectionId);
+    if (!decrypted) {
+      throw new Error('No credentials found');
+    }
+
+    const variables = (connection.variables as Record<string, unknown>) || {};
+    let detected: string[];
+    let gcpServicesByProject: Record<string, string[]> | undefined;
+
+    if (connection.provider.slug === 'gcp') {
+      const accessToken = decrypted.access_token as string;
+      if (!accessToken) throw new Error('GCP access token not found');
+
+      // Use explicitly selected projects, otherwise detect all (cron fallback)
+      const selectedIds = Array.isArray(variables.project_ids)
+        ? (variables.project_ids as string[])
+        : [];
+
+      const projects =
+        selectedIds.length > 0
+          ? selectedIds.map((id) => ({ id }))
+          : await this.gcpService.detectProjects(accessToken);
+      const result = await this.gcpService.detectServices(
+        accessToken,
+        projects,
+      );
+      detected = result.services;
+      gcpServicesByProject = result.servicesByProject;
+    } else if (connection.provider.slug === 'aws') {
+      detected = await this.awsService.detectActiveServices(
+        decrypted,
+        variables,
+      );
+    } else {
+      // Azure and others: services are auto-detected from scan findings, not a separate API
+      return [];
+    }
+
+    // Merge with existing detected services and only auto-enable genuinely NEW detections.
+    // This preserves explicit user toggles (both enabled and disabled).
+    const existingDetected = new Set<string>(
+      Array.isArray(variables.detectedServices)
+        ? (variables.detectedServices as string[])
+        : [],
+    );
+    const updatedDisabled = new Set<string>(
+      Array.isArray(variables.disabledServices)
+        ? (variables.disabledServices as string[])
+        : [],
+    );
+    for (const id of detected) {
+      if (!existingDetected.has(id)) {
+        updatedDisabled.delete(id);
+      }
+      existingDetected.add(id);
+    }
+
+    await db.integrationConnection.update({
+      where: { id: connectionId },
+      data: {
+        variables: {
+          ...variables,
+          detectedServices: [...existingDetected],
+          disabledServices: [...updatedDisabled],
+          serviceDetectionCompletedAt: new Date().toISOString(),
+          ...(gcpServicesByProject && { servicesByProject: gcpServicesByProject }),
+        },
+      },
+    });
+
+    this.logger.log(
+      `Detected ${detected.length} active services for ${connection.provider.slug} connection ${connectionId}`,
+    );
+
+    return detected;
+  }
+
+  /**
+   * Get connection with decrypted credentials (for GCP org detection).
+   */
+  async getConnectionForDetect(connectionId: string, organizationId: string) {
+    const connection = await db.integrationConnection.findFirst({
+      where: { id: connectionId, organizationId, status: 'active' },
+      include: { provider: true },
+    });
+    if (!connection) throw new ConnectionNotFoundError();
+
+    const credentials =
+      await this.credentialVaultService.getDecryptedCredentials(connectionId);
+    return { ...connection, credentials };
+  }
+
+  /**
+   * Save a variable to a connection (e.g., organization_id after auto-detection).
+   */
+  async saveConnectionVariable(
+    connectionId: string,
+    key: string,
+    value: string | string[],
+    organizationId: string,
+  ) {
+    const connection = await db.integrationConnection.findFirst({
+      where: { id: connectionId, organizationId },
+    });
+    if (!connection) throw new ConnectionNotFoundError();
+
+    const variables = (connection.variables as Record<string, unknown>) || {};
+    await db.integrationConnection.update({
+      where: { id: connectionId },
+      data: {
+        variables: {
+          ...variables,
+          [key]: value,
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  async triggerScan(
+    connectionId: string,
+    organizationId: string,
+  ): Promise<{ runId: string }> {
+    // Validate connection exists and is active
+    const connection = await db.integrationConnection.findFirst({
+      where: {
+        id: connectionId,
+        organizationId,
+        status: 'active',
+      },
+    });
+
+    if (!connection) {
+      throw new Error('Connection not found or inactive');
+    }
+
+    const handle = await tasks.trigger('run-cloud-security-scan', {
+      connectionId,
+      organizationId,
+      providerSlug: 'platform',
+      connectionName: connectionId,
+    });
+
+    this.logger.log(`Triggered cloud security scan task`, {
+      connectionId,
+      runId: handle.id,
+    });
+
+    return { runId: handle.id };
+  }
+
+  async getRunStatus(
+    runId: string,
+    connectionId: string,
+    organizationId: string,
+  ): Promise<{ completed: boolean; success: boolean; output: unknown }> {
+    // Verify the connection belongs to the caller's organization
+    const connection = await db.integrationConnection.findFirst({
+      where: {
+        id: connectionId,
+        organizationId,
+      },
+      select: { id: true },
+    });
+
+    if (!connection) {
+      throw new ConnectionNotFoundError();
+    }
+
+    const run = await runs.retrieve(runId);
+
+    return {
+      completed: run.isCompleted,
+      success: run.isCompleted ? run.isSuccess : false,
+      output: run.isCompleted ? run.output : null,
+    };
+  }
+
+  private async storeFindings(
+    connectionId: string,
+    provider: string,
+    findings: SecurityFinding[],
+    // Detection engine that produced these findings — AWS scan mode
+    // ('comp_scanners'/'security_hub') or GCP source ('gcp_scc'/'gcp_direct').
+    // Stored on the run so reconciliation only diffs same-engine runs. Null for
+    // Azure / untagged runs.
+    scanMode: string | null,
+  ): Promise<string> {
+    const passedCount = findings.filter((f) => f.passed).length;
+    const failedCount = findings.filter((f) => !f.passed).length;
+
+    // Derive successfully-scanned service IDs from finding evidence. Used by
+    // Phase 5 reconciliation to avoid false "resolved" events when a service
+    // wasn't actually scanned this run.
+    const scannedServices = Array.from(
+      new Set(
+        findings
+          .map((f) => {
+            const evidence = f.evidence as Record<string, unknown> | undefined;
+            const serviceId = evidence?.serviceId;
+            return typeof serviceId === 'string' ? serviceId : null;
+          })
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    // Use a transaction to ensure atomicity - both run and results are created together
+    const runId = await db.$transaction(async (tx) => {
+      // Create a scan run record
+      const scanRun = await tx.integrationCheckRun.create({
+        data: {
+          connectionId,
+          checkId: `${provider}-security-scan`,
+          checkName: `${provider.toUpperCase()} Security Scan`,
+          status: 'success',
+          startedAt: new Date(),
+          completedAt: new Date(),
+          totalChecked: findings.length,
+          passedCount,
+          failedCount,
+          scannedServices,
+          scanMode,
+        },
+      });
+
+      // Store each finding as a check result
+      if (findings.length > 0) {
+        await tx.integrationCheckResult.createMany({
+          data: findings.map((finding) => ({
+            checkRunId: scanRun.id,
+            passed: finding.passed ?? false,
+            resourceType: finding.resourceType,
+            resourceId: finding.resourceId,
+            title: finding.title,
+            description: finding.description ?? '',
+            severity: finding.passed ? 'info' : finding.severity,
+            remediation: finding.remediation ?? null,
+            evidence: (finding.evidence || {}) as object,
+            collectedAt: new Date(finding.createdAt),
+          })),
+        });
+      }
+
+      return scanRun.id;
+    });
+
+    return runId;
+  }
+
+  /**
+   * Auto-satisfy evidence tasks when ALL findings for a service pass.
+   *
+   * Safety rules:
+   * - Only sets tasks to 'done' — never failed/in_progress/todo
+   * - Only when ALL findings pass for a service
+   * - Skips tasks with status 'not_relevant' (user intent)
+   * - Skips tasks already 'done' (idempotent)
+   * - Idempotent: re-running with same results is safe
+   */
+  private async autoSatisfyTasks(
+    organizationId: string,
+    findings: SecurityFinding[],
+  ): Promise<void> {
+    // Group findings by serviceId
+    const findingsByService = new Map<string, SecurityFinding[]>();
+    for (const finding of findings) {
+      const serviceId = finding.evidence?.serviceId as string | undefined;
+      if (!serviceId) continue;
+      const group = findingsByService.get(serviceId) ?? [];
+      group.push(finding);
+      findingsByService.set(serviceId, group);
+    }
+
+    // Find services where ALL findings pass
+    const passingServices: string[] = [];
+    for (const [serviceId, serviceFindings] of findingsByService) {
+      if (
+        serviceFindings.length > 0 &&
+        serviceFindings.every((f) => f.passed)
+      ) {
+        passingServices.push(serviceId);
+      }
+    }
+
+    if (passingServices.length === 0) return;
+
+    // Collect all task template IDs to satisfy
+    const templateIds = new Set<string>();
+    for (const serviceId of passingServices) {
+      const mappedTemplates = AWS_SERVICE_TASK_MAPPINGS[serviceId];
+      if (mappedTemplates) {
+        for (const id of mappedTemplates) {
+          templateIds.add(id);
+        }
+      }
+    }
+
+    if (templateIds.size === 0) return;
+
+    // For each template ID, only satisfy if ALL mapped services pass.
+    // A task template may be linked to multiple services (e.g. Encryption at Rest
+    // requires KMS + S3 + RDS + DynamoDB). Only mark done if every scanned
+    // service that maps to this template is fully passing.
+    const eligibleTemplateIds: string[] = [];
+    for (const templateId of templateIds) {
+      // Find all services that map to this template
+      const servicesForTemplate = Object.entries(AWS_SERVICE_TASK_MAPPINGS)
+        .filter(([, templates]) => templates.includes(templateId))
+        .map(([serviceId]) => serviceId);
+
+      // Only consider services that were actually scanned
+      const scannedServicesForTemplate = servicesForTemplate.filter((s) =>
+        findingsByService.has(s),
+      );
+
+      // If no services were scanned for this template, skip
+      if (scannedServicesForTemplate.length === 0) continue;
+
+      // All scanned services for this template must be passing
+      const allPassing = scannedServicesForTemplate.every((s) =>
+        passingServices.includes(s),
+      );
+
+      if (allPassing) {
+        eligibleTemplateIds.push(templateId);
+      }
+    }
+
+    if (eligibleTemplateIds.length === 0) return;
+
+    const now = new Date();
+
+    // Update tasks: only those in todo/in_progress/in_review/failed status
+    const result = await db.task.updateMany({
+      where: {
+        organizationId,
+        taskTemplateId: { in: eligibleTemplateIds },
+        status: { in: ['todo', 'in_progress', 'in_review', 'failed'] },
+      },
+      data: {
+        status: 'done',
+        lastCompletedAt: now,
+      },
+    });
+
+    if (result.count > 0) {
+      this.logger.log(
+        `Auto-satisfied ${result.count} evidence task(s) from passing AWS scan (services: ${passingServices.join(', ')})`,
+      );
+    }
+  }
+}

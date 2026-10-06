@@ -1,0 +1,608 @@
+name: "make"
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+    branches:
+      - "main"
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: "read"
+
+jobs:
+  changes:
+    name: "changes"
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+    outputs:
+      agent: "${{ steps.classify.outputs.agent }}"
+      e2e: "${{ steps.classify.outputs.e2e }}"
+      go: "${{ steps.classify.outputs.go }}"
+      javascript: "${{ steps.classify.outputs.javascript }}"
+      shell: "${{ steps.classify.outputs.shell }}"
+      snapshot: "${{ steps.classify.outputs.snapshot }}"
+      swift: "${{ steps.classify.outputs.swift }}"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          fetch-depth: 2
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "./.github/actions/setup"
+        with:
+          node: "false"
+      - name: "Create placeholder dist files"
+        run: |
+          mkdir -p apps/console/dist apps/compliance-portal/dist apps/employee-portal/dist packages/emails/dist
+          echo ci > apps/console/dist/index.html
+          echo ci > apps/compliance-portal/dist/index.html
+          echo ci > apps/employee-portal/dist/index.html
+          echo ci > packages/emails/dist/placeholder
+      - name: "Classify changed paths"
+        id: classify
+        env:
+          BASE_SHA: "${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}"
+        run: "contrib/ci/classify-changes.sh \"$BASE_SHA\" \"$HEAD_SHA\" >> \"$GITHUB_OUTPUT\""
+
+  # ── Snapshot: build frontend apps ──────────────────────────────────
+  build-apps:
+    name: "build-apps"
+    if: github.event_name == 'push' && needs.changes.outputs.snapshot == 'true'
+    needs: [changes]
+    runs-on: "runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "./.github/actions/setup"
+        with:
+          go: "false"
+      - run: "npm --workspace @probo/emails run build"
+      - run: "make relay"
+      - name: "Build console"
+        run: |
+          npm --workspace @probo/console run check
+          NODE_ENV=production npm --workspace @probo/console run build
+      - name: "Build compliance-portal"
+        run: |
+          npm --workspace @probo/compliance-portal run check
+          NODE_ENV=production npm --workspace @probo/compliance-portal run build
+      - name: "Build employee-portal"
+        run: |
+          npm --workspace @probo/employee-portal run check
+          NODE_ENV=production npm --workspace @probo/employee-portal run build
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" # v7
+        with:
+          name: "frontend-apps"
+          path: |
+            apps/console/dist/
+            apps/compliance-portal/dist/
+            apps/employee-portal/dist/
+            packages/emails/dist/
+          retention-days: 1
+
+  # ── Snapshot: Linux/amd64 (Docker) and FreeBSD/arm64 (staging) ──
+  build-snapshot-binary:
+    name: "probod binary (${{ matrix.goos }}/${{ matrix.goarch }})"
+    if: github.event_name == 'push'
+    needs: [build-apps]
+    runs-on: "runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: freebsd, goarch: arm64 }
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "./.github/actions/setup"
+        with:
+          node: "false"
+          go-cache-key-prefix: "${{ github.workflow }}-${{ github.job }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+      - uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" # v8
+        with:
+          name: "frontend-apps"
+      - name: "Generate Go code"
+        run: |
+          go generate ./pkg/server/api/connect/v1
+          go generate ./pkg/server/api/mcp/v1
+          go generate ./pkg/server/api/console/v1
+          go generate ./pkg/server/api/complianceportal/v1
+      - name: "Build binaries"
+        env:
+          CGO_ENABLED: "0"
+          GOOS: "${{ matrix.goos }}"
+          GOARCH: "${{ matrix.goarch }}"
+        run: |
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+
+          go build -ldflags "-s -w -X 'main.version=snapshot' -X 'main.env=prod'" \
+            -gcflags="-e" -o "dist/probod${EXT}" ./cmd/probod/main.go
+
+          go build -ldflags "-s -w" \
+            -gcflags="-e" -o "dist/probod-bootstrap${EXT}" ./cmd/probod-bootstrap/main.go
+
+          go build -ldflags "-s -w -X 'main.version=snapshot'" \
+            -gcflags="-e" -o "dist/prb${EXT}" ./cmd/prb/main.go
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" # v7
+        with:
+          name: "binary-${{ matrix.goos }}-${{ matrix.goarch }}"
+          path: "dist/"
+          retention-days: 1
+
+  # ── Snapshot: build the Linux/amd64 Docker image ───────────────────
+  build-snapshot-docker:
+    name: "docker (${{ matrix.arch }})"
+    if: github.event_name == 'push'
+    needs: [build-snapshot-binary]
+    runs-on: "runs-on=${{ github.run_id }}/runner=${{ matrix.runner }}/extras=s3-cache"
+    permissions:
+      contents: "read"
+      security-events: "write"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: "linux/amd64"
+            runner: "4cpu-linux-x64"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e" # v4.3.0
+      - uses: "docker/login-action@dbcb813823bdd20940b903addbd779551569679f" # v4.6.0
+        with:
+          registry: artifact.probo.inc
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" # v8
+        with:
+          name: "binary-linux-${{ matrix.arch }}"
+          path: "linux/${{ matrix.arch }}"
+      - name: "Prepare binaries"
+        run: "chmod +x linux/${{ matrix.arch }}/*"
+      - name: "Build Docker image"
+        run: |
+          docker buildx build \
+            --platform "${{ matrix.platform }}" \
+            --build-arg "BASE_IMAGE=artifact.probo.inc/dockerhub/library/ubuntu@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b" \
+            --tag "artifact.probo.inc/probo/probo:snapshot-${{ matrix.arch }}" \
+            --load \
+            .
+      - name: "Cache Trivy database"
+        uses: "runs-on/cache@a5f51d6f3fece787d03b7b4e981c82538a0654ed" # v4
+        with:
+          path: ~/.cache/trivy
+          key: "trivy-db-${{ matrix.arch }}-${{ github.run_id }}"
+          restore-keys: "trivy-db-${{ matrix.arch }}-"
+      - name: "Scan Docker image with Trivy"
+        uses: "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25" # 0.36.0
+        with:
+          image-ref: "artifact.probo.inc/probo/probo:snapshot-${{ matrix.arch }}"
+          format: "table"
+          exit-code: 1
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+          cache-dir: ~/.cache/trivy
+
+  # ── Snapshot: SBOM & vulnerability scan ────────────────────────────
+  snapshot-scan:
+    name: "snapshot-scan"
+    if: github.event_name == 'push'
+    needs: [build-snapshot-binary]
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26" # v0.24.2
+        with:
+          path: ./
+          format: cyclonedx-json
+          output-file: sbom.json
+      - uses: "anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439" # v7.4.2
+        with:
+          sbom: "sbom.json"
+          fail-build: true
+          severity-cutoff: critical
+          output-format: table
+
+  # ── Build probod group (PR + push validation) ────────────────────────
+  build:
+    name: "build-probod"
+    if: needs.changes.outputs.e2e == 'true'
+    needs: [changes]
+    runs-on: "runs-on=${{ github.run_id }}/runner=8cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "./.github/actions/setup"
+      - name: "Create placeholder dist files"
+        run: |
+          mkdir -p apps/console/dist apps/compliance-portal/dist apps/employee-portal/dist
+          echo dev-server > apps/console/dist/index.html
+          echo dev-server > apps/compliance-portal/dist/index.html
+          echo dev-server > apps/employee-portal/dist/index.html
+      - run: "npm --workspace @probo/emails run build"
+      - name: "Generate Go code"
+        run: |
+          go generate ./pkg/server/api/connect/v1
+          go generate ./pkg/server/api/mcp/v1
+          go generate ./pkg/server/api/console/v1
+          go generate ./pkg/server/api/complianceportal/v1
+      - name: "Build probod group binaries"
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          pids=()
+          go build -ldflags "-s -w -X 'main.version=snapshot' -X 'main.env=prod'" \
+            -gcflags="-e" -o bin/probod ./cmd/probod/main.go & pids+=($!)
+          go build -ldflags "-s -w" \
+            -gcflags="-e" -o bin/probod-bootstrap ./cmd/probod-bootstrap/main.go & pids+=($!)
+          go build -ldflags "-s -w -X 'main.version=snapshot'" \
+            -gcflags="-e" -o bin/prb ./cmd/prb/main.go & pids+=($!)
+          for pid in "${pids[@]}"; do wait "$pid"; done
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" # v7
+        with:
+          name: "probod-ci"
+          path: "bin/probod"
+          retention-days: 1
+
+  build-probo-agent:
+    name: "build-probo-agent"
+    if: needs.changes.outputs.agent == 'true'
+    needs: [changes]
+    runs-on: "runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "./.github/actions/setup"
+        with:
+          node: "false"
+      - name: "Build probo-agent"
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go build -ldflags "-s -w -X 'main.version=snapshot'" \
+            -gcflags="-e" -o bin/probo-agent ./cmd/probo-agent
+
+  lint-go:
+    name: "lint-go"
+    if: needs.changes.outputs.go == 'true'
+    needs: [changes]
+    runs-on: "runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+      pull-requests: "write"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "./.github/actions/setup"
+        with:
+          node: "false"
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+          install-only: true
+      - uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # v1.5.0
+      - name: "Create placeholder dist files"
+        run: |
+          mkdir -p apps/console/dist apps/compliance-portal/dist apps/employee-portal/dist packages/emails/dist
+          echo dev-server > apps/console/dist/index.html
+          echo dev-server > apps/compliance-portal/dist/index.html
+          echo dev-server > apps/employee-portal/dist/index.html
+          echo dev-server > packages/emails/dist/placeholder
+      - name: "Generate Go code"
+        run: |
+          go generate ./pkg/server/api/connect/v1
+          go generate ./pkg/server/api/mcp/v1
+          go generate ./pkg/server/api/console/v1
+          go generate ./pkg/server/api/complianceportal/v1
+      - name: "Run gofmt"
+        run: |
+          output="$(gofmt -l apps cmd packages pkg e2e)"
+          if [ -n "$output" ]; then
+            echo "error: 'gofmt' found unformatted files:"
+            echo "$output"
+            exit 1
+          fi
+      - name: "Run go fix"
+        run: |
+          output="$(CGO_ENABLED=0 go fix -diff -omitzero=false ./apps/... ./cmd/... ./packages/... ./pkg/... ./e2e/...)"
+          if [ -n "$output" ]; then
+            echo "error: 'go fix' suggests changes; please apply them"
+            echo "$output"
+            exit 1
+          fi
+      - name: "Run golangci-lint"
+        run: golangci-lint run ./...
+      - name: "Annotate PR with golangci-lint findings"
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          golangci-lint run --out-format=line-number ./... 2>&1 | \
+            reviewdog -f=golangci-lint -reporter=github-pr-review -filter-mode=nofilter -name="golangci-lint" || true
+
+  lint-js:
+    name: "lint-js"
+    if: needs.changes.outputs.javascript == 'true'
+    needs: [changes]
+    runs-on: "runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+      pull-requests: "write"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "./.github/actions/setup"
+        with:
+          go: "false"
+      - uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # v1.5.0
+      - name: "Validate @probo/skills"
+        run: npm --workspace @probo/skills run validate
+      - name: "Generate Relay artifacts"
+        run: make relay
+      - name: "Run eslint"
+        run: npm run lint
+      - name: "Annotate PR with eslint findings"
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for dir in apps/console apps/compliance-portal apps/employee-portal packages/ui packages/eslint-config; do
+            (cd "$dir" && npx eslint . --concurrency 4 --format stylish 2>/dev/null) | \
+              reviewdog -f=eslint -reporter=github-pr-review -filter-mode=nofilter -name="eslint ($dir)" || true
+          done
+
+  lint-swift:
+    name: "lint-swift"
+    if: needs.changes.outputs.swift == 'true'
+    needs: [changes]
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+      pull-requests: "write"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a" # v2.4.0
+        with:
+          swift-version: "6.0"
+      - uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # v1.5.0
+      - name: "Install SwiftLint"
+        env:
+          SWIFTLINT_VERSION: "0.65.0"
+          SWIFTLINT_SHA256: "79306a34e5c7cc55a220cd108cbb861dcad5f10138dcdf261e2624ae8b0a486b"
+        run: |
+          curl -sL "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/swiftlint_linux_amd64.zip" -o /tmp/swiftlint.zip
+          echo "${SWIFTLINT_SHA256}  /tmp/swiftlint.zip" | sha256sum -c -
+          sudo unzip -o /tmp/swiftlint.zip -d /usr/local/bin
+          sudo chmod +x /usr/local/bin/swiftlint
+          swiftlint version
+      - name: "Run swift format"
+        run: |
+          sources="$(find cmd/probo-agent/installer/macos/enroll-ui \( -name '*.swift' ! -name '*.generated.swift' ! -path '*/.build/*' \) | sort)"
+          swift format lint --configuration .swift-format --strict --parallel $sources
+      - name: "Run SwiftLint"
+        run: swiftlint lint --strict --config .swiftlint.yml --cache-path /tmp/swiftlint-cache
+      - name: "Annotate PR with SwiftLint findings"
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          swiftlint lint --config .swiftlint.yml --cache-path /tmp/swiftlint-cache 2>&1 | \
+            reviewdog -f=swiftlint -reporter=github-pr-review -filter-mode=nofilter -name="swiftlint" || true
+
+  lint-shell:
+    name: "lint-shell"
+    if: needs.changes.outputs.shell == 'true'
+    needs: [changes]
+    runs-on: "runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - name: "Install shellcheck and shfmt"
+        env:
+          SHELLCHECK_VERSION: "v0.11.0"
+          SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+          SHFMT_VERSION: "v3.13.1"
+          SHFMT_SHA256: "fb096c5d1ac6beabbdbaa2874d025badb03ee07929f0c9ff67563ce8c75398b1"
+        run: |
+          curl -sL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o /tmp/shellcheck.tar.xz
+          echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          sudo install -m 755 "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          curl -sL "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/shfmt_${SHFMT_VERSION}_linux_amd64" -o /tmp/shfmt
+          echo "${SHFMT_SHA256}  /tmp/shfmt" | sha256sum -c -
+          sudo install -m 755 /tmp/shfmt /usr/local/bin/shfmt
+          shellcheck --version
+          shfmt --version
+      - name: "Run make lint-shell"
+        run: make lint-shell
+
+  test:
+    name: "test"
+    if: needs.changes.outputs.go == 'true'
+    needs: [changes]
+    runs-on: "runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "./.github/actions/setup"
+      - name: "Configure Docker image source"
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "Fork pull request: pulling images from their origin registries, not the artifact.probo.inc mirror"
+            echo "COMPOSE_FILE=compose.yaml" >> "$GITHUB_ENV"
+          else
+            echo "COMPOSE_FILE=compose.yaml:compose.github-action.yaml" >> "$GITHUB_ENV"
+          fi
+      - uses: "docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2" # v2.3.0
+      - uses: "docker/login-action@dbcb813823bdd20940b903addbd779551569679f" # v4.6.0
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          registry: artifact.probo.inc
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - name: "Start test database"
+        run: "docker compose up --detach --wait postgres"
+      - name: "Create placeholder dist files"
+        run: |
+          mkdir -p apps/console/dist apps/compliance-portal/dist apps/employee-portal/dist
+          echo dev-server > apps/console/dist/index.html
+          echo dev-server > apps/compliance-portal/dist/index.html
+          echo dev-server > apps/employee-portal/dist/index.html
+      - run: "npm --workspace @probo/emails run build"
+      - run: "make test"
+        env:
+          GOTESTSUM_JUNITFILE: "junit.xml"
+          PROBO_TEST_PG_URL: "postgres://probod:probod@localhost:5432/probod_test"
+          TEST_FLAGS: "-count=1 -race -cover -coverprofile=coverage.out"
+      - name: "Race-test e2e harness packages"
+        run: "CGO_ENABLED=1 go test -race -count=1 ./e2e/internal/..."
+      - name: "Upload test results"
+        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" # v7
+        if: "always()"
+        continue-on-error: true
+        with:
+          name: "junit-results"
+          path: "junit.xml"
+          retention-days: 30
+      - run: "go tool cover -html=coverage.out -o coverage.html"
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" # v7
+        continue-on-error: true
+        with:
+          name: "coverage-reports"
+          path: |
+            coverage.out
+            coverage.html
+          retention-days: 30
+
+  test-e2e:
+    name: "test-e2e"
+    if: needs.changes.outputs.e2e == 'true'
+    needs: [changes, build]
+    runs-on: "runs-on=${{ github.run_id }}/runner=4cpu-linux-x64/extras=s3-cache"
+    permissions:
+      contents: "read"
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v6
+        with:
+          submodules: recursive
+      - uses: "runs-on/action@46910bf61b41721b0579f237e186afb35477007a" # v2
+      - uses: "./.github/actions/setup"
+        with:
+          node: "false"
+      - uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" # v8
+        with:
+          name: "probod-ci"
+          path: "bin"
+      - name: "Prepare probod"
+        run: "chmod +x bin/probod"
+      - name: "Configure Docker image source"
+        # Pull requests from forks don't get repository secrets, so
+        # HARBOR_USERNAME/HARBOR_PASSWORD are unavailable and logging into
+        # the artifact.probo.inc mirror would fail. Fall back to pulling
+        # images straight from their origin registries in that case.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "Fork pull request: pulling images from their origin registries, not the artifact.probo.inc mirror"
+            echo "USE_HARBOR_MIRROR=false" >> "$GITHUB_ENV"
+            echo "COMPOSE_FILE=compose.yaml" >> "$GITHUB_ENV"
+            echo "DOCKER_COMPOSE_FLAGS=" >> "$GITHUB_ENV"
+          else
+            echo "USE_HARBOR_MIRROR=true" >> "$GITHUB_ENV"
+            echo "COMPOSE_FILE=compose.yaml:compose.github-action.yaml" >> "$GITHUB_ENV"
+            echo "DOCKER_COMPOSE_FLAGS=-f compose.github-action.yaml" >> "$GITHUB_ENV"
+          fi
+      - uses: "docker/setup-compose-action@4eb059ff7f16592f9c84d5ca339c53cb7c5064e2" # v2.3.0
+      - uses: "docker/login-action@dbcb813823bdd20940b903addbd779551569679f" # v4.6.0
+        if: "env.USE_HARBOR_MIRROR == 'true'"
+        with:
+          registry: artifact.probo.inc
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - name: "Install mkcert"
+        run: |
+          go install filippo.io/mkcert@latest
+          sudo mkcert -install 2>&1 | grep -v 'no Firefox and/or Chrome/Chromium security databases found' || true
+      - name: "Cache Docker images"
+        id: docker-cache
+        uses: "runs-on/cache@a5f51d6f3fece787d03b7b4e981c82538a0654ed" # v4
+        with:
+          path: /tmp/docker-images
+          key: "docker-images-${{ env.USE_HARBOR_MIRROR }}-${{ hashFiles('compose.yaml', 'compose.github-action.yaml') }}"
+      - name: "Load cached Docker images"
+        if: steps.docker-cache.outputs.cache-hit == 'true'
+        run: "docker load -i /tmp/docker-images/images.tar"
+      - name: "Pull and save Docker images"
+        if: steps.docker-cache.outputs.cache-hit != 'true'
+        run: |
+          docker compose pull
+          mkdir -p /tmp/docker-images
+          docker save $(docker compose config --images) -o /tmp/docker-images/images.tar
+      - name: "Start stack"
+        run: "make stack-up"
+      - run: "make stack-ps"
+      - name: "Run e2e tests"
+        env:
+          PROBO_E2E_ARTIFACT_DIR: "${{ github.workspace }}/e2e-artifacts"
+          GOTESTSUM_FORMAT: "testname"
+          GOTESTSUM_JUNITFILE: "junit-e2e.xml"
+        run: |
+          PROBOD_ACME_ROOT_CA="$(cat compose/step-ca/certs/root_ca.crt)" \
+            make test-e2e-run \
+              E2E_BINARY="${{ github.workspace }}/bin/probod" \
+              E2E_TEST_FLAGS="-parallel=8"
+      - name: "Upload test results"
+        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" # v7
+        if: "always()"
+        continue-on-error: true
+        with:
+          name: "junit-e2e-results"
+          path: |
+            junit-e2e.xml
+            e2e-artifacts
+          retention-days: 30

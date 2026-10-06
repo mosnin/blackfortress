@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "Compliance Portal",
+    "getAccess": "Request Access",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "menuTitle": "Menu",
+    "nav": {
+      "documents": "Documents",
+      "subprocessors": "Subprocessors",
+      "updates": "Updates",
+      "requests": "Requests"
+    }
+  },
+  "userMenu": {
+    "subscribe": "Subscribe to updates",
+    "subscribed": "Subscribed to updates",
+    "signOut": "Sign out",
+    "signOutFailed": "Cannot sign out",
+    "switchToDarkMode": "Switch to dark mode",
+    "switchToLightMode": "Switch to light mode"
+  },
+  "locale": {
+    "label": "Language",
+    "updateFailed": "Couldn't update language",
+    "mismatch": {
+      "message": "You're viewing this page in {{language}}.",
+      "switchToMine": "Switch to {{language}}",
+      "useThis": "Use {{language}} as my language",
+      "dismiss": "Dismiss"
+    }
+  },
+  "common": {
+    "error": "Something went wrong",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "pageOf": "Page {{current}} of {{total}}",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "Access requested"
+    },
+    "fullName": {
+      "title": "Add your name",
+      "label": "Full Name",
+      "placeholder": "John Doe",
+      "required": "Full name is required",
+      "tooShort": "Full name is too short",
+      "submit": "Continue"
+    },
+    "errors": {
+      "fullNameFailed": "Couldn't save your name. Please try again.",
+      "requestFailed": "Couldn't complete your access request. Please try again."
+    }
+  },
+  "home": {
+    "heroTitle": "Compliance at {{name}}.",
+    "heroDescription": "Welcome to our Compliance Portal. Find our security documentation and certifications here.",
+    "sections": {
+      "compliance": "Compliance",
+      "securityCommitments": "Security Commitments",
+      "trustedBy": "Trusted by",
+      "recentUpdates": "Recent updates"
+    },
+    "recentUpdates": {
+      "viewAll": "View all"
+    }
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "The page you are looking for does not exist or has moved.",
+    "backHome": "Back to home"
+  },
+  "errors": {
+    "notFound": {
+      "title": "Page not found",
+      "description": "The page you're looking for doesn't exist or may have been moved."
+    },
+    "forbidden": {
+      "title": "Access denied",
+      "description": "You don't have permission to view this page. Request access or go back to the compliance portal."
+    },
+    "serverError": {
+      "title": "Something went wrong",
+      "description": "Something went wrong on our side. Try again, or contact support if the issue continues."
+    },
+    "generic": {
+      "title": "Unable to load page",
+      "description": "We couldn't load this page. Try again, or contact support if the issue continues."
+    },
+    "actions": {
+      "backToCompliancePortal": "Back to compliance portal",
+      "tryAgain": "Try again",
+      "contactSupport": "Contact support",
+      "requestAccess": "Request access"
+    },
+    "inline": {
+      "message": "Unable to load content",
+      "retry": "Retry"
+    }
+  },
+  "footer": {
+    "poweredBy": "Powered by"
+  },
+  "pagination": {
+    "previous": "Previous page",
+    "next": "Next page"
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "Sign the NDA to access private documents.",
+      "sign": "Review and sign",
+      "dismiss": "Dismiss"
+    }
+  }
+}

@@ -1,0 +1,405 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package types
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"slices"
+
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/oauth2"
+	"go.probo.inc/probo/pkg/uri"
+)
+
+func requireGID(values url.Values, param string) (gid.GID, error) {
+	v := values.Get(param)
+	if v == "" {
+		return gid.GID{}, fmt.Errorf("missing %s", param)
+	}
+
+	id, err := gid.ParseGID(v)
+	if err != nil {
+		return gid.GID{}, fmt.Errorf("invalid %s", param)
+	}
+
+	return id, nil
+}
+
+func parseScopes(s string) (coredata.OAuth2Scopes, error) {
+	var scopes coredata.OAuth2Scopes
+	if err := scopes.UnmarshalText([]byte(s)); err != nil {
+		return nil, err
+	}
+
+	return scopes, nil
+}
+
+func parseResources(values url.Values) ([]string, error) {
+	resources := values["resource"]
+	if len(resources) == 0 {
+		return nil, nil
+	}
+
+	if slices.Contains(resources, "") {
+		return nil, oauth2.NewError(
+			oauth2.ErrInvalidTarget,
+			oauth2.WithDescription("resource must not be empty"),
+		)
+	}
+
+	return resources, nil
+}
+
+type (
+	OAuth2AuthorizeInput struct {
+		ClientIDRaw         string
+		RedirectURI         string
+		Resources           []string
+		State               string
+		ResponseType        coredata.OAuth2ResponseType
+		Scopes              coredata.OAuth2Scopes
+		CodeChallenge       string
+		CodeChallengeMethod coredata.OAuth2CodeChallengeMethod
+		Nonce               string
+	}
+
+	OAuth2IntrospectInput struct {
+		Token         string
+		TokenTypeHint *coredata.OAuth2TokenTypeHint
+	}
+
+	OAuth2RevokeInput struct {
+		Token         string
+		TokenTypeHint *coredata.OAuth2TokenTypeHint
+	}
+
+	OAuth2DeviceAuthInput struct {
+		ClientID gid.GID
+		Scopes   coredata.OAuth2Scopes
+	}
+
+	OAuth2AuthorizationCodeGrantInput struct {
+		ClientID     string
+		ClientSecret string
+		Code         string
+		RedirectURI  string
+		Resources    []string
+		CodeVerifier string
+	}
+
+	OAuth2RefreshTokenGrantInput struct {
+		ClientID     string
+		ClientSecret string
+		RefreshToken string
+		Resources    []string
+	}
+
+	OAuth2DeviceCodeGrantInput struct {
+		ClientID   gid.GID
+		DeviceCode string
+	}
+
+	OAuth2RegisterInput struct {
+		OrganizationID          *gid.GID                                     `json:"organization_id"`
+		ClientName              string                                       `json:"client_name"`
+		Visibility              coredata.OAuth2ClientVisibility              `json:"visibility"`
+		RedirectURIs            []uri.URI                                    `json:"redirect_uris"`
+		GrantTypes              []coredata.OAuth2GrantType                   `json:"grant_types"`
+		ResponseTypes           []coredata.OAuth2ResponseType                `json:"response_types"`
+		TokenEndpointAuthMethod coredata.OAuth2ClientTokenEndpointAuthMethod `json:"token_endpoint_auth_method"`
+		LogoURI                 *uri.URI                                     `json:"logo_uri"`
+		ClientURI               *uri.URI                                     `json:"client_uri"`
+		Contacts                []string                                     `json:"contacts"`
+		Scopes                  coredata.OAuth2Scopes                        `json:"scopes"`
+	}
+)
+
+func (in *OAuth2AuthorizeInput) DecodeQuery(q url.Values) error {
+	var err error
+
+	in.ClientIDRaw = q.Get("client_id")
+	if in.ClientIDRaw == "" {
+		return fmt.Errorf("missing client_id")
+	}
+
+	in.RedirectURI = q.Get("redirect_uri")
+	in.Resources = q["resource"]
+	in.State = q.Get("state")
+	in.ResponseType = coredata.OAuth2ResponseType(q.Get("response_type"))
+	in.CodeChallenge = q.Get("code_challenge")
+	in.CodeChallengeMethod = coredata.OAuth2CodeChallengeMethod(q.Get("code_challenge_method"))
+	in.Nonce = q.Get("nonce")
+
+	in.Scopes, err = parseScopes(q.Get("scope"))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (in *OAuth2IntrospectInput) DecodeForm(r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("invalid form data")
+	}
+
+	in.Token = r.FormValue("token")
+	if in.Token == "" {
+		return fmt.Errorf("missing token parameter")
+	}
+
+	if hint := r.FormValue("token_type_hint"); hint != "" {
+		h := coredata.OAuth2TokenTypeHint(hint)
+		if h.IsValid() {
+			in.TokenTypeHint = &h
+		}
+	}
+
+	return nil
+}
+
+func (in *OAuth2RevokeInput) DecodeForm(r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("invalid form data")
+	}
+
+	in.Token = r.FormValue("token")
+
+	if hint := r.FormValue("token_type_hint"); hint != "" {
+		h := coredata.OAuth2TokenTypeHint(hint)
+		if h.IsValid() {
+			in.TokenTypeHint = &h
+		}
+	}
+
+	return nil
+}
+
+func (in *OAuth2DeviceAuthInput) DecodeForm(r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("invalid form data")
+	}
+
+	var err error
+
+	in.ClientID, err = requireGID(r.Form, "client_id")
+	if err != nil {
+		return err
+	}
+
+	if scopeStr := r.FormValue("scope"); scopeStr != "" {
+		in.Scopes, err = parseScopes(scopeStr)
+		if err != nil {
+			return fmt.Errorf("invalid scope")
+		}
+	}
+
+	return nil
+}
+
+func (in *OAuth2AuthorizationCodeGrantInput) DecodeForm(r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("invalid form data")
+	}
+
+	in.ClientID = r.FormValue("client_id")
+	in.ClientSecret = r.FormValue("client_secret")
+	in.Code = r.FormValue("code")
+	in.RedirectURI = r.FormValue("redirect_uri")
+
+	resources, err := parseResources(r.Form)
+	if err != nil {
+		return err
+	}
+
+	in.Resources = resources
+	in.CodeVerifier = r.FormValue("code_verifier")
+
+	if in.Code == "" {
+		return fmt.Errorf("missing code")
+	}
+
+	return nil
+}
+
+func (in *OAuth2RefreshTokenGrantInput) DecodeForm(r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("invalid form data")
+	}
+
+	in.ClientID = r.FormValue("client_id")
+	in.ClientSecret = r.FormValue("client_secret")
+	in.RefreshToken = r.FormValue("refresh_token")
+
+	resources, err := parseResources(r.Form)
+	if err != nil {
+		return err
+	}
+
+	in.Resources = resources
+	if in.RefreshToken == "" {
+		return fmt.Errorf("missing refresh_token")
+	}
+
+	return nil
+}
+
+func (in *OAuth2DeviceCodeGrantInput) DecodeForm(r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return fmt.Errorf("invalid form data")
+	}
+
+	var err error
+
+	in.ClientID, err = requireGID(r.Form, "client_id")
+	if err != nil {
+		return err
+	}
+
+	in.DeviceCode = r.FormValue("device_code")
+	if in.DeviceCode == "" {
+		return fmt.Errorf("missing device_code")
+	}
+
+	return nil
+}
+
+type (
+	OAuth2TokenResponse struct {
+		AccessToken  string `json:"access_token"`
+		TokenType    string `json:"token_type"`
+		ExpiresIn    int64  `json:"expires_in"`
+		RefreshToken string `json:"refresh_token,omitempty"`
+		IDToken      string `json:"id_token,omitempty"`
+		Scope        string `json:"scope,omitempty"`
+	}
+
+	OAuth2IntrospectResponse struct {
+		Active    bool                  `json:"active"`
+		Scope     coredata.OAuth2Scopes `json:"scope,omitempty"`
+		ClientID  gid.GID               `json:"client_id,omitempty"`
+		Sub       gid.GID               `json:"sub,omitempty"`
+		Audiences []uri.URI             `json:"aud,omitempty"`
+		Exp       int64                 `json:"exp,omitempty"`
+		Iat       int64                 `json:"iat,omitempty"`
+		TokenType string                `json:"token_type,omitempty"`
+	}
+
+	OAuth2DeviceAuthResponse struct {
+		DeviceCode              string  `json:"device_code"`
+		UserCode                string  `json:"user_code"`
+		VerificationURI         uri.URI `json:"verification_uri"`
+		VerificationURIComplete uri.URI `json:"verification_uri_complete"`
+		ExpiresIn               int     `json:"expires_in"`
+		Interval                int     `json:"interval"`
+	}
+
+	OAuth2RegisterResponse struct {
+		ClientID                string                                       `json:"client_id"`
+		ClientSecret            string                                       `json:"client_secret,omitempty"`
+		ClientName              string                                       `json:"client_name"`
+		Visibility              coredata.OAuth2ClientVisibility              `json:"visibility"`
+		RedirectURIs            []uri.URI                                    `json:"redirect_uris"`
+		GrantTypes              []coredata.OAuth2GrantType                   `json:"grant_types"`
+		ResponseTypes           []coredata.OAuth2ResponseType                `json:"response_types"`
+		TokenEndpointAuthMethod coredata.OAuth2ClientTokenEndpointAuthMethod `json:"token_endpoint_auth_method"`
+		Scopes                  coredata.OAuth2Scopes                        `json:"scope"`
+	}
+
+	OAuth2ErrorResponse struct {
+		Code        string `json:"error"`
+		Description string `json:"error_description,omitempty"`
+	}
+)
+
+func (in *OAuth2RegisterInput) UnmarshalJSON(data []byte) error {
+	type plain OAuth2RegisterInput
+
+	decoded := struct {
+		*plain
+		Scope coredata.OAuth2Scopes `json:"scope"`
+	}{
+		plain: (*plain)(in),
+	}
+
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	if len(decoded.Scope) > 0 {
+		in.Scopes = decoded.Scope
+	}
+
+	return nil
+}
+
+func NewConsent(consent *coredata.OAuth2Consent) *Consent {
+	scopes := make([]string, len(consent.Scopes))
+	for i, s := range consent.Scopes {
+		scopes[i] = string(s)
+	}
+
+	return &Consent{
+		ID:          consent.ID,
+		Application: &Application{ID: consent.ClientID},
+		Scopes:      scopes,
+	}
+}
+
+func NewApplication(client *coredata.OAuth2Client) *Application {
+	app := &Application{
+		ID:   client.ID,
+		Name: client.ClientName,
+	}
+
+	if client.LogoURI != nil {
+		s := string(*client.LogoURI)
+		app.LogoURL = &s
+	}
+
+	if client.ClientURI != nil {
+		s := string(*client.ClientURI)
+		app.URL = &s
+	}
+
+	return app
+}
+
+func InactiveIntrospectResponse() *OAuth2IntrospectResponse {
+	return &OAuth2IntrospectResponse{Active: false}
+}
+
+func ActiveIntrospectResponse(result *oauth2.IntrospectResult) *OAuth2IntrospectResponse {
+	return &OAuth2IntrospectResponse{
+		Active:    true,
+		Scope:     result.Scopes,
+		ClientID:  result.ClientID,
+		Sub:       result.IdentityID,
+		Audiences: result.Resources,
+		Exp:       result.ExpiresAt.Unix(),
+		Iat:       result.IssuedAt.Unix(),
+		TokenType: result.TokenType,
+	}
+}

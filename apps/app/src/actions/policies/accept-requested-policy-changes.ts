@@ -1,0 +1,187 @@
+'use server';
+
+import { getOrgIsInternal } from '@/lib/org-participation';
+import { sendNewPolicyEmail } from '@/trigger/tasks/email/new-policy-email';
+import { db, PolicyStatus, type Prisma } from '@db/server';
+import { tasks } from '@trigger.dev/sdk';
+import { revalidatePath, revalidateTag } from 'next/cache';
+import { z } from 'zod';
+import { authActionClient } from '../safe-action';
+
+const acceptRequestedPolicyChangesSchema = z.object({
+  id: z.string(),
+  approverId: z.string(),
+  comment: z.string().optional(),
+  entityId: z.string(),
+});
+
+export const acceptRequestedPolicyChangesAction = authActionClient
+  .inputSchema(acceptRequestedPolicyChangesSchema)
+  .metadata({
+    name: 'accept-requested-policy-changes',
+    track: {
+      event: 'accept-requested-policy-changes',
+      description: 'Accept Policy Changes',
+      channel: 'server',
+    },
+  })
+  .action(async ({ parsedInput, ctx }) => {
+    const { id, approverId, comment } = parsedInput;
+    const { user, session } = ctx;
+
+    if (!user?.id || !session.activeOrganizationId) {
+      throw new Error('Unauthorized');
+    }
+
+    if (!approverId) {
+      throw new Error('Approver is required');
+    }
+
+    try {
+      const policy = await db.policy.findUnique({
+        where: {
+          id,
+          organizationId: session.activeOrganizationId,
+        },
+        include: {
+          organization: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      });
+
+      if (!policy) {
+        throw new Error('Policy not found');
+      }
+
+      if (policy.approverId !== approverId) {
+        throw new Error('Approver is not the same');
+      }
+
+      // Check if there were previous signers to determine notification type
+      const isNewPolicy = policy.lastPublishedAt === null;
+
+      // Build update data
+      const updateData: Prisma.PolicyUpdateInput = {
+        status: PolicyStatus.published,
+        approver: { disconnect: true }, // Clear the approver relation
+        signedBy: [], // Clear the signedBy field
+        lastPublishedAt: new Date(), // Update last published date
+        reviewDate: new Date(), // Update reviewDate to current date
+        pendingVersionId: null, // Clear pending version
+      };
+
+      // If there's a pending version, make it the current version
+      if (policy.pendingVersionId) {
+        const pendingVersion = await db.policyVersion.findUnique({
+          where: { id: policy.pendingVersionId },
+        });
+
+        if (!pendingVersion || pendingVersion.policyId !== policy.id) {
+          // Pending version is missing or invalid - cannot proceed with approval
+          return {
+            success: false,
+            error: 'The pending version no longer exists. Approval cannot be completed.',
+          };
+        }
+
+        updateData.currentVersion = { connect: { id: pendingVersion.id } };
+        updateData.content = pendingVersion.content as Prisma.InputJsonValue[];
+        updateData.draftContent = pendingVersion.content as Prisma.InputJsonValue[];
+      }
+
+      // Update policy status and apply version changes
+      await db.policy.update({
+        where: {
+          id,
+          organizationId: session.activeOrganizationId,
+        },
+        data: updateData,
+      });
+
+      // Get all active members — the downstream isUserUnsubscribed check
+      // handles role-based notification filtering via the org's notification matrix.
+      const orgIsInternal = await getOrgIsInternal(session.activeOrganizationId);
+      const members = await db.member.findMany({
+        where: {
+          organizationId: session.activeOrganizationId,
+          isActive: true,
+          deactivated: false,
+          ...(orgIsInternal ? {} : { user: { role: { not: 'admin' } } }),
+        },
+        include: {
+          user: true,
+        },
+      });
+
+      // Prepare the events array for the API
+      const events = members
+        .filter((employee) => employee.user.email)
+        .map((employee) => {
+          let notificationType: 'new' | 're-acceptance' | 'updated';
+          const wasAlreadySigned = policy.signedBy.includes(employee.id);
+          if (isNewPolicy) {
+            notificationType = 'new';
+          } else if (wasAlreadySigned) {
+            notificationType = 're-acceptance';
+          } else {
+            notificationType = 'updated';
+          }
+
+          return {
+            email: employee.user.email,
+            userName: employee.user.name || employee.user.email || 'Employee',
+            policyName: policy.name,
+            organizationId: session.activeOrganizationId || '',
+            organizationName: policy.organization.name,
+            notificationType,
+          };
+        });
+
+      // Call the API route to send the emails
+      await Promise.all(
+        events.map((event) =>
+          tasks.trigger<typeof sendNewPolicyEmail>('send-new-policy-email', event),
+        ),
+      );
+
+      // If a comment was provided, create a comment
+      if (comment && comment.trim() !== '') {
+        const member = await db.member.findFirst({
+          where: {
+            userId: user!.id,
+            organizationId: session.activeOrganizationId,
+            deactivated: false,
+          },
+        });
+
+        if (member) {
+          await db.comment.create({
+            data: {
+              content: `Policy changes accepted: ${comment}`,
+              entityId: id,
+              entityType: 'policy',
+              organizationId: session.activeOrganizationId,
+              authorId: member.id,
+            },
+          });
+        }
+      }
+
+      revalidatePath(`/${session.activeOrganizationId}/policies`);
+      revalidatePath(`/${session.activeOrganizationId}/policies/${id}`);
+      revalidateTag('policies', 'max');
+
+      return {
+        success: true,
+      };
+    } catch (error) {
+      console.error('Error submitting policy for approval:', error);
+
+      return {
+        success: false,
+      };
+    }
+  });

@@ -1,0 +1,117 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package search
+
+import (
+	"context"
+	"fmt"
+
+	"go.probo.inc/probo/pkg/agent"
+)
+
+type (
+	govDBParams struct {
+		CompanyName string `json:"company_name" jsonschema:"The company name to search for in government databases"`
+		Domain      string `json:"domain" jsonschema:"The company domain for additional search context (optional)"`
+	}
+
+	govDBEntry struct {
+		Source  string `json:"source"`
+		Title   string `json:"title"`
+		URL     string `json:"url"`
+		Snippet string `json:"snippet,omitempty"`
+	}
+
+	govDBResult struct {
+		SECFilings   []govDBEntry `json:"sec_filings,omitempty"`
+		FTCActions   []govDBEntry `json:"ftc_actions,omitempty"`
+		GDPRFines    []govDBEntry `json:"gdpr_fines,omitempty"`
+		OtherActions []govDBEntry `json:"other_regulatory_actions,omitempty"`
+		ErrorDetail  string       `json:"error_detail,omitempty"`
+	}
+)
+
+func CheckGovernmentDBTool(apiKey string) agent.Tool {
+	client := newHTTPClient()
+
+	return agent.FunctionTool(
+		"check_government_databases",
+		"Search government and regulatory databases for enforcement actions, SEC filings, FTC actions, and GDPR fines related to a company.",
+		func(ctx context.Context, p govDBParams) (agent.ToolResult, error) {
+			var result govDBResult
+
+			name := p.CompanyName
+			if p.Domain != "" {
+				name = name + " " + p.Domain
+			}
+
+			type searchSpec struct {
+				query  string
+				source string
+				target *[]govDBEntry
+			}
+
+			searches := []searchSpec{
+				{
+					query:  fmt.Sprintf(`site:sec.gov "%s"`, p.CompanyName),
+					source: "SEC",
+					target: &result.SECFilings,
+				},
+				{
+					query:  fmt.Sprintf(`site:ftc.gov "%s"`, p.CompanyName),
+					source: "FTC",
+					target: &result.FTCActions,
+				},
+				{
+					query:  fmt.Sprintf(`site:enforcementtracker.com "%s"`, p.CompanyName),
+					source: "GDPR Enforcement Tracker",
+					target: &result.GDPRFines,
+				},
+				{
+					query:  fmt.Sprintf(`"%s" regulatory action OR enforcement OR fine OR penalty OR sanction`, name),
+					source: "General",
+					target: &result.OtherActions,
+				},
+			}
+
+			for _, s := range searches {
+				entries, err := firecrawlSearch(ctx, client, apiKey, s.query, 3)
+				if err != nil {
+					continue
+				}
+
+				for _, e := range entries {
+					*s.target = append(
+						*s.target,
+						govDBEntry{
+							Source:  s.source,
+							Title:   e.Title,
+							URL:     e.URL,
+							Snippet: e.Snippet,
+						},
+					)
+				}
+			}
+
+			return agent.ResultJSON(result), nil
+		},
+	)
+}

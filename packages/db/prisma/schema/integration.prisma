@@ -1,0 +1,32 @@
+model Integration {
+  id             String              @id @default(dbgenerated("generate_prefixed_cuid('int'::text)"))
+  name           String
+  integrationId  String
+  settings       Json
+  userSettings   Json
+  organizationId String
+  lastRunAt      DateTime?
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  results        IntegrationResult[]
+
+  @@index([organizationId])
+}
+
+model IntegrationResult {
+  id             String    @id @default(dbgenerated("generate_prefixed_cuid('itr'::text)"))
+  title          String?
+  description    String?
+  remediation    String?
+  status         String?
+  severity       String?
+  resultDetails  Json?
+  completedAt    DateTime? @default(now())
+  integrationId  String
+  organizationId String
+  assignedUserId String?
+
+  assignedUser User?       @relation(fields: [assignedUserId], references: [id], onDelete: Cascade)
+  integration  Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([integrationId])
+}

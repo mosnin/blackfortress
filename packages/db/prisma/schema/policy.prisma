@@ -1,0 +1,85 @@
+enum PolicyDisplayFormat {
+  EDITOR
+  PDF
+}
+
+enum PolicyVisibility {
+  ALL // Visible to everyone in organization
+  DEPARTMENT // Only visible to specified departments
+}
+
+model Policy {
+  id               String              @id @default(dbgenerated("generate_prefixed_cuid('pol'::text)"))
+  name             String
+  description      String?
+  status           PolicyStatus        @default(draft)
+  content          Json[]
+  draftContent     Json[]              @default([])
+  frequency        Frequency?
+  department       String?
+  isRequiredToSign Boolean             @default(true)
+  signedBy         String[]            @default([])
+  reviewDate       DateTime?
+  isArchived       Boolean             @default(false)
+  displayFormat    PolicyDisplayFormat @default(EDITOR)
+  pdfUrl           String?
+
+  // Visibility settings (for department-specific policies)
+  visibility           PolicyVisibility @default(ALL)
+  visibleToDepartments String[]         @default([])
+
+  // Dates
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  lastArchivedAt  DateTime?
+  lastPublishedAt DateTime?
+
+  // Sync-driven archive. Distinct from `isArchived` (which is user-initiated
+  // archiving of a published policy). UI should hide a policy if EITHER is
+  // set: `WHERE isArchived = false AND archivedAt IS NULL`. Rollback restores
+  // only `archivedAt`, never touches `isArchived`.
+  archivedAt DateTime?
+
+  // Relationships
+  organizationId        String
+  organization          Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assigneeId            String?
+  assignee              Member?                        @relation("PolicyAssignee", fields: [assigneeId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  approverId            String?
+  approver              Member?                        @relation("PolicyApprover", fields: [approverId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  policyTemplateId      String?
+  policyTemplate        FrameworkEditorPolicyTemplate? @relation(fields: [policyTemplateId], references: [id])
+  controls              Control[]
+  frameworkControlLinks FrameworkControlPolicyLink[]
+  currentVersionId      String?                        @unique
+  currentVersion        PolicyVersion?                 @relation("PolicyCurrentVersion", fields: [currentVersionId], references: [id])
+  pendingVersionId      String?
+  versions              PolicyVersion[]                @relation("PolicyVersions")
+  findings              Finding[]
+
+  @@index([organizationId])
+  @@index([organizationId, archivedAt])
+}
+
+model PolicyVersion {
+  id        String   @id @default(dbgenerated("generate_prefixed_cuid('pv'::text)"))
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  policyId         String
+  policy           Policy  @relation("PolicyVersions", fields: [policyId], references: [id], onDelete: Cascade)
+  currentForPolicy Policy? @relation("PolicyCurrentVersion")
+
+  // Version details
+  version       Int
+  content       Json[]
+  pdfUrl        String?
+  publishedById String?
+  publishedBy   Member? @relation("PolicyVersionPublisher", fields: [publishedById], references: [id], onDelete: SetNull)
+  changelog     String?
+
+  @@unique([policyId, version])
+  @@index([policyId])
+  @@index([createdAt])
+}

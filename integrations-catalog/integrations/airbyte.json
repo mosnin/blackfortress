@@ -1,0 +1,57 @@
+{
+  "slug": "airbyte",
+  "name": "Airbyte",
+  "description": "Monitor Airbyte data integration pipelines for connection status and workspace access compliance",
+  "category": "Cloud",
+  "docsUrl": "https://reference.airbyte.com/reference/getting-started",
+  "baseUrl": "https://api.airbyte.com",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to Airbyte Cloud at https://cloud.airbyte.com (or your self-hosted instance).\n2. Go to Settings > Applications.\n3. Create a new Application; copy the Client ID and Client Secret (secret shown only once).\n4. Paste them above. For self-hosted Airbyte, also enter your API Base URL.\n5. Comp will exchange these for short-lived access tokens automatically.",
+      "credentialFields": [
+        {
+          "label": "Client ID",
+          "type": "text",
+          "required": true,
+          "helpText": "Airbyte Cloud Application Client ID. Settings > Applications > Create Application."
+        },
+        {
+          "label": "Client Secret",
+          "type": "password",
+          "required": true,
+          "helpText": "Airbyte Cloud Application Client Secret. Shown once at application creation."
+        },
+        {
+          "label": "API Base URL (optional, self-hosted only)",
+          "type": "text",
+          "required": false,
+          "helpText": "Defaults to https://api.airbyte.com for Airbyte Cloud. For self-hosted Airbyte, enter your instance URL (e.g. https://airbyte.example.com/api/public)."
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "airbyte_infrastructure",
+      "name": "Infrastructure Inventory",
+      "description": "Lists Airbyte workspaces for data pipeline infrastructure inventory",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "airbyte_employee_access",
+      "name": "Employee Access",
+      "description": "Reviews Airbyte workspace users and their data pipeline access",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

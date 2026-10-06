@@ -1,0 +1,461 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  debugTipTapContent,
+  isValidTipTapContent,
+  validateAndFixTipTapContent,
+} from './validate-content';
+
+describe('validateAndFixTipTapContent', () => {
+  // Your exact problematic schema from the original question
+  const problematicSchema = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          {
+            text: '1 . Table of Contents',
+            type: 'text',
+            marks: [
+              {
+                type: 'bold',
+              },
+            ],
+          },
+        ],
+      },
+      {
+        type: 'paragraph',
+        content: [
+          {
+            text: 'Executive Summary: Comp AI is committed to maintaining the highest security standards to protect sensitive data. This policy delineates acceptable use and endpoint security measures to ensure compliance with SOC 2. All employees must adhere strictly to these guidelines for safe and responsible use of company resources.',
+            // ❌ This is the problematic node - missing "type": "text"
+          },
+        ],
+      },
+    ],
+  };
+
+  describe('fixing your exact problematic schema', () => {
+    it('should fix the missing type property in the last paragraph', () => {
+      const fixedContent = validateAndFixTipTapContent(problematicSchema);
+
+      // Verify the document structure is valid
+      expect(fixedContent.type).toBe('doc');
+      expect(fixedContent.content).toBeDefined();
+      expect(Array.isArray(fixedContent.content)).toBe(true);
+
+      // Get the last paragraph (the problematic one) - we know it exists
+      const lastParagraph = (fixedContent.content as any[])[1];
+      expect(lastParagraph.type).toBe('paragraph');
+      expect(lastParagraph.content).toBeDefined();
+
+      // Check that the text node now has the correct type
+      const textNode = lastParagraph.content[0];
+      expect(textNode.type).toBe('text');
+      expect(textNode.text).toContain('Executive Summary');
+    });
+
+    it('should preserve all existing valid content', () => {
+      const fixedContent = validateAndFixTipTapContent(problematicSchema);
+
+      expect(fixedContent.type).toBe('doc');
+      expect(fixedContent.content).toBeDefined();
+      expect((fixedContent.content as any[]).length).toBe(2);
+
+      // Check that bold marks are preserved in the first paragraph
+      const firstParagraph = (fixedContent.content as any[])[0];
+      expect(firstParagraph.type).toBe('paragraph');
+      const firstTextNode = firstParagraph.content[0];
+      expect(firstTextNode.marks).toBeDefined();
+      expect(firstTextNode.marks[0].type).toBe('bold');
+    });
+
+    it('should result in valid TipTap content', () => {
+      const fixedContent = validateAndFixTipTapContent(problematicSchema);
+      expect(isValidTipTapContent(fixedContent)).toBe(true);
+    });
+  });
+
+  describe('common AI generation issues', () => {
+    it('should fix missing text type properties', () => {
+      const contentWithMissingTypes = {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                text: 'Hello world', // Missing type: "text"
+              },
+            ],
+          },
+        ],
+      };
+
+      const fixed = validateAndFixTipTapContent(contentWithMissingTypes);
+      const textNode = (fixed.content as any[])[0].content[0];
+      expect(textNode.type).toBe('text');
+      expect(textNode.text).toBe('Hello world');
+    });
+
+    it('should handle array content instead of doc structure', () => {
+      const arrayContent = [
+        {
+          type: 'paragraph',
+          content: [
+            { text: 'Missing type' }, // Missing type
+          ],
+        },
+      ];
+
+      const fixed = validateAndFixTipTapContent(arrayContent);
+      expect(fixed.type).toBe('doc');
+
+      const textNode = (fixed.content as any[])[0].content[0];
+      expect(textNode.type).toBe('text');
+      expect(textNode.text).toBe('Missing type');
+    });
+
+    it('should handle null and undefined content', () => {
+      const nullResult = validateAndFixTipTapContent(null);
+      expect(nullResult.type).toBe('doc');
+      expect(nullResult.content).toBeDefined();
+
+      const undefinedResult = validateAndFixTipTapContent(undefined);
+      expect(undefinedResult.type).toBe('doc');
+      expect(undefinedResult.content).toBeDefined();
+    });
+
+    it('should handle completely invalid input gracefully', () => {
+      const invalidInputs = ['string', 123, {}, { type: 'invalid' }, { content: 'not an array' }];
+
+      invalidInputs.forEach((input) => {
+        const fixed = validateAndFixTipTapContent(input);
+        expect(isValidTipTapContent(fixed)).toBe(true);
+        expect(fixed.type).toBe('doc');
+      });
+    });
+  });
+
+  describe('isValidTipTapContent', () => {
+    it('should return true for valid content', () => {
+      const validContent = {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Hello world' }],
+          },
+        ],
+      };
+
+      expect(isValidTipTapContent(validContent)).toBe(true);
+    });
+
+    it('should return false for invalid content', () => {
+      expect(isValidTipTapContent(null)).toBe(false);
+      expect(isValidTipTapContent('string')).toBe(false);
+      expect(isValidTipTapContent({})).toBe(false);
+      expect(isValidTipTapContent({ type: 'notdoc' })).toBe(false);
+    });
+  });
+
+  describe('debugTipTapContent', () => {
+    it('should not throw errors when debugging content', () => {
+      const spy = vi.spyOn(console, 'group').mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const groupEndSpy = vi.spyOn(console, 'groupEnd').mockImplementation(() => {});
+
+      expect(() => {
+        debugTipTapContent(problematicSchema);
+        debugTipTapContent(null);
+        debugTipTapContent('invalid');
+        debugTipTapContent({});
+      }).not.toThrow();
+
+      spy.mockRestore();
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+      groupEndSpy.mockRestore();
+    });
+  });
+
+  describe('stringified JSON nodes', () => {
+    it('should parse stringified JSON nodes in an array', () => {
+      const content = [
+        JSON.stringify({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Purpose' }] }),
+        JSON.stringify({ type: 'paragraph', attrs: { textAlign: null }, content: [{ type: 'text', text: 'Some policy text.' }] }),
+      ];
+
+      const fixed = validateAndFixTipTapContent(content);
+      expect(fixed.type).toBe('doc');
+      const nodes = fixed.content as any[];
+      expect(nodes).toHaveLength(2);
+      expect(nodes[0].type).toBe('heading');
+      expect(nodes[0].content[0].text).toBe('Purpose');
+      expect(nodes[1].type).toBe('paragraph');
+      expect(nodes[1].content[0].text).toBe('Some policy text.');
+    });
+
+    it('should handle mixed stringified and object nodes', () => {
+      const content = [
+        JSON.stringify({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Title' }] }),
+        { type: 'paragraph', content: [{ type: 'text', text: 'Body text' }] },
+      ];
+
+      const fixed = validateAndFixTipTapContent(content);
+      const nodes = fixed.content as any[];
+      expect(nodes).toHaveLength(2);
+      expect(nodes[0].type).toBe('heading');
+      expect(nodes[1].type).toBe('paragraph');
+    });
+
+    it('should skip invalid stringified JSON', () => {
+      const content = [
+        'not valid json',
+        JSON.stringify({ type: 'paragraph', content: [{ type: 'text', text: 'Valid' }] }),
+      ];
+
+      const fixed = validateAndFixTipTapContent(content);
+      const nodes = fixed.content as any[];
+      expect(nodes).toHaveLength(1);
+      expect(nodes[0].type).toBe('paragraph');
+    });
+  });
+
+  describe('orphaned listItem handling', () => {
+    it('should wrap orphaned listItems in a bulletList', () => {
+      const content = [
+        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Title' }] },
+        { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Item 1' }] }] },
+        { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Item 2' }] }] },
+      ];
+
+      const fixed = validateAndFixTipTapContent(content);
+      const nodes = fixed.content as any[];
+      expect(nodes).toHaveLength(2);
+      expect(nodes[0].type).toBe('heading');
+      expect(nodes[1].type).toBe('bulletList');
+      expect(nodes[1].content).toHaveLength(2);
+      expect(nodes[1].content[0].type).toBe('listItem');
+      expect(nodes[1].content[1].type).toBe('listItem');
+    });
+
+    it('should append orphaned listItems to a preceding list', () => {
+      const content = [
+        { type: 'bulletList', content: [
+          { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First' }] }] },
+        ]},
+        { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Second' }] }] },
+        { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Third' }] }] },
+      ];
+
+      const fixed = validateAndFixTipTapContent(content);
+      const nodes = fixed.content as any[];
+      expect(nodes).toHaveLength(1);
+      expect(nodes[0].type).toBe('bulletList');
+      expect(nodes[0].content).toHaveLength(3);
+    });
+  });
+
+  describe('list with non-listItem children', () => {
+    it('should wrap bare paragraphs inside a bulletList in listItems', () => {
+      const content = [
+        { type: 'bulletList', content: [
+          { type: 'paragraph', attrs: { textAlign: null }, content: [{ type: 'text', text: 'Bare paragraph' }] },
+        ]},
+      ];
+
+      const fixed = validateAndFixTipTapContent(content);
+      const nodes = fixed.content as any[];
+      expect(nodes[0].type).toBe('bulletList');
+      expect(nodes[0].content[0].type).toBe('listItem');
+      expect(nodes[0].content[0].content[0].type).toBe('paragraph');
+      expect(nodes[0].content[0].content[0].content[0].text).toBe('Bare paragraph');
+    });
+  });
+
+  describe('textStyle mark removal', () => {
+    it('should strip textStyle marks from content', () => {
+      const content = {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Styled text',
+                marks: [
+                  { type: 'textStyle', attrs: { color: 'red' } },
+                  { type: 'bold' },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const fixed = validateAndFixTipTapContent(content);
+      const textNode = (fixed.content as any[])[0].content[0];
+      expect(textNode.marks).toHaveLength(1);
+      expect(textNode.marks[0].type).toBe('bold');
+    });
+  });
+
+  describe('real-world AI-generated malformed content', () => {
+    it('should fix the exact content from ENG-197', () => {
+      // This is the actual content from the bug report — each node is a
+      // JSON string, the bulletList contains a bare paragraph, and
+      // listItems are orphaned at the top level.
+      const content = [
+        JSON.stringify({ type: 'heading', attrs: { level: 2, textAlign: null }, content: [{ text: 'Purpose', type: 'text' }] }),
+        JSON.stringify({ type: 'paragraph', attrs: { textAlign: null }, content: [{ text: 'Ensure all governance...', type: 'text' }] }),
+        JSON.stringify({ type: 'heading', attrs: { level: 2, textAlign: null }, content: [{ text: 'Version Control & Distribution', type: 'text' }] }),
+        JSON.stringify({ type: 'bulletList', content: [{ type: 'paragraph', attrs: { textAlign: null }, content: [{ text: 'Keep policies under version control.', type: 'text' }] }] }),
+        JSON.stringify({ type: 'listItem', content: [{ type: 'paragraph', attrs: { textAlign: null }, content: [{ text: 'Include a version number.', type: 'text' }] }] }),
+        JSON.stringify({ type: 'listItem', content: [{ type: 'paragraph', attrs: { textAlign: null }, content: [{ text: 'Notify personnel.', type: 'text' }] }] }),
+      ];
+
+      const fixed = validateAndFixTipTapContent(content);
+      expect(fixed.type).toBe('doc');
+      const nodes = fixed.content as any[];
+
+      // heading, paragraph, heading, bulletList (merged)
+      expect(nodes).toHaveLength(4);
+      expect(nodes[0].type).toBe('heading');
+      expect(nodes[1].type).toBe('paragraph');
+      expect(nodes[2].type).toBe('heading');
+      expect(nodes[3].type).toBe('bulletList');
+
+      // The bulletList should contain 3 listItems:
+      // 1 from the bare paragraph wrapped in listItem + 2 orphaned listItems
+      expect(nodes[3].content).toHaveLength(3);
+      expect(nodes[3].content.every((n: any) => n.type === 'listItem')).toBe(true);
+    });
+  });
+
+  describe('table header preservation (CS-418)', () => {
+    it('preserves a tableHeader row instead of collapsing it to an empty cell', () => {
+      const content = {
+        type: 'doc',
+        content: [
+          {
+            type: 'table',
+            content: [
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableHeader', attrs: { colspan: 1, rowspan: 1 }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Name' }] }] },
+                  { type: 'tableHeader', attrs: { colspan: 1, rowspan: 1 }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Role' }] }] },
+                ],
+              },
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Alice' }] }] },
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Admin' }] }] },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const fixed = validateAndFixTipTapContent(content);
+      const table = (fixed.content as any[])[0];
+      expect(table.type).toBe('table');
+
+      const headerRow = table.content[0];
+      expect(headerRow.content).toHaveLength(2);
+      expect(headerRow.content[0].type).toBe('tableHeader');
+      expect(headerRow.content[1].type).toBe('tableHeader');
+      // Header text must survive
+      expect(headerRow.content[0].content[0].content[0].text).toBe('Name');
+      expect(headerRow.content[1].content[0].content[0].text).toBe('Role');
+      // Header attrs (colspan/rowspan/colwidth) must survive
+      expect(headerRow.content[0].attrs).toEqual({ colspan: 1, rowspan: 1 });
+
+      // Body row still works
+      const bodyRow = table.content[1];
+      expect(bodyRow.content[0].type).toBe('tableCell');
+      expect(bodyRow.content[0].content[0].content[0].text).toBe('Alice');
+    });
+
+    it('preserves mixed header + cell within a single row', () => {
+      const content = {
+        type: 'doc',
+        content: [
+          {
+            type: 'table',
+            content: [
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Key' }] }] },
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Value' }] }] },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const fixed = validateAndFixTipTapContent(content);
+      const row = (fixed.content as any[])[0].content[0];
+      expect(row.content[0].type).toBe('tableHeader');
+      expect(row.content[1].type).toBe('tableCell');
+    });
+  });
+
+  describe('empty text node handling', () => {
+    const strip = (s: string) => s.replace(/[\u00A0\u200B\u202F]/g, '').trim();
+
+    const hasEmptyTextNodes = (node: any): boolean => {
+      if (!node || typeof node !== 'object') return false;
+      if (node.type === 'text') {
+        const txt = typeof node.text === 'string' ? node.text : '';
+        return strip(txt).length === 0;
+      }
+      if (Array.isArray(node.content)) {
+        return node.content.some((child: any) => hasEmptyTextNodes(child));
+      }
+      return false;
+    };
+
+    it('removes empty and whitespace-only (including NBSP/ZWSP) text nodes in paragraphs', () => {
+      const content = {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: '' },
+              { type: 'text', text: ' ' },
+              { type: 'text', text: '\u00A0' },
+              { type: 'text', text: '\u200B' },
+              { type: 'text', text: 'Hello' },
+              { text: 'World' },
+            ],
+          },
+        ],
+      };
+
+      const fixed = validateAndFixTipTapContent(content);
+      expect(fixed.type).toBe('doc');
+      expect(hasEmptyTextNodes(fixed)).toBe(false);
+
+      const paragraph = (fixed.content as any[])[0];
+      const texts = paragraph.content.map((n: any) => n.text);
+      expect(texts).toEqual(['Hello', 'World']);
+    });
+
+    it('does not introduce empty text nodes when creating empty structures', () => {
+      const fixed = validateAndFixTipTapContent({});
+      expect(fixed.type).toBe('doc');
+      expect(hasEmptyTextNodes(fixed)).toBe(false);
+    });
+  });
+});

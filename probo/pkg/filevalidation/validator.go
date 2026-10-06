@@ -1,0 +1,241 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package filevalidation
+
+import (
+	"fmt"
+	"path/filepath"
+	"slices"
+	"strings"
+)
+
+const (
+	// DefaultMaxFileSize defines the default maximum allowed file size (50MB)
+	DefaultMaxFileSize = 50 * 1024 * 1024
+)
+
+// File type categories
+const (
+	CategoryDocument     = "document"
+	CategorySpreadsheet  = "spreadsheet"
+	CategoryPresentation = "presentation"
+	CategoryText         = "text"
+	CategoryImage        = "image"
+	CategoryData         = "data"
+	CategoryVideo        = "video"
+)
+
+// FileType defines a supported file type with its MIME type and extensions
+type FileType struct {
+	MimeType   string
+	Extensions []string
+	Category   string
+}
+
+// FileTypes is a list of all supported file types
+var FileTypes = []FileType{
+	// Document types
+	{MimeType: "application/pdf", Extensions: []string{".pdf"}, Category: CategoryDocument},
+	{MimeType: "application/msword", Extensions: []string{".doc"}, Category: CategoryDocument},
+	{MimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Extensions: []string{".docx"}, Category: CategoryDocument},
+	{MimeType: "application/vnd.oasis.opendocument.text", Extensions: []string{".odt"}, Category: CategoryDocument},
+
+	// Spreadsheet types
+	{MimeType: "application/vnd.ms-excel", Extensions: []string{".xls"}, Category: CategorySpreadsheet},
+	{MimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Extensions: []string{".xlsx"}, Category: CategorySpreadsheet},
+	{MimeType: "application/vnd.oasis.opendocument.spreadsheet", Extensions: []string{".ods"}, Category: CategorySpreadsheet},
+
+	// Presentation types
+	{MimeType: "application/vnd.ms-powerpoint", Extensions: []string{".ppt"}, Category: CategoryPresentation},
+	{MimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", Extensions: []string{".pptx"}, Category: CategoryPresentation},
+	{MimeType: "application/vnd.oasis.opendocument.presentation", Extensions: []string{".odp"}, Category: CategoryPresentation},
+
+	// Text types
+	{MimeType: "text/markdown", Extensions: []string{".md"}, Category: CategoryText},
+	{MimeType: "text/plain", Extensions: []string{".txt", ".log"}, Category: CategoryText},
+	{MimeType: "text/x-log", Extensions: []string{".log"}, Category: CategoryText},
+	{MimeType: "text/uri-list", Extensions: []string{".uri"}, Category: CategoryText},
+	{MimeType: "text/uri-list; charset=utf-8", Extensions: []string{".uri"}, Category: CategoryText},
+
+	// Image types
+	{MimeType: "image/jpeg", Extensions: []string{".jpg", ".jpeg"}, Category: CategoryImage},
+	{MimeType: "image/png", Extensions: []string{".png"}, Category: CategoryImage},
+	{MimeType: "image/svg+xml", Extensions: []string{".svg"}, Category: CategoryImage},
+	{MimeType: "image/webp", Extensions: []string{".webp"}, Category: CategoryImage},
+
+	// Data types
+	{MimeType: "application/yaml", Extensions: []string{".yaml", ".yml"}, Category: CategoryData},
+	{MimeType: "application/json", Extensions: []string{".json"}, Category: CategoryData},
+	{MimeType: "text/yaml", Extensions: []string{".yaml", ".yml"}, Category: CategoryData},
+	{MimeType: "text/json", Extensions: []string{".json"}, Category: CategoryData},
+	{MimeType: "text/csv", Extensions: []string{".csv"}, Category: CategoryData},
+	{MimeType: "application/csv", Extensions: []string{".csv"}, Category: CategoryData},
+
+	// Video types
+	{MimeType: "video/mp4", Extensions: []string{".mp4"}, Category: CategoryVideo},
+	{MimeType: "video/mpeg", Extensions: []string{".mpeg", ".mpg"}, Category: CategoryVideo},
+	{MimeType: "video/quicktime", Extensions: []string{".mov"}, Category: CategoryVideo},
+	{MimeType: "video/x-msvideo", Extensions: []string{".avi"}, Category: CategoryVideo},
+	{MimeType: "video/webm", Extensions: []string{".webm"}, Category: CategoryVideo},
+}
+
+// FileValidator is a configurable file validator
+type FileValidator struct {
+	// MaxFileSize specifies the maximum file size in bytes
+	MaxFileSize int64
+
+	// AllowedMimeTypes is a map of allowed MIME types
+	AllowedMimeTypes map[string]bool
+
+	// AllowedExtensions maps file extensions to their expected MIME types
+	AllowedExtensions map[string][]string
+
+	// Categories is a list of categories to include
+	Categories []string
+}
+
+type Option func(v *FileValidator) *FileValidator
+
+func addFileType(v *FileValidator, fileType FileType) {
+	v.AllowedMimeTypes[fileType.MimeType] = true
+
+	for _, ext := range fileType.Extensions {
+		if v.AllowedExtensions[ext] == nil {
+			v.AllowedExtensions[ext] = []string{}
+		}
+
+		v.AllowedExtensions[ext] = append(v.AllowedExtensions[ext], fileType.MimeType)
+	}
+}
+
+func WithCategories(categories ...string) Option {
+	return func(v *FileValidator) *FileValidator {
+		v.Categories = categories
+
+		categoryMap := make(map[string]bool)
+		for _, category := range categories {
+			categoryMap[category] = true
+		}
+
+		for _, fileType := range FileTypes {
+			if categoryMap[fileType.Category] {
+				addFileType(v, fileType)
+			}
+		}
+
+		return v
+	}
+}
+
+func WithMimeTypes(mimeTypes ...string) Option {
+	return func(v *FileValidator) *FileValidator {
+		wanted := make(map[string]bool, len(mimeTypes))
+		for _, mimeType := range mimeTypes {
+			wanted[mimeType] = true
+		}
+
+		found := make(map[string]bool, len(wanted))
+
+		for _, fileType := range FileTypes {
+			if !wanted[fileType.MimeType] {
+				continue
+			}
+
+			found[fileType.MimeType] = true
+			addFileType(v, fileType)
+		}
+
+		unknown := make([]string, 0, len(wanted))
+		for mimeType := range wanted {
+			if !found[mimeType] {
+				unknown = append(unknown, mimeType)
+			}
+		}
+
+		if len(unknown) > 0 {
+			slices.Sort(unknown)
+			panic("filevalidation: unknown MIME types: " + strings.Join(unknown, ", "))
+		}
+
+		return v
+	}
+}
+
+func WithMaxFileSize(maxFileSize int64) Option {
+	return func(v *FileValidator) *FileValidator {
+		v.MaxFileSize = maxFileSize
+
+		return v
+	}
+}
+
+func NewValidator(opts ...Option) *FileValidator {
+	v := &FileValidator{
+		MaxFileSize:       DefaultMaxFileSize,
+		AllowedMimeTypes:  make(map[string]bool),
+		AllowedExtensions: make(map[string][]string),
+	}
+
+	for _, opt := range opts {
+		v = opt(v)
+	}
+
+	return v
+}
+
+// WithMaxFileSize sets the maximum file size and returns the validator
+func (v *FileValidator) WithMaxFileSize(maxSize int64) *FileValidator {
+	v.MaxFileSize = maxSize
+	return v
+}
+
+// Validate validates that the file meets the configured requirements
+func (v *FileValidator) Validate(filename string, contentType string, size int64) error {
+	if size == 0 {
+		return fmt.Errorf("file can't be empty")
+	}
+
+	if size > v.MaxFileSize {
+		return fmt.Errorf("file size exceeds maximum allowed size of %d bytes", v.MaxFileSize)
+	}
+
+	if !v.AllowedMimeTypes[contentType] {
+		return fmt.Errorf("content type %q is not allowed", contentType)
+	}
+
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == "" {
+		return fmt.Errorf("file has no extension")
+	}
+
+	allowedTypes, extAllowed := v.AllowedExtensions[ext]
+	if !extAllowed {
+		return fmt.Errorf("file extension %q is not allowed", ext)
+	}
+
+	validType := slices.Contains(allowedTypes, contentType)
+
+	if !validType {
+		return fmt.Errorf("content type %q does not match extension %q", contentType, ext)
+	}
+
+	return nil
+}

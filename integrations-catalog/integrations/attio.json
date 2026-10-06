@@ -1,0 +1,45 @@
+{
+  "slug": "attio",
+  "name": "Attio",
+  "description": "Monitor Attio CRM for team member access and workspace data compliance",
+  "category": "Productivity",
+  "docsUrl": "https://developers.attio.com/reference/get_v2-self",
+  "baseUrl": "https://api.attio.com/",
+  "authConfig": {
+    "type": "api_key",
+    "config": {
+      "setupInstructions": "1. Log in to Attio at https://app.attio.com\n2. Go to Workspace Settings → Developers → API Keys\n3. Create a new API key with read access\n4. Copy and enter it below",
+      "credentialFields": [
+        {
+          "label": "API Key",
+          "type": "password",
+          "required": true,
+          "helpText": "Found in Attio Workspace Settings → Developers → API Keys"
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "attio_employee_access",
+      "name": "Employee Access",
+      "description": "Lists Attio workspace members with their access level (admin/member/suspended) and emits per-member evidence.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "attio_app_availability",
+      "name": "Application Availability",
+      "description": "Verifies the Attio API token is active and the workspace is reachable via /v2/self.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

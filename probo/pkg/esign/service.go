@@ -1,0 +1,589 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package esign
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"go.gearno.de/crypto/uuid"
+	"go.gearno.de/kit/httpclient"
+	"go.gearno.de/kit/log"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/filemanager"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/html2pdf"
+	"go.probo.inc/probo/pkg/mail"
+	"go.probo.inc/probo/pkg/validator"
+	"golang.org/x/sync/errgroup"
+)
+
+// Service manages the electronic signature lifecycle.
+type (
+	Service struct {
+		pg             *pg.Client
+		fileManager    *filemanager.Service
+		tsaClient      *TSAClient
+		certificateGen *CertificateGenerator
+		bucket         string
+		logger         *log.Logger
+	}
+
+	CreateSignatureRequest struct {
+		OrganizationID gid.GID
+		DocumentType   coredata.ElectronicSignatureDocumentType
+		DocumentName   *string
+		FileID         gid.GID
+		SignerEmail    mail.Addr
+		ConsentText    string // optional; required when DocumentType == OTHER
+		EmailSubject   string
+	}
+
+	AcceptSignatureRequest struct {
+		SignatureID    gid.GID
+		SignerFullName string
+		SignerEmail    mail.Addr
+		SignerIPAddr   string
+		SignerUA       string
+	}
+
+	CreateAndAcceptSignatureRequest struct {
+		OrganizationID gid.GID
+		DocumentType   coredata.ElectronicSignatureDocumentType
+		DocumentName   *string
+		FileID         gid.GID
+		SignerEmail    mail.Addr
+		SignerFullName string
+		SignerIPAddr   string
+		SignerUA       string
+		ConsentText    string
+		EmailSubject   string
+	}
+
+	RecordEventRequest struct {
+		SignatureID   gid.GID
+		EventType     coredata.ElectronicSignatureEventType
+		EventSource   coredata.ElectronicSignatureEventSource
+		ActorFullName string
+		ActorEmail    mail.Addr
+		ActorIPAddr   string
+		ActorUA       string
+	}
+)
+
+func (req AcceptSignatureRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(req.SignerFullName, "signer_full_name", validator.NotEmpty())
+
+	return v.Error()
+}
+
+func (req CreateAndAcceptSignatureRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(req.SignerFullName, "signer_full_name", validator.NotEmpty())
+
+	return v.Error()
+}
+
+func (req RecordEventRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(req.ActorFullName, "actor_full_name", validator.NotEmpty())
+
+	return v.Error()
+}
+
+func NewService(
+	pgClient *pg.Client,
+	fileManager *filemanager.Service,
+	html2pdfConverter *html2pdf.Converter,
+	tsaURL string,
+	bucket string,
+	logger *log.Logger,
+) *Service {
+	httpClient := httpclient.DefaultPooledClient(
+		httpclient.WithLogger(logger),
+	)
+
+	return &Service{
+		pg:          pgClient,
+		fileManager: fileManager,
+		tsaClient:   &TSAClient{URL: tsaURL, HTTPClient: httpClient},
+		certificateGen: &CertificateGenerator{
+			HTML2PDFConverter: html2pdfConverter,
+		},
+		bucket: bucket,
+		logger: logger,
+	}
+}
+
+func (s *Service) Run(ctx context.Context, presenterConfigFunc EmailPresenterConfigFunc) error {
+	g, gctx := errgroup.WithContext(ctx)
+
+	sealingWorkerCtx, stopSealingWorker := context.WithCancel(ctx)
+	sealingWorker := NewSealingWorker(
+		s.pg,
+		s.fileManager,
+		s.tsaClient,
+		s.logger.Named("sealing-worker"),
+		nil,
+	)
+
+	g.Go(func() error { return sealingWorker.Run(sealingWorkerCtx) })
+
+	certWorkerCtx, stopCertWorker := context.WithCancel(ctx)
+	certWorker := NewCompletionCertificateWorker(
+		s.pg,
+		s.fileManager,
+		s.certificateGen,
+		presenterConfigFunc,
+		s.bucket,
+		s.logger.Named("completion-certificate-worker"),
+	)
+
+	g.Go(func() error { return certWorker.Run(certWorkerCtx) })
+
+	<-gctx.Done()
+
+	stopSealingWorker()
+	stopCertWorker()
+
+	return g.Wait()
+}
+
+func (s *Service) CreateSignature(
+	ctx context.Context,
+	conn pg.Tx,
+	req *CreateSignatureRequest,
+) (*coredata.ElectronicSignature, error) {
+	consentText := req.ConsentText
+	if consentText == "" {
+		return nil, fmt.Errorf("consent text is required")
+	}
+
+	emailSubject := req.EmailSubject
+	if emailSubject == "" {
+		docName := req.DocumentType.DisplayName()
+		if req.DocumentName != nil && *req.DocumentName != "" {
+			docName = *req.DocumentName
+		}
+
+		emailSubject = fmt.Sprintf("Your signed %s - Certificate of Completion", docName)
+	}
+
+	now := time.Now()
+	scope := coredata.NewScopeFromObjectID(req.OrganizationID)
+
+	signatureID := gid.New(scope.GetTenantID(), coredata.ElectronicSignatureEntityType)
+
+	stampedFileID, err := s.createStampedDocument(ctx, conn, scope, req.OrganizationID, req.FileID, signatureID)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create stamped document: %w", err)
+	}
+
+	sig := &coredata.ElectronicSignature{
+		ID:             signatureID,
+		OrganizationID: req.OrganizationID,
+		Status:         coredata.ElectronicSignatureStatusPending,
+		DocumentType:   req.DocumentType,
+		DocumentName:   req.DocumentName,
+		FileID:         stampedFileID,
+		SignerEmail:    req.SignerEmail.String(),
+		ConsentText:    consentText,
+		EmailSubject:   emailSubject,
+		SealVersion:    1,
+		AttemptCount:   0,
+		MaxAttempts:    10,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	if err := sig.Insert(ctx, conn, scope); err != nil {
+		return nil, fmt.Errorf("cannot insert electronic signature: %w", err)
+	}
+
+	return sig, nil
+}
+
+func (s *Service) CreateAndAcceptSignature(
+	ctx context.Context,
+	conn pg.Tx,
+	req *CreateAndAcceptSignatureRequest,
+) (*coredata.ElectronicSignature, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	sig, err := s.CreateSignature(
+		ctx,
+		conn,
+		&CreateSignatureRequest{
+			OrganizationID: req.OrganizationID,
+			DocumentType:   req.DocumentType,
+			DocumentName:   req.DocumentName,
+			FileID:         req.FileID,
+			SignerEmail:    req.SignerEmail,
+			ConsentText:    req.ConsentText,
+			EmailSubject:   req.EmailSubject,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create signature: %w", err)
+	}
+
+	now := time.Now()
+	scope := coredata.NewScopeFromObjectID(req.OrganizationID)
+
+	sig.SignerFullName = &req.SignerFullName
+	sig.SignerIPAddress = &req.SignerIPAddr
+	sig.SignerUserAgent = &req.SignerUA
+	sig.SignedAt = &now
+	sig.Status = coredata.ElectronicSignatureStatusAccepted
+	sig.UpdatedAt = now
+
+	if err := sig.Update(ctx, conn, scope); err != nil {
+		return nil, fmt.Errorf("cannot accept signature: %w", err)
+	}
+
+	if err := s.recordEvent(
+		ctx,
+		conn,
+		scope,
+		&RecordEventRequest{
+			SignatureID:   sig.ID,
+			EventType:     coredata.ElectronicSignatureEventTypeSignatureAccepted,
+			EventSource:   coredata.ElectronicSignatureEventSourceServer,
+			ActorFullName: req.SignerFullName,
+			ActorEmail:    req.SignerEmail,
+			ActorIPAddr:   req.SignerIPAddr,
+			ActorUA:       req.SignerUA,
+		},
+	); err != nil {
+		return nil, fmt.Errorf("cannot record signature event: %w", err)
+	}
+
+	return sig, nil
+}
+
+func (s *Service) createStampedDocument(
+	ctx context.Context,
+	conn pg.Tx,
+	scope coredata.Scoper,
+	organizationID gid.GID,
+	originalFileID gid.GID,
+	signatureID gid.GID,
+) (gid.GID, error) {
+	var originalFile coredata.File
+	if err := originalFile.LoadByID(ctx, conn, scope, originalFileID); err != nil {
+		return gid.GID{}, fmt.Errorf("cannot load original file: %w", err)
+	}
+
+	pdfData, err := s.fileManager.GetFileBytes(ctx, &originalFile)
+	if err != nil {
+		return gid.GID{}, fmt.Errorf("cannot download original file: %w", err)
+	}
+
+	stampedData, err := StampSignatureID(pdfData, signatureID.String())
+	if err != nil {
+		return gid.GID{}, fmt.Errorf("cannot stamp signature ID: %w", err)
+	}
+
+	now := time.Now()
+	stampedFile := coredata.File{
+		ID:             gid.New(scope.GetTenantID(), coredata.FileEntityType),
+		OrganizationID: organizationID,
+		BucketName:     s.bucket,
+		MimeType:       "application/pdf",
+		FileName:       originalFile.FileName,
+		FileKey:        uuid.MustNewV4().String(),
+		Visibility:     coredata.FileVisibilityPrivate,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	stampedSize, err := s.fileManager.PutFile(
+		ctx,
+		&stampedFile,
+		bytes.NewReader(stampedData),
+		map[string]string{
+			"type":         "stamped-document",
+			"signature-id": signatureID.String(),
+		},
+	)
+	if err != nil {
+		return gid.GID{}, fmt.Errorf("cannot upload stamped file: %w", err)
+	}
+
+	stampedFile.FileSize = stampedSize
+
+	if err := stampedFile.Insert(ctx, conn, scope); err != nil {
+		return gid.GID{}, fmt.Errorf("cannot insert stamped file record: %w", err)
+	}
+
+	return stampedFile.ID, nil
+}
+
+func (s *Service) AcceptSignature(ctx context.Context, scope coredata.Scoper, req *AcceptSignatureRequest) (*coredata.ElectronicSignature, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	var (
+		now       = time.Now()
+		signature = coredata.ElectronicSignature{}
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := signature.LoadByID(ctx, tx, scope, req.SignatureID); err != nil {
+				if errors.Is(err, coredata.ErrResourceNotFound) {
+					return ErrElectronicSignatureNotFound
+				}
+
+				return fmt.Errorf("cannot load electronic signature: %w", err)
+			}
+
+			if !strings.EqualFold(signature.SignerEmail, req.SignerEmail.String()) {
+				return ErrSignatureAccessDenied
+			}
+
+			if signature.Status != coredata.ElectronicSignatureStatusPending &&
+				signature.Status != coredata.ElectronicSignatureStatusFailed {
+				return fmt.Errorf("cannot accept electronic signature in status %s", signature.Status)
+			}
+
+			if signature.Status == coredata.ElectronicSignatureStatusFailed {
+				signature.AttemptCount = 0
+				signature.LastError = nil
+			}
+
+			signature.SignerFullName = &req.SignerFullName
+			signature.SignerIPAddress = &req.SignerIPAddr
+			signature.SignerUserAgent = &req.SignerUA
+			signature.SignedAt = &now
+			signature.Status = coredata.ElectronicSignatureStatusAccepted
+			signature.UpdatedAt = now
+
+			if err := signature.Update(ctx, tx, scope); err != nil {
+				return fmt.Errorf("cannot update signature: %w", err)
+			}
+
+			if err := s.recordEvent(
+				ctx,
+				tx,
+				scope,
+				&RecordEventRequest{
+					SignatureID:   signature.ID,
+					EventType:     coredata.ElectronicSignatureEventTypeSignatureAccepted,
+					EventSource:   coredata.ElectronicSignatureEventSourceServer,
+					ActorFullName: req.SignerFullName,
+					ActorEmail:    req.SignerEmail,
+					ActorIPAddr:   req.SignerIPAddr,
+					ActorUA:       req.SignerUA,
+				},
+			); err != nil {
+				return fmt.Errorf("cannot record event: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &signature, nil
+}
+
+func (s *Service) RecordEvent(ctx context.Context, scope coredata.Scoper, req *RecordEventRequest) error {
+	if err := req.Validate(); err != nil {
+		return fmt.Errorf("invalid request: %w", err)
+	}
+
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			signature := coredata.ElectronicSignature{}
+			if err := signature.LoadByID(ctx, tx, scope, req.SignatureID); err != nil {
+				if errors.Is(err, coredata.ErrResourceNotFound) {
+					return ErrElectronicSignatureNotFound
+				}
+
+				return fmt.Errorf("cannot load electronic signature: %w", err)
+			}
+
+			if !strings.EqualFold(signature.SignerEmail, req.ActorEmail.String()) {
+				return ErrSignatureAccessDenied
+			}
+
+			return s.recordEvent(ctx, tx, scope, req)
+		},
+	)
+}
+
+func (s *Service) recordEvent(ctx context.Context, tx pg.Tx, scope coredata.Scoper, req *RecordEventRequest) error {
+	now := time.Now()
+
+	event := coredata.ElectronicSignatureEvent{
+		ID:                    gid.New(scope.GetTenantID(), coredata.ElectronicSignatureEventEntityType),
+		ElectronicSignatureID: req.SignatureID,
+		EventType:             req.EventType,
+		EventSource:           req.EventSource,
+		ActorEmail:            req.ActorEmail.String(),
+		ActorIPAddress:        req.ActorIPAddr,
+		ActorUserAgent:        req.ActorUA,
+		OccurredAt:            now,
+		CreatedAt:             now,
+	}
+
+	if err := event.Insert(ctx, tx, scope); err != nil {
+		return fmt.Errorf("cannot insert signing event: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) GetSignatureByID(ctx context.Context, scope coredata.Scoper, id gid.GID) (*coredata.ElectronicSignature, error) {
+	signature := coredata.ElectronicSignature{}
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := signature.LoadByID(ctx, conn, scope, id); err != nil {
+				if errors.Is(err, coredata.ErrResourceNotFound) {
+					return ErrElectronicSignatureNotFound
+				}
+
+				return fmt.Errorf("cannot load electronic signature: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &signature, nil
+}
+
+func (s *Service) GenerateCertificateFileURL(
+	ctx context.Context,
+	certificateFileID gid.GID,
+	expiresIn time.Duration,
+) (string, error) {
+	var (
+		scope = coredata.NewScopeFromObjectID(certificateFileID)
+		file  = coredata.File{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := file.LoadByID(ctx, conn, scope, certificateFileID); err != nil {
+				return fmt.Errorf("cannot load certificate file: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	url, err := s.fileManager.GeneratePresignedURL(ctx, &file, expiresIn)
+	if err != nil {
+		return "", fmt.Errorf("cannot generate certificate file URL: %w", err)
+	}
+
+	return url, nil
+}
+
+func (s *Service) GenerateSignatureFileURL(
+	ctx context.Context,
+	signatureID gid.GID,
+	expiresIn time.Duration,
+) (string, error) {
+	var (
+		scope     = coredata.NewScopeFromObjectID(signatureID)
+		signature coredata.ElectronicSignature
+		file      coredata.File
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := signature.LoadByID(ctx, conn, scope, signatureID); err != nil {
+				return fmt.Errorf("cannot load electronic signature: %w", err)
+			}
+
+			if err := file.LoadByID(ctx, conn, scope, signature.FileID); err != nil {
+				return fmt.Errorf("cannot load signature file: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	url, err := s.fileManager.GeneratePresignedURL(ctx, &file, expiresIn)
+	if err != nil {
+		return "", fmt.Errorf("cannot generate signature file URL: %w", err)
+	}
+
+	return url, nil
+}
+
+func (s *Service) GetEventsBySignatureID(
+	ctx context.Context,
+	signatureID gid.GID,
+) (coredata.ElectronicSignatureEvents, error) {
+	var (
+		scope  = coredata.NewScopeFromObjectID(signatureID)
+		events = coredata.ElectronicSignatureEvents{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := events.LoadBySignatureID(ctx, conn, scope, signatureID); err != nil {
+				return fmt.Errorf("cannot load events: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return events, nil
+}

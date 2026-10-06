@@ -1,0 +1,91 @@
+{
+  "root": ".",
+  "featureFlags": {
+    "enforce_fragment_alias_where_ambiguous": { "kind": "disabled" },
+    "enforce_module_name_prefix_for_non_haste": true
+  },
+  "sources": {
+    "apps/console/src/pages/iam": "iam",
+    "apps/console/src": "core",
+    "apps/compliance-portal/src": "complianceportal",
+    "apps/employee-portal/src/pages/iam": "employeeportaliam",
+    "apps/employee-portal/src/pages/enroll": "employeeportaliam",
+    "apps/employee-portal/src": "employeeportal"
+  },
+  "projects": {
+    "core": {
+      "schema": "pkg/server/api/console/v1/schema.graphql",
+      "language": "typescript",
+      "noFutureProofEnums": true,
+      "output": "apps/console/src/__generated__/core",
+      "relativizeJsModulePaths": false,
+      "customScalarTypes": {
+        "Datetime": "string",
+        "GID": "string",
+        "CursorKey": "string",
+        "TimeSpan": "string",
+        "BigInt": "number",
+        "EmailAddr": "string"
+      }
+    },
+    "iam": {
+      "schema": "pkg/server/api/connect/v1/schema.graphql",
+      "language": "typescript",
+      "noFutureProofEnums": true,
+      "output": "apps/console/src/__generated__/iam",
+      "relativizeJsModulePaths": false,
+      "customScalarTypes": {
+        "Datetime": "string",
+        "GID": "string",
+        "CursorKey": "string",
+        "TimeSpan": "string",
+        "BigInt": "number",
+        "EmailAddr": "string",
+        "OAuth2Scope": "string",
+        "Map": "Record<string, string>"
+      }
+    },
+    "complianceportal": {
+      "schema": "pkg/server/api/complianceportal/v1/schema.graphql",
+      "language": "typescript",
+      "noFutureProofEnums": true,
+      "customScalarTypes": {
+        "Datetime": "string",
+        "CursorKey": "string",
+        "EmailAddr": "string"
+      }
+    },
+    "employeeportal": {
+      "schema": "pkg/server/api/console/v1/schema.graphql",
+      "language": "typescript",
+      "noFutureProofEnums": true,
+      "output": "apps/employee-portal/src/__generated__/core",
+      "relativizeJsModulePaths": false,
+      "customScalarTypes": {
+        "Datetime": "string",
+        "GID": "string",
+        "CursorKey": "string",
+        "TimeSpan": "string",
+        "BigInt": "number",
+        "EmailAddr": "string"
+      }
+    },
+    "employeeportaliam": {
+      "schema": "pkg/server/api/connect/v1/schema.graphql",
+      "language": "typescript",
+      "noFutureProofEnums": true,
+      "output": "apps/employee-portal/src/__generated__/iam",
+      "relativizeJsModulePaths": false,
+      "customScalarTypes": {
+        "Datetime": "string",
+        "GID": "string",
+        "CursorKey": "string",
+        "TimeSpan": "string",
+        "BigInt": "number",
+        "EmailAddr": "string",
+        "OAuth2Scope": "string",
+        "Map": "Record<string, string>"
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+// Use of this source code is governed by the MIT license
+// that can be found in the LICENSE file.
+
+import { tv } from "tailwind-variants/lite";
+
+export const tableColumnMenuVariants = tv({
+  slots: {
+    trigger: [
+      "z-20 flex items-center justify-center",
+      "rounded text-txt-tertiary bg-subtle hover:bg-border-solid cursor-grab",
+      "py-0.5 h-2",
+    ],
+    menu: ["rounded-lg border border-border-mid bg-level-0 p-1 shadow-mid z-30"],
+  },
+});

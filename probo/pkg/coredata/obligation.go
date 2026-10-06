@@ -1,0 +1,753 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/policy"
+	"go.probo.inc/probo/pkg/page"
+)
+
+type (
+	Obligation struct {
+		ID                     gid.GID          `db:"id"`
+		OrganizationID         gid.GID          `db:"organization_id"`
+		Area                   *string          `db:"area"`
+		Source                 *string          `db:"source"`
+		Requirement            *string          `db:"requirement"`
+		ActionsToBeImplemented *string          `db:"actions_to_be_implemented"`
+		Regulator              *string          `db:"regulator"`
+		OwnerID                gid.GID          `db:"owner_profile_id"`
+		LastReviewDate         *time.Time       `db:"last_review_date"`
+		DueDate                *time.Time       `db:"due_date"`
+		Status                 ObligationStatus `db:"status"`
+		Type                   ObligationType   `db:"type"`
+		CreatedAt              time.Time        `db:"created_at"`
+		UpdatedAt              time.Time        `db:"updated_at"`
+	}
+
+	Obligations []*Obligation
+)
+
+func (o *Obligation) CursorKey(field ObligationOrderField) page.CursorKey {
+	switch field {
+	case ObligationOrderFieldCreatedAt:
+		return page.NewCursorKey(o.ID, o.CreatedAt)
+	case ObligationOrderFieldLastReviewDate:
+		return page.NewCursorKey(o.ID, o.LastReviewDate)
+	case ObligationOrderFieldDueDate:
+		return page.NewCursorKey(o.ID, o.DueDate)
+	case ObligationOrderFieldStatus:
+		return page.NewCursorKey(o.ID, o.Status)
+	}
+
+	panic(fmt.Sprintf("unsupported order by: %s", field))
+}
+
+func (o *Obligation) AuthorizationAttributes(
+	ctx context.Context,
+	conn pg.Querier,
+	resourceIDs []gid.GID,
+) (policy.AttributesByID, error) {
+	q := `SELECT id, organization_id FROM obligations WHERE id = ANY(@resource_ids::text[])`
+
+	args := pgx.StrictNamedArgs{
+		"resource_ids": resourceIDs,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query authorization attributes: %w", err)
+	}
+
+	defer rows.Close()
+
+	attrsByID := make(policy.AttributesByID)
+
+	for rows.Next() {
+		var id, organizationID gid.GID
+
+		if err := rows.Scan(&id, &organizationID); err != nil {
+			return nil, fmt.Errorf("cannot scan authorization attributes: %w", err)
+		}
+
+		attrsByID[id] = policy.Attributes{
+			"organization_id": organizationID.String(),
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cannot iterate authorization attributes: %w", err)
+	}
+
+	return attrsByID, nil
+}
+
+func (o *Obligation) LoadByID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	obligationID gid.GID,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	area,
+	source,
+	requirement,
+	actions_to_be_implemented,
+	regulator,
+	owner_profile_id,
+	last_review_date,
+	due_date,
+	status,
+	type,
+	created_at,
+	updated_at
+FROM
+	obligations
+WHERE
+	%s
+	AND id = @obligation_id
+LIMIT 1;
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"obligation_id": obligationID}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query obligation: %w", err)
+	}
+
+	obligation, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[Obligation])
+	if err != nil {
+		return fmt.Errorf("cannot collect obligation: %w", err)
+	}
+
+	*o = obligation
+
+	return nil
+}
+
+func (os *Obligations) CountByOrganizationID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	organizationID gid.GID,
+) (int, error) {
+	q := `
+SELECT
+	COUNT(id)
+FROM
+	obligations
+WHERE
+	%s
+	AND organization_id = @organization_id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"organization_id": organizationID}
+	maps.Copy(args, scope.SQLArguments())
+
+	row := conn.QueryRow(ctx, q, args)
+
+	var count int
+
+	err := row.Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("cannot count obligations: %w", err)
+	}
+
+	return count, nil
+}
+
+func (os *Obligations) CountByRiskID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	riskID gid.GID,
+) (int, error) {
+	q := `
+WITH obls AS (
+	SELECT
+		o.id,
+		o.tenant_id,
+		o.search_vector
+	FROM
+		obligations o
+	INNER JOIN
+		risks_obligations ro ON o.id = ro.obligation_id
+	WHERE
+		ro.risk_id = @risk_id
+)
+SELECT
+	COUNT(id)
+FROM
+	obls
+WHERE %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"risk_id": riskID}
+	maps.Copy(args, scope.SQLArguments())
+
+	row := conn.QueryRow(ctx, q, args)
+
+	var count int
+
+	err := row.Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("cannot count obligations: %w", err)
+	}
+
+	return count, nil
+}
+
+func (os *Obligations) LoadByOrganizationID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	organizationID gid.GID,
+	cursor *page.Cursor[ObligationOrderField],
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	area,
+	source,
+	requirement,
+	actions_to_be_implemented,
+	regulator,
+	owner_profile_id,
+	last_review_date,
+	due_date,
+	status,
+	type,
+	created_at,
+	updated_at
+FROM
+	obligations
+WHERE
+	%s
+	AND organization_id = @organization_id
+	AND %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"organization_id": organizationID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query obligations: %w", err)
+	}
+
+	obligations, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[Obligation])
+	if err != nil {
+		return fmt.Errorf("cannot collect obligations: %w", err)
+	}
+
+	*os = obligations
+
+	return nil
+}
+
+func (os *Obligations) LoadByRiskID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	riskID gid.GID,
+	cursor *page.Cursor[ObligationOrderField],
+) error {
+	q := `
+WITH obls AS (
+	SELECT
+		o.id,
+		o.organization_id,
+		o.area,
+		o.source,
+		o.requirement,
+		o.actions_to_be_implemented,
+		o.regulator,
+		o.owner_profile_id,
+		o.last_review_date,
+		o.due_date,
+		o.status,
+		o.type,
+		o.created_at,
+		o.updated_at,
+		o.tenant_id,
+		o.search_vector
+	FROM
+		obligations o
+	INNER JOIN
+		risks_obligations ro ON o.id = ro.obligation_id
+	WHERE
+		ro.risk_id = @risk_id
+)
+SELECT
+	id,
+	organization_id,
+	area,
+	source,
+	requirement,
+	actions_to_be_implemented,
+	regulator,
+	owner_profile_id,
+	last_review_date,
+	due_date,
+	status,
+	type,
+	created_at,
+	updated_at
+FROM
+	obls
+WHERE %s
+	AND %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"risk_id": riskID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query obligations: %w", err)
+	}
+
+	obligations, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[Obligation])
+	if err != nil {
+		return fmt.Errorf("cannot collect obligations: %w", err)
+	}
+
+	*os = obligations
+
+	return nil
+}
+
+func (os *Obligations) CountByControlID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	controlID gid.GID,
+) (int, error) {
+	q := `
+WITH obls AS (
+	SELECT
+		o.id,
+		o.tenant_id
+	FROM
+		obligations o
+	INNER JOIN
+		controls_obligations co ON o.id = co.obligation_id
+	WHERE
+		co.control_id = @control_id
+)
+SELECT
+	COUNT(id)
+FROM
+	obls
+WHERE %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"control_id": controlID}
+	maps.Copy(args, scope.SQLArguments())
+
+	row := conn.QueryRow(ctx, q, args)
+
+	var count int
+
+	err := row.Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("cannot count obligations: %w", err)
+	}
+
+	return count, nil
+}
+
+func (os *Obligations) LoadByControlID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	controlID gid.GID,
+	cursor *page.Cursor[ObligationOrderField],
+) error {
+	q := `
+WITH obls AS (
+	SELECT
+		o.id,
+		o.organization_id,
+		o.area,
+		o.source,
+		o.requirement,
+		o.actions_to_be_implemented,
+		o.regulator,
+		o.owner_profile_id,
+		o.last_review_date,
+		o.due_date,
+		o.status,
+		o.type,
+		o.created_at,
+		o.updated_at,
+		o.tenant_id
+	FROM
+		obligations o
+	INNER JOIN
+		controls_obligations co ON o.id = co.obligation_id
+	WHERE
+		co.control_id = @control_id
+)
+SELECT
+	id,
+	organization_id,
+	area,
+	source,
+	requirement,
+	actions_to_be_implemented,
+	regulator,
+	owner_profile_id,
+	last_review_date,
+	due_date,
+	status,
+	type,
+	created_at,
+	updated_at
+FROM
+	obls
+WHERE %s
+	AND %s
+`
+	q = fmt.Sprintf(q, scope.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.NamedArgs{"control_id": controlID}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query obligations: %w", err)
+	}
+
+	obligations, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[Obligation])
+	if err != nil {
+		return fmt.Errorf("cannot collect obligations: %w", err)
+	}
+
+	*os = obligations
+
+	return nil
+}
+
+func (o *Obligation) Insert(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+INSERT INTO obligations (
+	id,
+	tenant_id,
+	organization_id,
+	area,
+	source,
+	requirement,
+	actions_to_be_implemented,
+	regulator,
+	owner_profile_id,
+	last_review_date,
+	due_date,
+	status,
+	type,
+	created_at,
+	updated_at
+) VALUES (
+	@id,
+	@tenant_id,
+	@organization_id,
+	@area,
+	@source,
+	@requirement,
+	@actions_to_be_implemented,
+	@regulator,
+	@owner_profile_id,
+	@last_review_date,
+	@due_date,
+	@status,
+	@type,
+	@created_at,
+	@updated_at
+)
+`
+
+	args := pgx.StrictNamedArgs{
+		"id":                        o.ID,
+		"tenant_id":                 scope.GetTenantID(),
+		"organization_id":           o.OrganizationID,
+		"area":                      o.Area,
+		"source":                    o.Source,
+		"requirement":               o.Requirement,
+		"actions_to_be_implemented": o.ActionsToBeImplemented,
+		"regulator":                 o.Regulator,
+		"owner_profile_id":          o.OwnerID,
+		"last_review_date":          o.LastReviewDate,
+		"due_date":                  o.DueDate,
+		"status":                    o.Status,
+		"type":                      o.Type,
+		"created_at":                o.CreatedAt,
+		"updated_at":                o.UpdatedAt,
+	}
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot insert obligation: %w", err)
+	}
+
+	return nil
+}
+
+func (o *Obligation) Update(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+UPDATE obligations SET
+	area = @area,
+	source = @source,
+	requirement = @requirement,
+	actions_to_be_implemented = @actions_to_be_implemented,
+	regulator = @regulator,
+	owner_profile_id = @owner_profile_id,
+	last_review_date = @last_review_date,
+	due_date = @due_date,
+	status = @status,
+	type = @type,
+	updated_at = @updated_at
+WHERE
+	%s
+	AND id = @id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"id":                        o.ID,
+		"area":                      o.Area,
+		"source":                    o.Source,
+		"requirement":               o.Requirement,
+		"actions_to_be_implemented": o.ActionsToBeImplemented,
+		"regulator":                 o.Regulator,
+		"owner_profile_id":          o.OwnerID,
+		"last_review_date":          o.LastReviewDate,
+		"due_date":                  o.DueDate,
+		"status":                    o.Status,
+		"type":                      o.Type,
+		"updated_at":                o.UpdatedAt,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot update obligation: %w", err)
+	}
+
+	return nil
+}
+
+func (o *Obligation) Delete(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+DELETE FROM obligations
+WHERE
+	%s
+	AND id = @id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"id": o.ID}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot delete obligation: %w", err)
+	}
+
+	return nil
+}
+
+func (o Obligation) GetGeneratedDocumentID(
+	ctx context.Context,
+	conn pg.Querier,
+	organizationID gid.GID,
+) (*gid.GID, error) {
+	var documentID *gid.GID
+
+	err := conn.QueryRow(
+		ctx,
+		`
+SELECT
+	obligations_document_id
+FROM
+	generated_documents
+WHERE
+	organization_id = @organization_id
+`,
+		pgx.NamedArgs{"organization_id": organizationID},
+	).Scan(&documentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("cannot get obligation list document ID: %w", err)
+	}
+
+	return documentID, nil
+}
+
+func (o Obligation) UpsertGeneratedDocumentID(
+	ctx context.Context,
+	conn pg.Tx,
+	organizationID gid.GID,
+	tenantID gid.TenantID,
+	documentID gid.GID,
+) error {
+	now := time.Now()
+
+	_, err := conn.Exec(
+		ctx,
+		`
+INSERT INTO generated_documents (
+	organization_id,
+	tenant_id,
+	obligations_document_id,
+	created_at,
+	updated_at
+) VALUES (
+	@organization_id,
+	@tenant_id,
+	@obligations_document_id,
+	@created_at,
+	@updated_at
+)
+ON CONFLICT (organization_id) DO UPDATE
+SET
+	obligations_document_id = @obligations_document_id,
+	updated_at = @updated_at
+`,
+		pgx.NamedArgs{
+			"organization_id":         organizationID,
+			"tenant_id":               tenantID,
+			"obligations_document_id": documentID,
+			"created_at":              now,
+			"updated_at":              now,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("cannot upsert obligation list document ID: %w", err)
+	}
+
+	return nil
+}
+
+func (o Obligation) ClearGeneratedDocumentID(
+	ctx context.Context,
+	conn pg.Tx,
+	documentIDs []gid.GID,
+) error {
+	ids := make([]string, len(documentIDs))
+	for i, id := range documentIDs {
+		ids[i] = id.String()
+	}
+
+	_, err := conn.Exec(
+		ctx,
+		`
+UPDATE
+	generated_documents
+SET
+	obligations_document_id = NULL,
+	updated_at = @now
+WHERE
+	obligations_document_id = ANY(@ids)
+`,
+		pgx.NamedArgs{
+			"ids": ids,
+			"now": time.Now(),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("cannot clear obligation list document references: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Obligations) DeleteByOrganizationID(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+	organizationID gid.GID,
+) error {
+	q := `
+DELETE FROM obligations
+WHERE
+	%s
+	AND organization_id = @organization_id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"organization_id": organizationID}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot delete obligations: %w", err)
+	}
+
+	return nil
+}

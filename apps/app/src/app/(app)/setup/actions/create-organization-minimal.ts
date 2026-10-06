@@ -1,0 +1,299 @@
+'use server';
+
+import { grantInitialPentestCredit } from '@/actions/organization/lib/grant-initial-pentest-credit';
+import { initializeOrganization } from '@/actions/organization/lib/initialize-organization';
+import { authActionClientWithoutOrg } from '@/actions/safe-action';
+import { env } from '@/env.mjs';
+import { serverApi } from '@/lib/api-server';
+import { createTrainingVideoEntries } from '@/lib/db/employee';
+import { auth } from '@/utils/auth';
+import { db } from '@db/server';
+import { revalidatePath } from 'next/cache';
+import { headers } from 'next/headers';
+import { z } from 'zod';
+
+// Minimal schema - only the first 3 fields
+const minimalOrgSchema = z.object({
+  frameworkIds: z.array(z.string()).min(1, 'Please select at least one framework'),
+  organizationName: z.string().min(2, 'Organization name must be at least 2 characters'),
+  website: z.string().url('Please enter a valid URL'),
+});
+
+export const createOrganizationMinimal = authActionClientWithoutOrg
+  .inputSchema(minimalOrgSchema)
+  .metadata({
+    name: 'create-organization-minimal',
+    track: {
+      event: 'create-organization-minimal',
+      channel: 'server',
+    },
+  })
+  .action(async ({ parsedInput, ctx }) => {
+    let createdOrgId: string | undefined;
+
+    try {
+      const session = await auth.api.getSession({
+        headers: await headers(),
+      });
+
+      if (!session) {
+        return {
+          success: false,
+          error: 'Not authorized.',
+        };
+      }
+
+      // CS-569 backstop: never create an org for a user whose only memberships
+      // are deactivated (0 active, >=1 inactive) — that user was offboarded and
+      // the routing layer already sends them to /auth/access-removed. This
+      // guards against a stale/replayed form POST slipping past that redirect
+      // and spawning a spurious empty org. Genuinely new users (no memberships)
+      // and users adding an additional org (have active memberships) pass.
+      const [activeMembershipCount, inactiveMembershipCount] = await Promise.all([
+        db.member.count({
+          where: {
+            userId: session.user.id,
+            isActive: true,
+            deactivated: false,
+          },
+        }),
+        db.member.count({
+          where: {
+            userId: session.user.id,
+            OR: [{ deactivated: true }, { isActive: false }],
+          },
+        }),
+      ]);
+
+      if (activeMembershipCount === 0 && inactiveMembershipCount > 0) {
+        return {
+          success: false,
+          error:
+            'Your access to this organization was removed. Contact your administrator to be re-invited.',
+        };
+      }
+
+      // Internal team accounts (verified @trycomp.ai) have access provisioned up front.
+      const userEmail = session.user.email;
+      const isVerifiedTryCompEmail =
+        (userEmail?.endsWith('@trycomp.ai') ?? false) &&
+        session.user.emailVerified === true;
+
+      // Check if self-hosted
+      const isSelfHosted = env.NEXT_PUBLIC_SELF_HOSTED === 'true';
+
+      // Idempotency: if the user already has a recently created org with the
+      // same name that hasn't completed onboarding, reuse it instead of
+      // creating a duplicate (protects against retry/refresh during redirect).
+      const existingOrg = await db.organization.findFirst({
+        where: {
+          name: parsedInput.organizationName,
+          onboardingCompleted: false,
+          members: {
+            some: {
+              userId: session.user.id,
+              role: 'owner',
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (existingOrg) {
+        // Ensure post-creation steps are completed in case the original
+        // request failed partway through (after DB insert but before
+        // onboarding record or framework initialization).
+        const existingOnboarding = await db.onboarding.findUnique({
+          where: { organizationId: existingOrg.id },
+        });
+
+        if (!existingOnboarding) {
+          await db.onboarding.create({
+            data: {
+              organizationId: existingOrg.id,
+              triggerJobCompleted: false,
+            },
+          });
+        }
+
+        if (parsedInput.frameworkIds && parsedInput.frameworkIds.length > 0) {
+          const existingFrameworks = await db.frameworkInstance.findFirst({
+            where: { organizationId: existingOrg.id },
+          });
+
+          if (!existingFrameworks) {
+            await initializeOrganization({
+              frameworkIds: parsedInput.frameworkIds,
+              organizationId: existingOrg.id,
+            });
+          }
+        }
+
+        // Ensure this org is set as the active one
+        await auth.api.setActiveOrganization({
+          headers: await headers(),
+          body: {
+            organizationId: existingOrg.id,
+          },
+        });
+
+        // Publish the trust portal via the guarded API (non-fatal).
+        const trustPortalResponse = await serverApi.get('/v1/trust-portal/settings');
+        if (trustPortalResponse.error) {
+          console.error('Non-critical: failed to publish trust portal:', trustPortalResponse.error);
+        }
+
+        // Ensure the reused org has its free pentest credit (idempotent).
+        await grantInitialPentestCredit();
+
+        return {
+          success: true,
+          organizationId: existingOrg.id,
+        };
+      }
+
+      // Resolve framework IDs to display names (e.g. "SOC 2", "ISO 27001")
+      const frameworks = await db.frameworkEditorFramework.findMany({
+        where: { id: { in: parsedInput.frameworkIds } },
+        select: { name: true },
+      });
+      const frameworkNames = frameworks.map((f) => f.name).join(', ');
+
+      // Create a new organization
+      const newOrg = await db.organization.create({
+        data: {
+          name: parsedInput.organizationName,
+          website: parsedInput.website,
+          onboardingCompleted: false, // Explicitly set to false
+          // Auto-enable for verified internal accounts, local development, or self-hosted instances
+          ...((process.env.NEXT_PUBLIC_APP_ENV !== 'production' ||
+            isVerifiedTryCompEmail ||
+            isSelfHosted) && {
+            hasAccess: true,
+          }),
+          members: {
+            create: {
+              userId: session.user.id,
+              role: 'owner',
+            },
+          },
+          // Save framework context: display names for AI prompts + raw IDs for recovery
+          context: {
+            createMany: {
+              data: [
+                {
+                  question: 'Which compliance frameworks do you need?',
+                  answer: frameworkNames || parsedInput.frameworkIds.join(', '),
+                  tags: ['onboarding'],
+                },
+                {
+                  question: 'frameworkIds',
+                  answer: JSON.stringify(parsedInput.frameworkIds),
+                  tags: ['onboarding'],
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      const orgId = newOrg.id;
+      createdOrgId = orgId;
+
+      // Get the member that was created with the organization (the owner)
+      const ownerMember = await db.member.findFirst({
+        where: {
+          userId: session.user.id,
+          organizationId: orgId,
+        },
+      });
+
+      // Create training video completion entries for the owner
+      if (ownerMember) {
+        await createTrainingVideoEntries(ownerMember.id);
+      }
+
+      // Create onboarding record for new org
+      await db.onboarding.create({
+        data: {
+          organizationId: orgId,
+          triggerJobCompleted: false,
+        },
+      });
+
+      // Initialize frameworks - this sets up the structure immediately
+      if (parsedInput.frameworkIds && parsedInput.frameworkIds.length > 0) {
+        await initializeOrganization({
+          frameworkIds: parsedInput.frameworkIds,
+          organizationId: orgId,
+        });
+      }
+
+      // Set new org as active — after this point, the session references
+      // the org so we must NOT delete it on cleanup.
+      await auth.api.setActiveOrganization({
+        headers: await headers(),
+        body: {
+          organizationId: orgId,
+        },
+      });
+      createdOrgId = undefined; // Org is fully initialized, disable cleanup
+
+      // Publish the trust portal so trust.inc/{slug} is live immediately, even
+      // while empty. Goes through the guarded API (GET settings lazily creates a
+      // published Trust row with a slug). Non-fatal — org creation must not depend on it.
+      const trustPortalResponse = await serverApi.get('/v1/trust-portal/settings');
+      if (trustPortalResponse.error) {
+        console.error('Non-critical: failed to publish trust portal:', trustPortalResponse.error);
+      }
+
+      // Grant the new org its one free pentest credit so the owner can run a
+      // first penetration test without entering a card (non-fatal, idempotent).
+      await grantInitialPentestCredit();
+
+      // Revalidate paths (non-critical, don't let failures kill the flow)
+      try {
+        const headersList = await headers();
+        let path = headersList.get('x-pathname') || headersList.get('referer') || '';
+        path = path.replace(/\/[a-z]{2}\//, '/');
+
+        revalidatePath(path);
+        revalidatePath('/');
+        revalidatePath('/setup');
+      } catch (revalidateError) {
+        console.error('Non-critical: failed to revalidate paths:', revalidateError);
+      }
+
+      // NO JOB TRIGGERS - that happens after payment in complete-onboarding
+
+      return {
+        success: true,
+        organizationId: orgId,
+      };
+    } catch (error) {
+      console.error('Error during minimal organization creation:', error);
+
+      // Clean up partially created org to prevent orphans on retry.
+      // Only runs if the org was created but setActiveOrganization hasn't
+      // succeeded yet (createdOrgId is cleared after activation).
+      if (createdOrgId) {
+        try {
+          await db.organization.delete({ where: { id: createdOrgId } });
+        } catch (cleanupError) {
+          console.error('Failed to clean up org after creation error:', cleanupError);
+        }
+      }
+
+      if (error instanceof Error) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+
+      return {
+        success: false,
+        error: 'Failed to create organization',
+      };
+    }
+  });

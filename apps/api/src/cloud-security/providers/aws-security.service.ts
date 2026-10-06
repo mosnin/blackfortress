@@ -1,0 +1,801 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { AssumeRoleCommand, STSClient } from '@aws-sdk/client-sts';
+import { retryAssume } from '@trycompai/integration-platform';
+import {
+  CostExplorerClient,
+  GetCostAndUsageCommand,
+} from '@aws-sdk/client-cost-explorer';
+import type { SecurityFinding } from '../cloud-security.service';
+import {
+  type AwsPartition,
+  getAwsBaseCredentials,
+  getAwsDefaultRegion,
+  getAwsPartitionForRegion,
+  getAwsRoleAssumerArn,
+  getAwsRoleAssumerEnvName,
+  normalizeAwsPartition,
+  parseAwsRoleArn,
+  validateAwsPartitionConfig,
+} from '../aws-partition.utils';
+import type {
+  AwsCredentials,
+  AwsServiceAdapter,
+} from './aws/aws-service-adapter';
+import { IamAdapter } from './aws/iam.adapter';
+import { CloudTrailAdapter } from './aws/cloudtrail.adapter';
+import { S3Adapter } from './aws/s3.adapter';
+import { Ec2VpcAdapter } from './aws/ec2-vpc.adapter';
+import { RdsAdapter } from './aws/rds.adapter';
+import { KmsAdapter } from './aws/kms.adapter';
+import { CloudWatchAdapter } from './aws/cloudwatch.adapter';
+import { ConfigAdapter } from './aws/config.adapter';
+import { GuardDutyAdapter } from './aws/guardduty.adapter';
+import { SecretsManagerAdapter } from './aws/secrets-manager.adapter';
+import { WafAdapter } from './aws/waf.adapter';
+import { ElbAdapter } from './aws/elb.adapter';
+import { AcmAdapter } from './aws/acm.adapter';
+import { BackupAdapter } from './aws/backup.adapter';
+import { InspectorAdapter } from './aws/inspector.adapter';
+import { EcsEksAdapter } from './aws/ecs-eks.adapter';
+import { LambdaAdapter } from './aws/lambda.adapter';
+import { DynamoDbAdapter } from './aws/dynamodb.adapter';
+import { SnsSqsAdapter } from './aws/sns-sqs.adapter';
+import { EcrAdapter } from './aws/ecr.adapter';
+import { NeptuneAdapter } from './aws/neptune.adapter';
+import { OpenSearchAdapter } from './aws/opensearch.adapter';
+import { RedshiftAdapter } from './aws/redshift.adapter';
+import { MacieAdapter } from './aws/macie.adapter';
+import { Route53Adapter } from './aws/route53.adapter';
+import { ApiGatewayAdapter } from './aws/api-gateway.adapter';
+import { CloudFrontAdapter } from './aws/cloudfront.adapter';
+import { CognitoAdapter } from './aws/cognito.adapter';
+import { ElastiCacheAdapter } from './aws/elasticache.adapter';
+import { EfsAdapter } from './aws/efs.adapter';
+import { MskAdapter } from './aws/msk.adapter';
+import { SageMakerAdapter } from './aws/sagemaker.adapter';
+import { SystemsManagerAdapter } from './aws/systems-manager.adapter';
+import { CodeBuildAdapter } from './aws/codebuild.adapter';
+import { NetworkFirewallAdapter } from './aws/network-firewall.adapter';
+import { ShieldAdapter } from './aws/shield.adapter';
+import { KinesisAdapter } from './aws/kinesis.adapter';
+import { GlueAdapter } from './aws/glue.adapter';
+import { AthenaAdapter } from './aws/athena.adapter';
+import { EmrAdapter } from './aws/emr.adapter';
+import { StepFunctionsAdapter } from './aws/step-functions.adapter';
+import { EventBridgeAdapter } from './aws/eventbridge.adapter';
+import { TransferFamilyAdapter } from './aws/transfer-family.adapter';
+import { ElasticBeanstalkAdapter } from './aws/elastic-beanstalk.adapter';
+import { AppFlowAdapter } from './aws/appflow.adapter';
+import { SecurityHubAdapter } from './aws/security-hub.adapter';
+import {
+  type AwsScanMode,
+  DEFAULT_AWS_SCAN_MODE,
+} from '../aws-scan-mode';
+
+const GOVCLOUD_UNSUPPORTED_SERVICE_IDS = new Set(['cloudfront', 'shield']);
+
+/**
+ * Pre-computed scan context shared by both scan engines (adapter mode
+ * and Security Hub mode). Produced by `prepareScan`, consumed by
+ * `scanViaAdapters` / `scanViaSecurityHub`.
+ */
+interface AwsScanSetup {
+  awsCredentials: AwsCredentials;
+  configuredRegions: string[];
+  primaryRegion: string;
+  partition: AwsPartition;
+}
+
+@Injectable()
+export class AWSSecurityService {
+  private readonly logger = new Logger(AWSSecurityService.name);
+
+  private readonly adapters: AwsServiceAdapter[] = [
+    new IamAdapter(),
+    new CloudTrailAdapter(),
+    new S3Adapter(),
+    new Ec2VpcAdapter(),
+    new RdsAdapter(),
+    new KmsAdapter(),
+    new CloudWatchAdapter(),
+    new ConfigAdapter(),
+    new GuardDutyAdapter(),
+    new SecretsManagerAdapter(),
+    new WafAdapter(),
+    new ElbAdapter(),
+    new AcmAdapter(),
+    new BackupAdapter(),
+    new InspectorAdapter(),
+    new EcsEksAdapter(),
+    new LambdaAdapter(),
+    new DynamoDbAdapter(),
+    new SnsSqsAdapter(),
+    new EcrAdapter(),
+    new OpenSearchAdapter(),
+    new NeptuneAdapter(),
+    new RedshiftAdapter(),
+    new MacieAdapter(),
+    new Route53Adapter(),
+    new ApiGatewayAdapter(),
+    new CloudFrontAdapter(),
+    new CognitoAdapter(),
+    new ElastiCacheAdapter(),
+    new EfsAdapter(),
+    new MskAdapter(),
+    new SageMakerAdapter(),
+    new SystemsManagerAdapter(),
+    new CodeBuildAdapter(),
+    new NetworkFirewallAdapter(),
+    new ShieldAdapter(),
+    new KinesisAdapter(),
+    new GlueAdapter(),
+    new AthenaAdapter(),
+    new EmrAdapter(),
+    new StepFunctionsAdapter(),
+    new EventBridgeAdapter(),
+    new TransferFamilyAdapter(),
+    new ElasticBeanstalkAdapter(),
+    new AppFlowAdapter(),
+  ];
+
+  /**
+   * Entry point — resolves credentials + regions, then dispatches to the
+   * chosen scan engine. The two engines are mutually exclusive:
+   *
+   *   - 'comp_scanners' → runs our ~49 service adapters (default).
+   *   - 'security_hub'  → runs ONLY the Security Hub adapter, per region.
+   *
+   * Engineers tracing this code can jump straight to `scanViaAdapters`
+   * or `scanViaSecurityHub` to see what each mode does — no nested
+   * branching.
+   */
+  async scanSecurityFindings(
+    credentials: Record<string, unknown>,
+    variables: Record<string, unknown>,
+    enabledServices?: string[],
+    mode: AwsScanMode = DEFAULT_AWS_SCAN_MODE,
+  ): Promise<SecurityFinding[]> {
+    const setup = await this.prepareScan(credentials, variables);
+
+    if (mode === 'security_hub') {
+      return this.scanViaSecurityHub(setup);
+    }
+    return this.scanViaAdapters(setup, enabledServices);
+  }
+
+  /**
+   * Validates credentials, resolves the region list, and (for role
+   * auth) assumes the IAM role. Returns the shared context both scan
+   * engines need. Throws on any precondition failure — both engines
+   * skip out of an unhappy path before they begin.
+   */
+  private async prepareScan(
+    credentials: Record<string, unknown>,
+    variables: Record<string, unknown>,
+  ): Promise<AwsScanSetup> {
+    const isRoleAuth = Boolean(credentials.roleArn && credentials.externalId);
+    const isKeyAuth = Boolean(
+      credentials.access_key_id && credentials.secret_access_key,
+    );
+
+    if (!isRoleAuth && !isKeyAuth) {
+      throw new Error(
+        'AWS credentials missing. Provide IAM Role or Access Keys.',
+      );
+    }
+
+    const partition = normalizeAwsPartition(
+      credentials.awsType ?? variables.awsType,
+    );
+    const configuredRegions = this.getConfiguredRegions(
+      credentials,
+      variables,
+      partition,
+    );
+    const primaryRegion = configuredRegions[0];
+
+    const mismatchedRegions = configuredRegions.filter(
+      (region) => getAwsPartitionForRegion(region) !== partition,
+    );
+    if (mismatchedRegions.length > 0) {
+      throw new Error(
+        `AWS regions do not match selected environment (${partition}): ${mismatchedRegions.join(', ')}`,
+      );
+    }
+
+    this.logger.log(
+      `Scanning ${configuredRegions.length} ${partition} region(s): ${configuredRegions.join(', ')}`,
+    );
+
+    // Assume role ONCE — IAM is global, credentials work across all regions.
+    const awsCredentials: AwsCredentials = isRoleAuth
+      ? await this.resolveRoleCredentials({
+          roleArn: credentials.roleArn as string,
+          externalId: credentials.externalId as string,
+          partition,
+          regions: configuredRegions,
+          primaryRegion,
+        })
+      : {
+          accessKeyId: credentials.access_key_id as string,
+          secretAccessKey: credentials.secret_access_key as string,
+        };
+
+    return {
+      awsCredentials,
+      configuredRegions,
+      primaryRegion,
+      partition,
+    };
+  }
+
+  private async resolveRoleCredentials(params: {
+    roleArn: string;
+    externalId: string;
+    partition: AwsPartition;
+    regions: string[];
+    primaryRegion: string;
+  }): Promise<AwsCredentials> {
+    const partitionErrors = validateAwsPartitionConfig({
+      partition: params.partition,
+      roleArn: params.roleArn,
+      regions: params.regions,
+    });
+    if (partitionErrors.length > 0) {
+      throw new Error(partitionErrors.join(' '));
+    }
+
+    return this.assumeRole({
+      roleArn: params.roleArn,
+      externalId: params.externalId,
+      region: params.primaryRegion,
+      partition: params.partition,
+    });
+  }
+
+  /**
+   * Resolve short-lived, customer-scoped AWS credentials for a role-auth
+   * connection, using the SAME partition/region normalization and two-hop
+   * assume as a scan. Returns ONLY the temporary session credentials.
+   *
+   * This exists so the Cloud Tests CHECK path can perform the cross-account
+   * assume in ECS (which holds the roleAssumer task role + env), instead of in
+   * the Trigger.dev runtime where no base AWS credentials or roleAssumer ARN
+   * are available. Throws when the connection is not role-auth or the assume
+   * fails — the caller maps those to "not_configured" / "assume_failed".
+   */
+  async resolveRoleSession(
+    credentials: Record<string, unknown>,
+    variables: Record<string, unknown>,
+  ): Promise<{
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken: string;
+  }> {
+    const isRoleAuth = Boolean(credentials.roleArn && credentials.externalId);
+    if (!isRoleAuth) {
+      throw new Error(
+        'AWS connection is not configured for IAM role access (roleArn/externalId missing).',
+      );
+    }
+
+    const partition = normalizeAwsPartition(
+      credentials.awsType ?? variables.awsType,
+    );
+    const configuredRegions = this.getConfiguredRegions(
+      credentials,
+      variables,
+      partition,
+    );
+
+    const session = await this.resolveRoleCredentials({
+      roleArn: credentials.roleArn as string,
+      externalId: credentials.externalId as string,
+      partition,
+      regions: configuredRegions,
+      primaryRegion: configuredRegions[0],
+    });
+
+    if (!session.sessionToken) {
+      throw new Error('Assumed role returned no session token.');
+    }
+
+    return {
+      accessKeyId: session.accessKeyId,
+      secretAccessKey: session.secretAccessKey,
+      sessionToken: session.sessionToken,
+    };
+  }
+
+  /**
+   * Today's default scan engine. Runs each registered service adapter
+   * (global once, regional per region) and aggregates the findings.
+   * Behavior is byte-for-byte identical to the pre-mode implementation —
+   * the SecurityHubAdapter is NOT in `this.adapters`, so it can never
+   * run on this path.
+   */
+  private async scanViaAdapters(
+    setup: AwsScanSetup,
+    enabledServices: string[] | undefined,
+  ): Promise<SecurityFinding[]> {
+    const { awsCredentials, configuredRegions, primaryRegion, partition } = setup;
+
+    // undefined = scan all (no detection data), [] = scan nothing (all disabled), [...] = scan specific
+    const activeAdaptersBeforePartitionFilter =
+      enabledServices === undefined
+        ? this.adapters
+        : this.adapters.filter((a) => enabledServices.includes(a.serviceId));
+    const activeAdapters =
+      partition === 'aws-us-gov'
+        ? activeAdaptersBeforePartitionFilter.filter(
+            (adapter) => !GOVCLOUD_UNSUPPORTED_SERVICE_IDS.has(adapter.serviceId),
+          )
+        : activeAdaptersBeforePartitionFilter;
+
+    this.logger.log(
+      `Scanning ${activeAdapters.length} service adapters` +
+        (enabledServices?.length
+          ? ` (filtered from ${this.adapters.length} total)`
+          : ''),
+    );
+
+    const allFindings: SecurityFinding[] = [];
+    const successfulRegions = new Set<string>();
+    const failedRegions = new Set<string>();
+
+    // Run global adapters once in the primary region
+    const globalAdapters = activeAdapters.filter((a) => a.isGlobal);
+    for (const adapter of globalAdapters) {
+      try {
+        const findings = await adapter.scan({
+          credentials: awsCredentials,
+          region: primaryRegion,
+        });
+        for (const f of findings) {
+          f.evidence = { ...f.evidence, serviceId: adapter.serviceId };
+        }
+        allFindings.push(...findings);
+        this.logger.log(
+          `[${adapter.serviceId}] ${findings.length} findings (global)`,
+        );
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`[${adapter.serviceId}] Error (global): ${msg}`);
+      }
+    }
+
+    // Run regional adapters per configured region
+    const regionalAdapters = activeAdapters.filter((a) => !a.isGlobal);
+    for (const region of configuredRegions) {
+      for (const adapter of regionalAdapters) {
+        try {
+          const findings = await adapter.scan({
+            credentials: awsCredentials,
+            region,
+          });
+          for (const f of findings) {
+            f.evidence = { ...f.evidence, serviceId: adapter.serviceId };
+          }
+          allFindings.push(...findings);
+          successfulRegions.add(region);
+          this.logger.log(
+            `[${adapter.serviceId}] ${findings.length} findings in ${region}`,
+          );
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`[${adapter.serviceId}] Error in ${region}: ${msg}`);
+          failedRegions.add(region);
+        }
+      }
+    }
+
+    this.logger.log(
+      `Scan complete: ${allFindings.length} findings from ${successfulRegions.size} regions`,
+    );
+
+    // If ALL regions failed for regional adapters and no global adapters succeeded
+    if (
+      regionalAdapters.length > 0 &&
+      successfulRegions.size === 0 &&
+      failedRegions.size > 0
+    ) {
+      throw new Error(
+        `All ${failedRegions.size} region(s) failed to scan: ${[...failedRegions].join(', ')}`,
+      );
+    }
+
+    return allFindings;
+  }
+
+  /**
+   * Alternative scan engine. Pulls findings from AWS Security Hub
+   * `GetFindings` per region — does NOT touch any of the 49 service
+   * adapters. SecurityHubAdapter handles the "not subscribed" /
+   * "AccessDenied" cases gracefully (returns []).
+   *
+   * Activated by `awsScanMode: 'security_hub'` on the connection.
+   */
+  private async scanViaSecurityHub(
+    setup: AwsScanSetup,
+  ): Promise<SecurityFinding[]> {
+    const { awsCredentials, configuredRegions } = setup;
+    const adapter = new SecurityHubAdapter();
+
+    this.logger.log(
+      `Scanning Security Hub across ${configuredRegions.length} region(s)`,
+    );
+
+    const allFindings: SecurityFinding[] = [];
+    const successfulRegions = new Set<string>();
+    const failedRegions = new Set<string>();
+
+    for (const region of configuredRegions) {
+      try {
+        const findings = await adapter.scan({
+          credentials: awsCredentials,
+          region,
+        });
+        // Adapter already stamps evidence.serviceId — no need to re-stamp.
+        allFindings.push(...findings);
+        successfulRegions.add(region);
+        this.logger.log(
+          `[security-hub] ${findings.length} findings in ${region}`,
+        );
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`[security-hub] Error in ${region}: ${msg}`);
+        failedRegions.add(region);
+      }
+    }
+
+    if (successfulRegions.size === 0 && failedRegions.size > 0) {
+      throw new Error(
+        `Security Hub scan failed in all ${failedRegions.size} region(s): ${[...failedRegions].join(', ')}`,
+      );
+    }
+
+    this.logger.log(
+      `Security Hub scan complete: ${allFindings.length} findings from ${successfulRegions.size} region(s)`,
+    );
+    return allFindings;
+  }
+
+  /**
+   * Get the list of regions to scan from credentials or variables.
+   * Always returns at least one region (defaults to us-east-1).
+   */
+  private getConfiguredRegions(
+    credentials: Record<string, unknown>,
+    variables: Record<string, unknown>,
+    partition: AwsPartition,
+  ): string[] {
+    if (Array.isArray(credentials.regions) && credentials.regions.length > 0) {
+      const filtered = credentials.regions.filter(
+        (r): r is string => typeof r === 'string' && r.trim().length > 0,
+      );
+      if (filtered.length > 0) return filtered;
+    }
+
+    if (Array.isArray(variables.regions) && variables.regions.length > 0) {
+      const filtered = variables.regions.filter(
+        (r): r is string => typeof r === 'string' && r.trim().length > 0,
+      );
+      if (filtered.length > 0) return filtered;
+    }
+
+    const singleRegion =
+      (credentials.region as string) || (variables.region as string);
+
+    if (
+      singleRegion &&
+      typeof singleRegion === 'string' &&
+      singleRegion.trim()
+    ) {
+      return [singleRegion.trim()];
+    }
+
+    return [getAwsDefaultRegion(partition)];
+  }
+
+  /**
+   * Assume the remediation IAM role for write access.
+   * Uses a separate role ARN so the audit role stays read-only.
+   */
+  async assumeRemediationRole(
+    credentials: Record<string, unknown>,
+    region: string,
+  ): Promise<AwsCredentials> {
+    const remediationRoleArn = credentials.remediationRoleArn as
+      | string
+      | undefined;
+    if (!remediationRoleArn) {
+      throw new Error(
+        'Remediation role ARN not configured. Add a Remediation Role ARN to your AWS connection.',
+      );
+    }
+
+    const partition = normalizeAwsPartition(
+      credentials.awsType ??
+        parseAwsRoleArn(remediationRoleArn)?.partition ??
+        getAwsPartitionForRegion(region),
+    );
+
+    return this.assumeRole({
+      roleArn: remediationRoleArn,
+      externalId: credentials.externalId as string,
+      region,
+      sessionName: 'CompSecurityRemediation',
+      partition,
+    });
+  }
+
+  /**
+   * Assume IAM role for cross-account access (two-hop)
+   */
+  async assumeRole(params: {
+    roleArn: string;
+    externalId: string;
+    region: string;
+    sessionName?: string;
+    partition?: AwsPartition;
+  }): Promise<AwsCredentials> {
+    const { roleArn, externalId, region, sessionName } = params;
+    const parsedRoleArn = parseAwsRoleArn(roleArn);
+    const partition =
+      params.partition ?? parsedRoleArn?.partition ?? getAwsPartitionForRegion(region);
+
+    if (!parsedRoleArn) {
+      throw new Error(
+        'Invalid IAM Role ARN format. Expected arn:aws:iam::... or arn:aws-us-gov:iam::...',
+      );
+    }
+
+    if (parsedRoleArn.partition !== partition) {
+      throw new Error(
+        `Role ARN partition (${parsedRoleArn.partition}) does not match selected AWS environment (${partition}).`,
+      );
+    }
+
+    const roleAssumerArn = getAwsRoleAssumerArn(partition);
+    if (!roleAssumerArn) {
+      const envName = getAwsRoleAssumerEnvName(partition);
+      throw new Error(
+        `Missing ${envName} (our ${partition} roleAssumer ARN).`,
+      );
+    }
+
+    // Hop 1: task role -> roleAssumer
+    const baseSts = new STSClient({
+      region,
+      credentials: getAwsBaseCredentials(partition),
+    });
+    const roleAssumerResp = await retryAssume(() =>
+      baseSts.send(
+        new AssumeRoleCommand({
+          RoleArn: roleAssumerArn,
+          RoleSessionName: 'CompRoleAssumer',
+          DurationSeconds: 3600,
+        }),
+      ),
+    );
+
+    const roleAssumerCreds = roleAssumerResp.Credentials;
+    if (!roleAssumerCreds?.AccessKeyId || !roleAssumerCreds.SecretAccessKey) {
+      throw new Error('Failed to assume roleAssumer - no credentials returned');
+    }
+
+    const roleAssumerAwsCreds: AwsCredentials = {
+      accessKeyId: roleAssumerCreds.AccessKeyId,
+      secretAccessKey: roleAssumerCreds.SecretAccessKey,
+      sessionToken: roleAssumerCreds.SessionToken,
+    };
+
+    // Hop 2: roleAssumer -> customer role
+    const roleAssumerSts = new STSClient({
+      region,
+      credentials: roleAssumerAwsCreds,
+    });
+
+    this.logger.log(`Assuming customer role ${roleArn} in region ${region}`);
+
+    const customerResp = await retryAssume(() =>
+      roleAssumerSts.send(
+        new AssumeRoleCommand({
+          RoleArn: roleArn,
+          ExternalId: externalId,
+          RoleSessionName: sessionName ?? 'CompSecurityAudit',
+          DurationSeconds: 3600,
+        }),
+      ),
+    );
+
+    const customerCreds = customerResp.Credentials;
+    if (!customerCreds?.AccessKeyId || !customerCreds.SecretAccessKey) {
+      throw new Error(
+        'Failed to assume customer role - no credentials returned',
+      );
+    }
+
+    return {
+      accessKeyId: customerCreds.AccessKeyId,
+      secretAccessKey: customerCreds.SecretAccessKey,
+      sessionToken: customerCreds.SessionToken,
+    };
+  }
+
+  /**
+   * Detect which AWS services are actively used via Cost Explorer billing data.
+   * Returns serviceIds matching our adapter IDs (e.g. 's3', 'rds', 'lambda').
+   */
+  async detectActiveServices(
+    credentials: Record<string, unknown>,
+    variables: Record<string, unknown>,
+  ): Promise<string[]> {
+    const partition = normalizeAwsPartition(
+      credentials.awsType ?? variables.awsType,
+    );
+    const configuredRegions = this.getConfiguredRegions(
+      credentials,
+      variables,
+      partition,
+    );
+    const primaryRegion = configuredRegions[0];
+    const mismatchedRegions = configuredRegions.filter(
+      (region) => getAwsPartitionForRegion(region) !== partition,
+    );
+    if (mismatchedRegions.length > 0) {
+      throw new Error(
+        `AWS regions do not match selected environment (${partition}): ${mismatchedRegions.join(', ')}`,
+      );
+    }
+
+    const isRoleAuth = Boolean(credentials.roleArn && credentials.externalId);
+    const isKeyAuth = Boolean(
+      credentials.access_key_id && credentials.secret_access_key,
+    );
+
+    if (!isRoleAuth && !isKeyAuth) {
+      throw new Error('AWS credentials missing');
+    }
+
+    let awsCredentials: AwsCredentials;
+    if (isRoleAuth) {
+      awsCredentials = await this.assumeRole({
+        roleArn: credentials.roleArn as string,
+        externalId: credentials.externalId as string,
+        region: primaryRegion,
+        partition,
+      });
+    } else {
+      awsCredentials = {
+        accessKeyId: credentials.access_key_id as string,
+        secretAccessKey: credentials.secret_access_key as string,
+      };
+    }
+
+    const client = new CostExplorerClient({
+      region: getAwsDefaultRegion(partition),
+      credentials: awsCredentials,
+    });
+
+    const now = new Date();
+    const end = now.toISOString().slice(0, 10); // YYYY-MM-DD
+    const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
+    let response;
+    try {
+      response = await client.send(
+        new GetCostAndUsageCommand({
+          TimePeriod: { Start: start, End: end },
+          Granularity: 'MONTHLY',
+          Metrics: ['UnblendedCost'],
+          GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
+        }),
+      );
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Cost Explorer unavailable (missing ce:GetCostAndUsage permission?): ${msg}`,
+      );
+      return [];
+    }
+
+    const activeAwsNames = new Set<string>();
+    for (const result of response.ResultsByTime ?? []) {
+      for (const group of result.Groups ?? []) {
+        const serviceName = group.Keys?.[0];
+        const amount = parseFloat(group.Metrics?.UnblendedCost?.Amount ?? '0');
+        if (serviceName && amount > 0) {
+          activeAwsNames.add(serviceName);
+        }
+      }
+    }
+
+    // Map AWS billing service names to our adapter serviceIds
+    const detected: string[] = [];
+    for (const [awsName, serviceIds] of Object.entries(
+      AWS_COST_SERVICE_MAPPING,
+    )) {
+      if (activeAwsNames.has(awsName)) {
+        for (const id of serviceIds) {
+          if (
+            partition === 'aws-us-gov' &&
+            GOVCLOUD_UNSUPPORTED_SERVICE_IDS.has(id)
+          ) {
+            continue;
+          }
+          if (!detected.includes(id)) {
+            detected.push(id);
+          }
+        }
+      }
+    }
+
+    this.logger.log(
+      `Cost Explorer detected ${detected.length} active services from ${activeAwsNames.size} billing entries`,
+    );
+
+    return detected;
+  }
+}
+
+/**
+ * Maps AWS Cost Explorer billing service names to our adapter serviceIds.
+ * One billing name may map to multiple adapters (e.g. EC2 → ec2-vpc, elb).
+ */
+const AWS_COST_SERVICE_MAPPING: Record<string, string[]> = {
+  'AWS Security Hub': ['security-hub'],
+  'AWS IAM Access Analyzer': ['iam-analyzer'],
+  'AWS CloudTrail': ['cloudtrail'],
+  'Amazon Simple Storage Service': ['s3'],
+  'Amazon Elastic Compute Cloud - Compute': ['ec2-vpc'],
+  'EC2 - Other': ['ec2-vpc'],
+  'Amazon Relational Database Service': ['rds'],
+  'AWS Key Management Service': ['kms'],
+  'Amazon CloudWatch': ['cloudwatch'],
+  'AWS Config': ['config'],
+  'Amazon GuardDuty': ['guardduty'],
+  'AWS Secrets Manager': ['secrets-manager'],
+  'AWS WAF': ['waf'],
+  'Amazon Elastic Load Balancing': ['elb'],
+  'AWS Certificate Manager': ['acm'],
+  'AWS Backup': ['backup'],
+  'Amazon Inspector': ['inspector'],
+  'Amazon Elastic Container Service': ['ecs-eks'],
+  'Amazon Elastic Kubernetes Service': ['ecs-eks'],
+  'AWS Lambda': ['lambda'],
+  'Amazon DynamoDB': ['dynamodb'],
+  'Amazon Simple Notification Service': ['sns-sqs'],
+  'Amazon Simple Queue Service': ['sns-sqs'],
+  'Amazon Elastic Container Registry': ['ecr'],
+  'Amazon OpenSearch Service': ['opensearch'],
+  'Amazon Elasticsearch Service': ['opensearch'], // legacy name
+  'Amazon Neptune': ['neptune'],
+  'Amazon Redshift': ['redshift'],
+  'Amazon Macie': ['macie'],
+  'Amazon Route 53': ['route53'],
+  'Amazon API Gateway': ['api-gateway'],
+  'Amazon CloudFront': ['cloudfront'],
+  'Amazon Cognito': ['cognito'],
+  'Amazon ElastiCache': ['elasticache'],
+  'Amazon Elastic File System': ['efs'],
+  'Amazon Managed Streaming for Apache Kafka': ['msk'],
+  'Amazon SageMaker': ['sagemaker'],
+  'AWS Systems Manager': ['systems-manager'],
+  'AWS CodeBuild': ['codebuild'],
+  'AWS Network Firewall': ['network-firewall'],
+  'AWS Shield': ['shield'],
+  'Amazon Kinesis': ['kinesis'],
+  'Amazon Kinesis Data Firehose': ['kinesis'],
+  'Amazon Kinesis Data Analytics': ['kinesis'],
+  'AWS Glue': ['glue'],
+  'Amazon Athena': ['athena'],
+  'Amazon Elastic MapReduce': ['emr'],
+  'AWS Step Functions': ['step-functions'],
+  'Amazon EventBridge': ['eventbridge'],
+  'AWS Transfer Family': ['transfer-family'],
+  'AWS Elastic Beanstalk': ['elastic-beanstalk'],
+  'Amazon AppFlow': ['appflow'],
+};

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "probo-us": {
+      "type": "http",
+      "url": "https://us.probo.com/api/mcp/v1"
+    },
+    "probo-eu": {
+      "type": "http",
+      "url": "https://eu.probo.com/api/mcp/v1"
+    }
+  }
+}

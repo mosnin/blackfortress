@@ -1,0 +1,35 @@
+{
+  "slug": "gitguardian",
+  "name": "GitGuardian",
+  "description": "Monitor GitGuardian for exposed secrets and code security incidents",
+  "category": "Security",
+  "docsUrl": "https://api.gitguardian.com/docs",
+  "baseUrl": "https://api.gitguardian.com/",
+  "authConfig": {
+    "type": "api_key",
+    "config": {}
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "gitguardian_secure_code",
+      "name": "Open Secret Incidents",
+      "description": "Lists open (TRIGGERED/ASSIGNED) GitGuardian secret incidents. Fails if any are open; passes when none remain.",
+      "defaultSeverity": "critical",
+      "enabled": true
+    },
+    {
+      "slug": "gitguardian_secure_secrets",
+      "name": "Monitored Sources",
+      "description": "Verifies at least one source (GitHub/GitLab/Bitbucket/Azure DevOps repository) is connected to GitGuardian for secret scanning.",
+      "defaultSeverity": "high",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

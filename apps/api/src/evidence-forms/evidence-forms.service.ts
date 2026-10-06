@@ -1,0 +1,938 @@
+import { AttachmentsService } from '@/attachments/attachments.service';
+import type { AuthContext } from '@/auth/types';
+import { db, EvidenceFormType as DbEvidenceFormType } from '@db';
+import {
+  toDbEvidenceFormType,
+  toExternalEvidenceFormType,
+} from '@trycompai/company';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { z } from 'zod';
+import {
+  evidenceFormDefinitionList,
+  evidenceFormDefinitions,
+  evidenceFormSubmissionSchemaMap,
+  evidenceFormTypeSchema,
+  type EvidenceFormType,
+} from './evidence-forms.definitions';
+import { getCsvFieldValue, toCsvRow } from './evidence-forms-csv';
+import { checkAutoCompletePhases } from '../frameworks/frameworks-timeline.helper';
+import { TimelinesService } from '../timelines/timelines.service';
+import { EvidenceFormsNotifierService } from './evidence-forms-notifier.service';
+
+const listQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+});
+
+const uploadSchema = z.object({
+  formType: evidenceFormTypeSchema,
+  fileName: z.string().min(1),
+  fileType: z.string().min(1),
+  fileData: z.string().min(1),
+});
+
+const uploadSubmissionBodySchema = z.object({
+  fileName: z.string().min(1),
+  fileType: z.string().min(1),
+  fileData: z.string().min(1),
+});
+
+const reviewSchema = z.object({
+  action: z.enum(['approved', 'rejected']),
+  reason: z.string().trim().optional(),
+});
+
+const formSettingSchema = z.object({
+  isNotRelevant: z.boolean(),
+});
+
+const EVIDENCE_FORM_REVIEWER_ROLES = ['owner', 'admin', 'auditor'] as const;
+const EVIDENCE_FORM_DELETE_ROLES = ['owner', 'admin'] as const;
+const MAX_UPLOAD_FILE_SIZE_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_BASE64_LENGTH = Math.ceil(MAX_UPLOAD_FILE_SIZE_BYTES / 3) * 4;
+
+function normalizeSubmissionFormType<
+  T extends { formType: DbEvidenceFormType },
+>(submission: T): Omit<T, 'formType'> & { formType: EvidenceFormType } {
+  return {
+    ...submission,
+    formType: toExternalEvidenceFormType(submission.formType) ?? 'meeting',
+  };
+}
+
+@Injectable()
+export class EvidenceFormsService {
+  private readonly logger = new Logger(EvidenceFormsService.name);
+
+  constructor(
+    private readonly attachmentsService: AttachmentsService,
+    private readonly timelinesService: TimelinesService,
+    private readonly evidenceFormsNotifier: EvidenceFormsNotifierService,
+  ) {}
+
+  private requireJwtUser(authContext: AuthContext): string {
+    if (authContext.isApiKey || authContext.authType === 'api-key') {
+      throw new UnauthorizedException(
+        'This endpoint requires JWT authentication and does not support API key authentication',
+      );
+    }
+
+    if (!authContext.userId) {
+      throw new UnauthorizedException('Authenticated user session is required');
+    }
+
+    return authContext.userId;
+  }
+
+  private requirePrivilegedEvidenceAccess(authContext: AuthContext): string {
+    const userId = this.requireJwtUser(authContext);
+    const roles = authContext.userRoles ?? [];
+    const hasRequiredRole = EVIDENCE_FORM_REVIEWER_ROLES.some((role) =>
+      roles.includes(role),
+    );
+
+    if (!hasRequiredRole) {
+      throw new UnauthorizedException(
+        `Access denied. Required one of roles: ${EVIDENCE_FORM_REVIEWER_ROLES.join(', ')}`,
+      );
+    }
+
+    return userId;
+  }
+
+  private requireEvidenceDeleteAccess(authContext: AuthContext): string {
+    const userId = this.requireJwtUser(authContext);
+    const roles = authContext.userRoles ?? [];
+    const canDelete = EVIDENCE_FORM_DELETE_ROLES.some((role) =>
+      roles.includes(role),
+    );
+
+    if (!canDelete) {
+      throw new UnauthorizedException(
+        `Delete denied. Required one of roles: ${EVIDENCE_FORM_DELETE_ROLES.join(', ')}`,
+      );
+    }
+
+    return userId;
+  }
+
+  private decodeBase64File(fileData: string): Buffer {
+    const normalized = fileData.trim();
+    if (normalized.length === 0 || normalized.length % 4 !== 0) {
+      throw new BadRequestException(
+        'Invalid file data. Expected base64 string.',
+      );
+    }
+
+    const fileBuffer = Buffer.from(normalized, 'base64');
+
+    if (fileBuffer.toString('base64') !== normalized) {
+      throw new BadRequestException(
+        'Invalid file data. Expected base64 string.',
+      );
+    }
+
+    if (!fileBuffer.length) {
+      throw new BadRequestException('File cannot be empty.');
+    }
+
+    return fileBuffer;
+  }
+
+  /**
+   * Find top-level submission fields shaped like a file field, i.e. objects
+   * with a string `fileKey` (e.g. { fileKey, downloadUrl, fileName }).
+   */
+  private findFileFieldEntries(
+    data: Record<string, unknown>,
+  ): Array<[string, Record<string, unknown>]> {
+    return Object.entries(data).filter(
+      (entry): entry is [string, Record<string, unknown>] => {
+        const value = entry[1];
+        return (
+          !!value &&
+          typeof value === 'object' &&
+          'fileKey' in value &&
+          typeof (value as Record<string, unknown>).fileKey === 'string'
+        );
+      },
+    );
+  }
+
+  /**
+   * Reject a submission whose file fields reference an attachment key
+   * outside the caller's own organization namespace
+   * (`${organizationId}/attachments/...`). Without this check a caller
+   * could submit another org's fileKey and have it presigned on read.
+   */
+  private assertFileKeysBelongToOrganization(params: {
+    data: Record<string, unknown>;
+    organizationId: string;
+  }): void {
+    const { data, organizationId } = params;
+    const orgPrefix = `${organizationId}/`;
+
+    for (const [, fileObj] of this.findFileFieldEntries(data)) {
+      const fileKey = fileObj.fileKey as string;
+      if (!fileKey.startsWith(orgPrefix)) {
+        throw new BadRequestException(
+          'Submitted file does not belong to this organization',
+        );
+      }
+    }
+  }
+
+  /**
+   * Walk submission data and regenerate fresh presigned URLs for any file
+   * fields. Skips presigning (and clears the download URL) for any stored
+   * fileKey outside the caller's organization namespace, since legacy or
+   * tampered rows may not have passed `assertFileKeysBelongToOrganization`.
+   */
+  private async refreshFileUrls(params: {
+    data: Record<string, unknown>;
+    organizationId: string;
+  }): Promise<Record<string, unknown>> {
+    const { data, organizationId } = params;
+    const refreshed: Record<string, unknown> = { ...data };
+    const orgPrefix = `${organizationId}/`;
+
+    for (const [key, fileObj] of this.findFileFieldEntries(data)) {
+      const fileKey = fileObj.fileKey as string;
+
+      if (!fileKey.startsWith(orgPrefix)) {
+        refreshed[key] = { ...fileObj, downloadUrl: null };
+        continue;
+      }
+
+      const freshUrl =
+        await this.attachmentsService.getPresignedDownloadUrl(fileKey);
+      refreshed[key] = { ...fileObj, downloadUrl: freshUrl };
+    }
+
+    return refreshed;
+  }
+
+  listForms() {
+    return evidenceFormDefinitionList;
+  }
+
+  async getFormStatuses(organizationId: string) {
+    const [results, settings] = await Promise.all([
+      db.evidenceSubmission.groupBy({
+        by: ['formType'],
+        where: { organizationId },
+        _max: { submittedAt: true },
+      }),
+      db.evidenceFormSetting.findMany({
+        where: { organizationId },
+        select: { formType: true, isNotRelevant: true },
+      }),
+    ]);
+
+    const notRelevantFormTypes = new Set(
+      settings
+        .filter((setting) => setting.isNotRelevant)
+        .map((setting) => setting.formType),
+    );
+
+    const statuses: Record<
+      string,
+      { lastSubmittedAt: string | null; isNotRelevant: boolean }
+    > = {};
+
+    for (const form of evidenceFormDefinitionList) {
+      const match = results.find(
+        (r) => r.formType === toDbEvidenceFormType(form.type),
+      );
+      const dbFormType = toDbEvidenceFormType(form.type);
+      statuses[form.type] = {
+        lastSubmittedAt: match?._max.submittedAt?.toISOString() ?? null,
+        isNotRelevant: notRelevantFormTypes.has(dbFormType),
+      };
+    }
+
+    return statuses;
+  }
+
+  async getFormSettings(organizationId: string) {
+    const settings = await db.evidenceFormSetting.findMany({
+      where: { organizationId },
+      select: { formType: true, isNotRelevant: true, updatedAt: true },
+    });
+
+    const settingsByFormType = new Map(
+      settings.map((setting) => [setting.formType, setting]),
+    );
+
+    return evidenceFormDefinitionList.map((form) => {
+      const setting = settingsByFormType.get(toDbEvidenceFormType(form.type));
+      return {
+        formType: form.type,
+        isNotRelevant: setting?.isNotRelevant ?? false,
+        updatedAt: setting?.updatedAt?.toISOString() ?? null,
+      };
+    });
+  }
+
+  async updateFormSetting(params: {
+    organizationId: string;
+    formType: string;
+    payload: unknown;
+  }) {
+    const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
+    if (!parsedType.success) {
+      throw new BadRequestException('Unsupported form type');
+    }
+
+    const parsedPayload = formSettingSchema.safeParse(params.payload);
+    if (!parsedPayload.success) {
+      throw new BadRequestException(parsedPayload.error.flatten());
+    }
+
+    const dbFormType = toDbEvidenceFormType(parsedType.data);
+    const setting = await db.evidenceFormSetting.upsert({
+      where: {
+        organizationId_formType: {
+          organizationId: params.organizationId,
+          formType: dbFormType,
+        },
+      },
+      create: {
+        organizationId: params.organizationId,
+        formType: dbFormType,
+        isNotRelevant: parsedPayload.data.isNotRelevant,
+      },
+      update: {
+        isNotRelevant: parsedPayload.data.isNotRelevant,
+      },
+      select: {
+        formType: true,
+        isNotRelevant: true,
+        updatedAt: true,
+      },
+    });
+
+    return {
+      formType: toExternalEvidenceFormType(setting.formType),
+      isNotRelevant: setting.isNotRelevant,
+      updatedAt: setting.updatedAt.toISOString(),
+    };
+  }
+
+  async getFormWithSubmissions(params: {
+    organizationId: string;
+    authContext: AuthContext;
+    formType: string;
+    search?: string;
+    limit?: string;
+    offset?: string;
+  }) {
+    const { organizationId, formType } = params;
+    this.requirePrivilegedEvidenceAccess(params.authContext);
+
+    const parsedType = evidenceFormTypeSchema.safeParse(formType);
+    if (!parsedType.success) {
+      throw new BadRequestException('Unsupported form type');
+    }
+
+    const parsedQuery = listQuerySchema.safeParse({
+      search: params.search,
+      limit: params.limit,
+      offset: params.offset,
+    });
+    if (!parsedQuery.success) {
+      throw new BadRequestException(parsedQuery.error.flatten());
+    }
+    const query = parsedQuery.data;
+
+    const submissions = await db.evidenceSubmission.findMany({
+      where: {
+        organizationId,
+        formType: toDbEvidenceFormType(parsedType.data),
+      },
+      include: {
+        submittedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: {
+        submittedAt: 'desc',
+      },
+    });
+
+    const filtered = query.search
+      ? submissions.filter((submission) => {
+          const searchTarget = JSON.stringify(submission.data).toLowerCase();
+          return searchTarget.includes(query.search!.toLowerCase());
+        })
+      : submissions;
+
+    const paginated = filtered.slice(query.offset, query.offset + query.limit);
+
+    const submissionsWithFreshUrls = await Promise.all(
+      paginated.map(async (submission) => {
+        const refreshedData = await this.refreshFileUrls({
+          data: submission.data as Record<string, unknown>,
+          organizationId,
+        });
+        return normalizeSubmissionFormType({
+          ...submission,
+          data: refreshedData,
+        });
+      }),
+    );
+
+    return {
+      form: evidenceFormDefinitions[parsedType.data],
+      submissions: submissionsWithFreshUrls,
+      total: filtered.length,
+    };
+  }
+
+  async getSubmission(params: {
+    organizationId: string;
+    authContext: AuthContext;
+    formType: string;
+    submissionId: string;
+  }) {
+    this.requirePrivilegedEvidenceAccess(params.authContext);
+
+    const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
+    if (!parsedType.success) {
+      throw new BadRequestException('Unsupported form type');
+    }
+
+    const submission = await db.evidenceSubmission.findFirst({
+      where: {
+        id: params.submissionId,
+        organizationId: params.organizationId,
+        formType: toDbEvidenceFormType(parsedType.data),
+      },
+      include: {
+        submittedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        reviewedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (!submission) {
+      throw new NotFoundException('Submission not found');
+    }
+
+    const refreshedData = await this.refreshFileUrls({
+      data: submission.data as Record<string, unknown>,
+      organizationId: params.organizationId,
+    });
+
+    return {
+      form: evidenceFormDefinitions[parsedType.data],
+      submission: normalizeSubmissionFormType({
+        ...submission,
+        data: refreshedData,
+      }),
+    };
+  }
+
+  async deleteSubmission(params: {
+    organizationId: string;
+    authContext: AuthContext;
+    formType: string;
+    submissionId: string;
+  }) {
+    this.requireEvidenceDeleteAccess(params.authContext);
+
+    const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
+    if (!parsedType.success) {
+      throw new BadRequestException('Unsupported form type');
+    }
+
+    const submission = await db.evidenceSubmission.findFirst({
+      where: {
+        id: params.submissionId,
+        organizationId: params.organizationId,
+        formType: toDbEvidenceFormType(parsedType.data),
+      },
+    });
+
+    if (!submission) {
+      throw new NotFoundException('Submission not found');
+    }
+
+    await db.evidenceSubmission.delete({
+      where: { id: params.submissionId },
+    });
+
+    // Check timeline auto-completion after evidence deletion
+    checkAutoCompletePhases({
+      organizationId: params.organizationId,
+      timelinesService: this.timelinesService,
+    }).catch((err) => {
+      this.logger.warn('timeline auto-complete check failed', err);
+    });
+
+    return { success: true, id: params.submissionId };
+  }
+
+  async submitForm(params: {
+    organizationId: string;
+    formType: string;
+    payload: unknown;
+    authContext: AuthContext;
+  }) {
+    const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
+    if (!parsedType.success) {
+      throw new BadRequestException('Unsupported form type');
+    }
+
+    if (!params.authContext.userId) {
+      throw new BadRequestException(
+        'Authenticated user session is required to submit evidence forms',
+      );
+    }
+
+    const formDefinition = evidenceFormDefinitions[parsedType.data];
+    const nowIso = new Date().toISOString();
+
+    if (!params.payload || typeof params.payload !== 'object') {
+      throw new BadRequestException('Submission payload must be an object');
+    }
+
+    const payloadObject: Record<string, unknown> = {
+      ...(params.payload as Record<string, unknown>),
+    };
+
+    if (formDefinition.submissionDateMode === 'auto') {
+      payloadObject.submissionDate = nowIso;
+    }
+
+    const schema = evidenceFormSubmissionSchemaMap[parsedType.data];
+    const parsedPayload = schema.safeParse(payloadObject);
+    if (!parsedPayload.success) {
+      const flattened = parsedPayload.error.flatten();
+      const fieldErrors = Object.entries(flattened.fieldErrors)
+        .map(([field, messages]) => {
+          const msg =
+            Array.isArray(messages) && messages.length > 0
+              ? messages[0]
+              : 'is required';
+          return `${field}: ${msg}`;
+        })
+        .slice(0, 5);
+
+      const message =
+        fieldErrors.length > 0
+          ? `Please fix the following: ${fieldErrors.join('; ')}`
+          : 'Please fill in all required fields';
+
+      throw new BadRequestException(message);
+    }
+
+    this.assertFileKeysBelongToOrganization({
+      data: parsedPayload.data,
+      organizationId: params.organizationId,
+    });
+
+    const submission = await db.evidenceSubmission
+      .create({
+        data: {
+          organizationId: params.organizationId,
+          formType: toDbEvidenceFormType(parsedType.data),
+          submittedById: params.authContext.userId,
+          data: parsedPayload.data,
+        },
+        include: {
+          submittedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      })
+      .then(normalizeSubmissionFormType);
+
+    // Check timeline auto-completion after evidence submission
+    checkAutoCompletePhases({
+      organizationId: params.organizationId,
+      timelinesService: this.timelinesService,
+    }).catch((err) => {
+      this.logger.warn('timeline auto-complete check failed', err);
+    });
+
+    if (parsedType.data === 'access-request') {
+      this.evidenceFormsNotifier
+        .notifyAccessRequestSubmitted({
+          organizationId: params.organizationId,
+          submitterUserId: params.authContext.userId,
+          submitterName:
+            submission.submittedBy?.name ??
+            submission.submittedBy?.email ??
+            'A user',
+          submissionId: submission.id,
+          data: parsedPayload.data,
+        })
+        .catch((err) => {
+          this.logger.warn('access request notification failed', err);
+        });
+    }
+
+    return submission;
+  }
+
+  async uploadFile(params: {
+    organizationId: string;
+    authContext: AuthContext;
+    payload: unknown;
+  }) {
+    if (!params.authContext.userId) {
+      throw new BadRequestException(
+        'Authenticated user session is required to upload evidence files',
+      );
+    }
+
+    const parsed = uploadSchema.safeParse(params.payload);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+
+    if (parsed.data.fileData.length > MAX_UPLOAD_BASE64_LENGTH) {
+      throw new BadRequestException(
+        `File exceeds the ${MAX_UPLOAD_FILE_SIZE_BYTES / (1024 * 1024)}MB limit`,
+      );
+    }
+
+    const fileBuffer = this.decodeBase64File(parsed.data.fileData);
+    if (fileBuffer.length > MAX_UPLOAD_FILE_SIZE_BYTES) {
+      throw new BadRequestException(
+        `File exceeds the ${MAX_UPLOAD_FILE_SIZE_BYTES / (1024 * 1024)}MB limit`,
+      );
+    }
+
+    const fileKey = await this.attachmentsService.uploadToS3(
+      fileBuffer,
+      parsed.data.fileName,
+      parsed.data.fileType,
+      params.organizationId,
+      'evidence-forms',
+      parsed.data.formType,
+    );
+
+    const downloadUrl =
+      await this.attachmentsService.getPresignedDownloadUrl(fileKey);
+
+    return {
+      fileName: parsed.data.fileName,
+      fileKey,
+      downloadUrl,
+    };
+  }
+
+  async uploadSubmission(params: {
+    organizationId: string;
+    formType: string;
+    userId: string;
+    payload: unknown;
+  }) {
+    const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
+    if (!parsedType.success) {
+      throw new BadRequestException('Unsupported form type');
+    }
+
+    const { userId } = params;
+
+    const parsed = uploadSubmissionBodySchema.safeParse(params.payload);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+
+    if (parsed.data.fileData.length > MAX_UPLOAD_BASE64_LENGTH) {
+      throw new BadRequestException(
+        `File exceeds the ${MAX_UPLOAD_FILE_SIZE_BYTES / (1024 * 1024)}MB limit`,
+      );
+    }
+
+    const fileBuffer = this.decodeBase64File(parsed.data.fileData);
+    if (fileBuffer.length > MAX_UPLOAD_FILE_SIZE_BYTES) {
+      throw new BadRequestException(
+        `File exceeds the ${MAX_UPLOAD_FILE_SIZE_BYTES / (1024 * 1024)}MB limit`,
+      );
+    }
+
+    const fileKey = await this.attachmentsService.uploadToS3(
+      fileBuffer,
+      parsed.data.fileName,
+      parsed.data.fileType,
+      params.organizationId,
+      'evidence-forms',
+      parsedType.data,
+    );
+
+    const downloadUrl =
+      await this.attachmentsService.getPresignedDownloadUrl(fileKey);
+
+    const submission = await db.evidenceSubmission
+      .create({
+        data: {
+          organizationId: params.organizationId,
+          formType: toDbEvidenceFormType(parsedType.data),
+          submittedById: userId,
+          data: {
+            submissionDate: new Date().toISOString(),
+            evidenceFile: {
+              fileName: parsed.data.fileName,
+              fileKey,
+              downloadUrl,
+            },
+          },
+        },
+        include: {
+          submittedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      })
+      .then(normalizeSubmissionFormType);
+
+    // Check timeline auto-completion after evidence upload submission
+    checkAutoCompletePhases({
+      organizationId: params.organizationId,
+      timelinesService: this.timelinesService,
+    }).catch((err) => {
+      this.logger.warn('timeline auto-complete check failed', err);
+    });
+
+    return submission;
+  }
+
+  async exportCsv(params: {
+    organizationId: string;
+    formType: string;
+    authContext: AuthContext;
+  }) {
+    this.requirePrivilegedEvidenceAccess(params.authContext);
+
+    const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
+    if (!parsedType.success) {
+      throw new BadRequestException('Unsupported form type');
+    }
+
+    const formType: EvidenceFormType = parsedType.data;
+    const form = evidenceFormDefinitions[formType];
+
+    const submissions = await db.evidenceSubmission.findMany({
+      where: {
+        organizationId: params.organizationId,
+        formType: toDbEvidenceFormType(formType),
+      },
+      include: {
+        submittedBy: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: {
+        submittedAt: 'desc',
+      },
+    });
+
+    if (submissions.length === 0) {
+      throw new BadRequestException(
+        'No submissions available for export for this form',
+      );
+    }
+
+    const headers = [
+      'submissionId',
+      'submissionDate',
+      'submittedByName',
+      'submittedByEmail',
+      ...form.fields
+        .filter((field) => field.key !== 'submissionDate')
+        .map((field) => field.key),
+    ];
+
+    const rows = await Promise.all(
+      submissions.map(async (submission) => {
+        const data = await this.refreshFileUrls({
+          data: z.record(z.string(), z.unknown()).parse(submission.data),
+          organizationId: params.organizationId,
+        });
+        const fieldValues = form.fields
+          .filter((field) => field.key !== 'submissionDate')
+          .map((field) => getCsvFieldValue({ value: data[field.key], field }));
+
+        return [
+          submission.id,
+          typeof data.submissionDate === 'string'
+            ? data.submissionDate
+            : submission.submittedAt.toISOString(),
+          submission.submittedBy?.name ?? '',
+          submission.submittedBy?.email ?? '',
+          ...fieldValues,
+        ];
+      }),
+    );
+
+    const csvLines = [toCsvRow(headers), ...rows.map((row) => toCsvRow(row))];
+    return csvLines.join('\n');
+  }
+
+  async reviewSubmission(params: {
+    organizationId: string;
+    formType: string;
+    submissionId: string;
+    payload: unknown;
+    authContext: AuthContext;
+  }) {
+    const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
+    if (!parsedType.success) {
+      throw new BadRequestException('Unsupported form type');
+    }
+
+    const reviewerUserId = this.requirePrivilegedEvidenceAccess(
+      params.authContext,
+    );
+
+    const parsed = reviewSchema.safeParse(params.payload);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten());
+    }
+
+    if (parsed.data.action === 'rejected' && !parsed.data.reason) {
+      throw new BadRequestException(
+        'A reason is required when rejecting a submission',
+      );
+    }
+
+    const submission = await db.evidenceSubmission.findFirst({
+      where: {
+        id: params.submissionId,
+        organizationId: params.organizationId,
+        formType: toDbEvidenceFormType(parsedType.data),
+      },
+    });
+
+    if (!submission) {
+      throw new NotFoundException('Submission not found');
+    }
+
+    if (submission.status !== 'pending') {
+      throw new BadRequestException(
+        'Submission must be pending to be reviewed',
+      );
+    }
+
+    return await db.evidenceSubmission
+      .update({
+        where: { id: params.submissionId },
+        data: {
+          status: parsed.data.action,
+          reviewedById: reviewerUserId,
+          reviewedAt: new Date(),
+          reviewReason: parsed.data.reason,
+        },
+        include: {
+          submittedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          reviewedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      })
+      .then(normalizeSubmissionFormType);
+  }
+
+  async getMySubmissions(params: {
+    organizationId: string;
+    authContext: AuthContext;
+    formType?: string;
+  }) {
+    const userId = this.requireJwtUser(params.authContext);
+
+    const where: Record<string, unknown> = {
+      organizationId: params.organizationId,
+      submittedById: userId,
+    };
+
+    if (params.formType) {
+      const parsedType = evidenceFormTypeSchema.safeParse(params.formType);
+      if (!parsedType.success) {
+        throw new BadRequestException('Unsupported form type');
+      }
+      where.formType = toDbEvidenceFormType(parsedType.data);
+    }
+
+    return await db.evidenceSubmission
+      .findMany({
+        where,
+        include: {
+          reviewedBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: {
+          submittedAt: 'desc',
+        },
+      })
+      .then((submissions) => submissions.map(normalizeSubmissionFormType));
+  }
+
+  async getPendingSubmissionCount(params: {
+    organizationId: string;
+    authContext: AuthContext;
+  }) {
+    const userId = this.requireJwtUser(params.authContext);
+
+    const count = await db.evidenceSubmission.count({
+      where: {
+        organizationId: params.organizationId,
+        submittedById: userId,
+        status: 'pending',
+      },
+    });
+
+    return { count };
+  }
+}

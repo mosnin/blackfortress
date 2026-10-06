@@ -1,0 +1,1100 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package dataloader
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"net/http"
+
+	"github.com/vikstrous/dataloadgen"
+	"go.probo.inc/probo/pkg/complianceportal/management"
+	"go.probo.inc/probo/pkg/cookiebanner"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam"
+	"go.probo.inc/probo/pkg/iam/policy"
+	"go.probo.inc/probo/pkg/probo"
+	"go.probo.inc/probo/pkg/riskmanagement"
+	"go.probo.inc/probo/pkg/server/api/authn"
+	"go.probo.inc/probo/pkg/task"
+	"go.probo.inc/probo/pkg/thirdparty"
+)
+
+type (
+	ctxKey struct{ name string }
+
+	// AuthorizeKey identifies an authorize call. ResourceAttributes is the
+	// canonical (sorted-key) JSON encoding of the attributes passed via
+	// authz.WithAttr, so calls with the same logical inputs share a key and
+	// batch together.
+	AuthorizeKey struct {
+		ResourceID          gid.GID
+		Action              iam.Action
+		ResourceAttributes  string
+		DryRun              bool
+		SkipAssumptionCheck bool
+	}
+
+	AuthorizeResult struct {
+		Scope *coredata.Scope
+	}
+
+	CompliancePortalDocumentKey struct {
+		// TenantID (not *Scope) so keys group and cache by tenant identity
+		// across authorize calls that allocate distinct Scope pointers.
+		TenantID           gid.TenantID
+		CompliancePortalID gid.GID
+		DocumentID         gid.GID
+	}
+
+	CompliancePortalAuditKey struct {
+		TenantID           gid.TenantID
+		CompliancePortalID gid.GID
+		AuditID            gid.GID
+	}
+
+	CompliancePortalThirdPartyKey struct {
+		TenantID           gid.TenantID
+		CompliancePortalID gid.GID
+		ThirdPartyID       gid.GID
+	}
+
+	CompliancePortalDocumentAccessByDocumentKey struct {
+		TenantID                 gid.TenantID
+		CompliancePortalAccessID gid.GID
+		DocumentID               gid.GID
+	}
+
+	CompliancePortalDocumentAccessByReportFileKey struct {
+		TenantID                 gid.TenantID
+		CompliancePortalAccessID gid.GID
+		ReportFileID             gid.GID
+	}
+
+	CompliancePortalDocumentAccessByFileKey struct {
+		TenantID                 gid.TenantID
+		CompliancePortalAccessID gid.GID
+		CompliancePortalFileID   gid.GID
+	}
+
+	Loaders struct {
+		Organization                               *dataloadgen.Loader[gid.GID, *coredata.Organization]
+		Framework                                  *dataloadgen.Loader[gid.GID, *coredata.Framework]
+		Control                                    *dataloadgen.Loader[gid.GID, *coredata.Control]
+		ThirdParty                                 *dataloadgen.Loader[gid.GID, *coredata.ThirdParty]
+		Document                                   *dataloadgen.Loader[gid.GID, *coredata.Document]
+		Profile                                    *dataloadgen.Loader[gid.GID, *coredata.MembershipProfile]
+		Identity                                   *dataloadgen.Loader[gid.GID, *coredata.Identity]
+		Risk                                       *dataloadgen.Loader[gid.GID, *coredata.Risk]
+		TreatmentProgress                          *dataloadgen.Loader[gid.GID, riskmanagement.TreatmentProgress]
+		Measure                                    *dataloadgen.Loader[gid.GID, *coredata.Measure]
+		Task                                       *dataloadgen.Loader[gid.GID, *coredata.Task]
+		TaskExternalLink                           *dataloadgen.Loader[gid.GID, *coredata.TaskExternalLink]
+		File                                       *dataloadgen.Loader[gid.GID, *coredata.File]
+		CookieBanner                               *dataloadgen.Loader[gid.GID, *coredata.CookieBanner]
+		CookieCategory                             *dataloadgen.Loader[gid.GID, *coredata.CookieCategory]
+		CommonTrackerPattern                       *dataloadgen.Loader[gid.GID, *coredata.CommonTrackerPattern]
+		CommonThirdParty                           *dataloadgen.Loader[gid.GID, *coredata.CommonThirdParty]
+		ThirdPartyAdministratorIDs                 *dataloadgen.Loader[gid.GID, []gid.GID]
+		CompliancePortalDocument                   *dataloadgen.Loader[CompliancePortalDocumentKey, *coredata.CompliancePortalDocument]
+		CompliancePortalAudit                      *dataloadgen.Loader[CompliancePortalAuditKey, *coredata.CompliancePortalAudit]
+		CompliancePortalDocumentByID               *dataloadgen.Loader[gid.GID, *coredata.CompliancePortalDocument]
+		CompliancePortalAuditByID                  *dataloadgen.Loader[gid.GID, *coredata.CompliancePortalAudit]
+		CompliancePortalDocumentAccess             *dataloadgen.Loader[gid.GID, *coredata.CompliancePortalDocumentAccess]
+		CompliancePortalThirdParty                 *dataloadgen.Loader[CompliancePortalThirdPartyKey, *coredata.CompliancePortalThirdParty]
+		CompliancePortalDocumentAccessByDocument   *dataloadgen.Loader[CompliancePortalDocumentAccessByDocumentKey, *coredata.CompliancePortalDocumentAccess]
+		CompliancePortalDocumentAccessByReportFile *dataloadgen.Loader[CompliancePortalDocumentAccessByReportFileKey, *coredata.CompliancePortalDocumentAccess]
+		CompliancePortalDocumentAccessByFile       *dataloadgen.Loader[CompliancePortalDocumentAccessByFileKey, *coredata.CompliancePortalDocumentAccess]
+		Audit                                      *dataloadgen.Loader[gid.GID, *coredata.Audit]
+		Authorize                                  *dataloadgen.Loader[AuthorizeKey, AuthorizeResult]
+	}
+
+	batchFetcher struct {
+		probo            *probo.Service
+		iam              *iam.Service
+		cookieBanner     *cookiebanner.Service
+		thirdParty       *thirdparty.Service
+		compliancePortal *management.Service
+		riskManagement   *riskmanagement.Service
+		task             *task.Service
+	}
+)
+
+var loadersKey = &ctxKey{name: "dataloaders"}
+
+func FromContext(ctx context.Context) *Loaders {
+	return ctx.Value(loadersKey).(*Loaders)
+}
+
+func NewMiddleware(
+	proboSvc *probo.Service,
+	iamSvc *iam.Service,
+	cookieBannerSvc *cookiebanner.Service,
+	thirdPartySvc *thirdparty.Service,
+	compliancePortalSvc *management.Service,
+	riskManagementSvc *riskmanagement.Service,
+	taskSvc *task.Service,
+) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				f := &batchFetcher{
+					probo:            proboSvc,
+					iam:              iamSvc,
+					cookieBanner:     cookieBannerSvc,
+					thirdParty:       thirdPartySvc,
+					compliancePortal: compliancePortalSvc,
+					riskManagement:   riskManagementSvc,
+					task:             taskSvc,
+				}
+				loaders := f.newLoaders()
+				ctx := context.WithValue(r.Context(), loadersKey, loaders)
+				next.ServeHTTP(w, r.WithContext(ctx))
+			},
+		)
+	}
+}
+
+func (f *batchFetcher) newLoaders() *Loaders {
+	return &Loaders{
+		Organization:                             dataloadgen.NewMappedLoader(f.fetchOrganizations),
+		Framework:                                dataloadgen.NewMappedLoader(f.fetchFrameworks),
+		Control:                                  dataloadgen.NewMappedLoader(f.fetchControls),
+		ThirdParty:                               dataloadgen.NewMappedLoader(f.fetchThirdParties),
+		Document:                                 dataloadgen.NewMappedLoader(f.fetchDocuments),
+		Profile:                                  dataloadgen.NewMappedLoader(f.fetchProfiles),
+		Identity:                                 dataloadgen.NewMappedLoader(f.fetchIdentities),
+		Risk:                                     dataloadgen.NewMappedLoader(f.fetchRisks),
+		TreatmentProgress:                        dataloadgen.NewMappedLoader(f.fetchTreatmentProgress),
+		Measure:                                  dataloadgen.NewMappedLoader(f.fetchMeasures),
+		Task:                                     dataloadgen.NewMappedLoader(f.fetchTasks),
+		TaskExternalLink:                         dataloadgen.NewMappedLoader(f.fetchTaskExternalLinks),
+		File:                                     dataloadgen.NewMappedLoader(f.fetchFiles),
+		CookieBanner:                             dataloadgen.NewMappedLoader(f.fetchCookieBanners),
+		CookieCategory:                           dataloadgen.NewMappedLoader(f.fetchCookieCategories),
+		CommonTrackerPattern:                     dataloadgen.NewMappedLoader(f.fetchCommonTrackerPatterns),
+		CommonThirdParty:                         dataloadgen.NewMappedLoader(f.fetchCommonThirdParties),
+		ThirdPartyAdministratorIDs:               dataloadgen.NewMappedLoader(f.fetchThirdPartyAdministratorIDs),
+		CompliancePortalDocument:                 dataloadgen.NewMappedLoader(f.fetchCompliancePortalDocuments),
+		CompliancePortalAudit:                    dataloadgen.NewMappedLoader(f.fetchCompliancePortalAudits),
+		CompliancePortalDocumentByID:             dataloadgen.NewMappedLoader(f.fetchCompliancePortalDocumentsByID),
+		CompliancePortalAuditByID:                dataloadgen.NewMappedLoader(f.fetchCompliancePortalAuditsByID),
+		CompliancePortalDocumentAccess:           dataloadgen.NewMappedLoader(f.fetchCompliancePortalDocumentAccesses),
+		CompliancePortalThirdParty:               dataloadgen.NewMappedLoader(f.fetchCompliancePortalThirdParties),
+		CompliancePortalDocumentAccessByDocument: dataloadgen.NewMappedLoader(f.fetchCompliancePortalDocumentAccessesByDocument),
+		CompliancePortalDocumentAccessByReportFile: dataloadgen.NewMappedLoader(f.fetchCompliancePortalDocumentAccessesByReportFile),
+		CompliancePortalDocumentAccessByFile:       dataloadgen.NewMappedLoader(f.fetchCompliancePortalDocumentAccessesByFile),
+		Audit:                                      dataloadgen.NewMappedLoader(f.fetchAudits),
+		Authorize: dataloadgen.NewMappedLoader(
+			f.fetchAuthorizes,
+			dataloadgen.WithoutCache(),
+		),
+	}
+}
+
+func (f *batchFetcher) fetchCompliancePortalDocuments(
+	ctx context.Context,
+	keys []CompliancePortalDocumentKey,
+) (map[CompliancePortalDocumentKey]*coredata.CompliancePortalDocument, error) {
+	type groupKey struct {
+		tenantID           gid.TenantID
+		compliancePortalID gid.GID
+	}
+
+	documentIDsByGroup := make(map[groupKey][]gid.GID)
+
+	for _, key := range keys {
+		group := groupKey{
+			tenantID:           key.TenantID,
+			compliancePortalID: key.CompliancePortalID,
+		}
+		documentIDsByGroup[group] = append(documentIDsByGroup[group], key.DocumentID)
+	}
+
+	result := make(map[CompliancePortalDocumentKey]*coredata.CompliancePortalDocument, len(keys))
+
+	for group, documentIDs := range documentIDsByGroup {
+		links, err := f.compliancePortal.GetDocumentLinks(
+			ctx,
+			coredata.NewScope(group.tenantID),
+			group.compliancePortalID,
+			documentIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load compliance portal documents: %w", err)
+		}
+
+		// Return every link. Presence of a row is the console's
+		// linked-vs-unlinked signal; callers filter displayed rows.
+		for _, link := range links {
+			result[CompliancePortalDocumentKey{
+				TenantID:           group.tenantID,
+				CompliancePortalID: group.compliancePortalID,
+				DocumentID:         link.DocumentID,
+			}] = link
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCompliancePortalAudits(
+	ctx context.Context,
+	keys []CompliancePortalAuditKey,
+) (map[CompliancePortalAuditKey]*coredata.CompliancePortalAudit, error) {
+	type groupKey struct {
+		tenantID           gid.TenantID
+		compliancePortalID gid.GID
+	}
+
+	auditIDsByGroup := make(map[groupKey][]gid.GID)
+
+	for _, key := range keys {
+		group := groupKey{
+			tenantID:           key.TenantID,
+			compliancePortalID: key.CompliancePortalID,
+		}
+		auditIDsByGroup[group] = append(auditIDsByGroup[group], key.AuditID)
+	}
+
+	result := make(map[CompliancePortalAuditKey]*coredata.CompliancePortalAudit, len(keys))
+
+	for group, auditIDs := range auditIDsByGroup {
+		links, err := f.compliancePortal.GetAuditLinks(
+			ctx,
+			coredata.NewScope(group.tenantID),
+			group.compliancePortalID,
+			auditIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load compliance portal audits: %w", err)
+		}
+
+		// Return every link. Presence of a row is the console's
+		// linked-vs-unlinked signal; callers filter displayed rows.
+		for _, link := range links {
+			result[CompliancePortalAuditKey{
+				TenantID:           group.tenantID,
+				CompliancePortalID: group.compliancePortalID,
+				AuditID:            link.AuditID,
+			}] = link
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCompliancePortalDocumentsByID(
+	ctx context.Context,
+	keys []gid.GID,
+) (map[gid.GID]*coredata.CompliancePortalDocument, error) {
+	result := make(map[gid.GID]*coredata.CompliancePortalDocument, len(keys))
+
+	for tenantID, documentLinkIDs := range gidKeysByTenant(keys) {
+		links, err := f.compliancePortal.GetDocumentLinksByIDs(
+			ctx,
+			coredata.NewScope(tenantID),
+			documentLinkIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load compliance portal documents: %w", err)
+		}
+
+		for _, link := range links {
+			result[link.ID] = link
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCompliancePortalAuditsByID(
+	ctx context.Context,
+	keys []gid.GID,
+) (map[gid.GID]*coredata.CompliancePortalAudit, error) {
+	result := make(map[gid.GID]*coredata.CompliancePortalAudit, len(keys))
+
+	for tenantID, auditLinkIDs := range gidKeysByTenant(keys) {
+		links, err := f.compliancePortal.GetAuditLinksByIDs(
+			ctx,
+			coredata.NewScope(tenantID),
+			auditLinkIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load compliance portal audits: %w", err)
+		}
+
+		for _, link := range links {
+			result[link.ID] = link
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCompliancePortalDocumentAccesses(
+	ctx context.Context,
+	keys []gid.GID,
+) (map[gid.GID]*coredata.CompliancePortalDocumentAccess, error) {
+	result := make(map[gid.GID]*coredata.CompliancePortalDocumentAccess, len(keys))
+
+	for tenantID, accessIDs := range gidKeysByTenant(keys) {
+		accesses, err := f.compliancePortal.GetDocumentAccessesByIDs(
+			ctx,
+			coredata.NewScope(tenantID),
+			accessIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load compliance portal document accesses: %w", err)
+		}
+
+		for _, access := range accesses {
+			result[access.ID] = access
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchAudits(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.Audit, error) {
+	result := make(map[gid.GID]*coredata.Audit, len(keys))
+
+	for tenantID, auditIDs := range gidKeysByTenant(keys) {
+		audits, err := f.probo.Audits.GetByIDs(ctx, coredata.NewScope(tenantID), auditIDs...)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load audits: %w", err)
+		}
+
+		for _, audit := range audits {
+			result[audit.ID] = audit
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCompliancePortalThirdParties(
+	ctx context.Context,
+	keys []CompliancePortalThirdPartyKey,
+) (map[CompliancePortalThirdPartyKey]*coredata.CompliancePortalThirdParty, error) {
+	type groupKey struct {
+		tenantID           gid.TenantID
+		compliancePortalID gid.GID
+	}
+
+	thirdPartyIDsByGroup := make(map[groupKey][]gid.GID)
+
+	for _, key := range keys {
+		group := groupKey{
+			tenantID:           key.TenantID,
+			compliancePortalID: key.CompliancePortalID,
+		}
+		thirdPartyIDsByGroup[group] = append(thirdPartyIDsByGroup[group], key.ThirdPartyID)
+	}
+
+	result := make(map[CompliancePortalThirdPartyKey]*coredata.CompliancePortalThirdParty, len(keys))
+
+	for group, thirdPartyIDs := range thirdPartyIDsByGroup {
+		links, err := f.compliancePortal.GetThirdPartyLinks(
+			ctx,
+			coredata.NewScope(group.tenantID),
+			group.compliancePortalID,
+			thirdPartyIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load compliance portal third parties: %w", err)
+		}
+
+		for _, link := range links {
+			result[CompliancePortalThirdPartyKey{
+				TenantID:           group.tenantID,
+				CompliancePortalID: group.compliancePortalID,
+				ThirdPartyID:       link.ThirdPartyID,
+			}] = link
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCompliancePortalDocumentAccessesByDocument(
+	ctx context.Context,
+	keys []CompliancePortalDocumentAccessByDocumentKey,
+) (map[CompliancePortalDocumentAccessByDocumentKey]*coredata.CompliancePortalDocumentAccess, error) {
+	type groupKey struct {
+		tenantID                 gid.TenantID
+		compliancePortalAccessID gid.GID
+	}
+
+	documentIDsByGroup := make(map[groupKey][]gid.GID)
+
+	for _, key := range keys {
+		group := groupKey{
+			tenantID:                 key.TenantID,
+			compliancePortalAccessID: key.CompliancePortalAccessID,
+		}
+		documentIDsByGroup[group] = append(documentIDsByGroup[group], key.DocumentID)
+	}
+
+	result := make(map[CompliancePortalDocumentAccessByDocumentKey]*coredata.CompliancePortalDocumentAccess, len(keys))
+
+	for group, documentIDs := range documentIDsByGroup {
+		scope := coredata.NewScope(group.tenantID)
+
+		access, err := f.compliancePortal.GetAccess(ctx, scope, group.compliancePortalAccessID)
+		if err != nil {
+			return nil, fmt.Errorf("cannot load compliance portal access: %w", err)
+		}
+
+		links, err := f.compliancePortal.GetDocumentLinks(
+			ctx,
+			scope,
+			access.CompliancePortalID,
+			documentIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot load compliance portal documents: %w", err)
+		}
+
+		catalogIDs := make([]gid.GID, 0, len(links))
+
+		documentIDByCatalogID := make(map[gid.GID]gid.GID, len(links))
+		for _, link := range links {
+			catalogIDs = append(catalogIDs, link.ID)
+			documentIDByCatalogID[link.ID] = link.DocumentID
+		}
+
+		accesses, err := f.compliancePortal.GetDocumentAccessesByCompliancePortalDocumentIDs(
+			ctx,
+			scope,
+			group.compliancePortalAccessID,
+			catalogIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load document accesses: %w", err)
+		}
+
+		for _, documentAccess := range accesses {
+			if documentAccess.CompliancePortalDocumentID == nil {
+				continue
+			}
+
+			documentID, ok := documentIDByCatalogID[*documentAccess.CompliancePortalDocumentID]
+			if !ok {
+				continue
+			}
+
+			result[CompliancePortalDocumentAccessByDocumentKey{
+				TenantID:                 group.tenantID,
+				CompliancePortalAccessID: group.compliancePortalAccessID,
+				DocumentID:               documentID,
+			}] = documentAccess
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCompliancePortalDocumentAccessesByReportFile(
+	ctx context.Context,
+	keys []CompliancePortalDocumentAccessByReportFileKey,
+) (map[CompliancePortalDocumentAccessByReportFileKey]*coredata.CompliancePortalDocumentAccess, error) {
+	type groupKey struct {
+		tenantID                 gid.TenantID
+		compliancePortalAccessID gid.GID
+	}
+
+	reportFileIDsByGroup := make(map[groupKey][]gid.GID)
+
+	for _, key := range keys {
+		group := groupKey{
+			tenantID:                 key.TenantID,
+			compliancePortalAccessID: key.CompliancePortalAccessID,
+		}
+		reportFileIDsByGroup[group] = append(reportFileIDsByGroup[group], key.ReportFileID)
+	}
+
+	result := make(map[CompliancePortalDocumentAccessByReportFileKey]*coredata.CompliancePortalDocumentAccess, len(keys))
+
+	for group, reportFileIDs := range reportFileIDsByGroup {
+		scope := coredata.NewScope(group.tenantID)
+
+		access, err := f.compliancePortal.GetAccess(ctx, scope, group.compliancePortalAccessID)
+		if err != nil {
+			return nil, fmt.Errorf("cannot load compliance portal access: %w", err)
+		}
+
+		linksByReportFileID, err := f.compliancePortal.GetAuditLinksByReportFileIDs(
+			ctx,
+			scope,
+			access.CompliancePortalID,
+			reportFileIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot load compliance portal audits: %w", err)
+		}
+
+		catalogIDs := make([]gid.GID, 0, len(linksByReportFileID))
+
+		reportFileIDByCatalogID := make(map[gid.GID]gid.GID, len(linksByReportFileID))
+		for reportFileID, links := range linksByReportFileID {
+			for _, link := range links {
+				catalogIDs = append(catalogIDs, link.ID)
+				reportFileIDByCatalogID[link.ID] = reportFileID
+			}
+		}
+
+		accesses, err := f.compliancePortal.GetDocumentAccessesByCompliancePortalAuditIDs(
+			ctx,
+			scope,
+			group.compliancePortalAccessID,
+			catalogIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load report file accesses: %w", err)
+		}
+
+		for _, documentAccess := range accesses {
+			if documentAccess.CompliancePortalAuditID == nil {
+				continue
+			}
+
+			reportFileID, ok := reportFileIDByCatalogID[*documentAccess.CompliancePortalAuditID]
+			if !ok {
+				continue
+			}
+
+			result[CompliancePortalDocumentAccessByReportFileKey{
+				TenantID:                 group.tenantID,
+				CompliancePortalAccessID: group.compliancePortalAccessID,
+				ReportFileID:             reportFileID,
+			}] = documentAccess
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCompliancePortalDocumentAccessesByFile(
+	ctx context.Context,
+	keys []CompliancePortalDocumentAccessByFileKey,
+) (map[CompliancePortalDocumentAccessByFileKey]*coredata.CompliancePortalDocumentAccess, error) {
+	type groupKey struct {
+		tenantID                 gid.TenantID
+		compliancePortalAccessID gid.GID
+	}
+
+	fileIDsByGroup := make(map[groupKey][]gid.GID)
+
+	for _, key := range keys {
+		group := groupKey{
+			tenantID:                 key.TenantID,
+			compliancePortalAccessID: key.CompliancePortalAccessID,
+		}
+		fileIDsByGroup[group] = append(fileIDsByGroup[group], key.CompliancePortalFileID)
+	}
+
+	result := make(map[CompliancePortalDocumentAccessByFileKey]*coredata.CompliancePortalDocumentAccess, len(keys))
+
+	for group, fileIDs := range fileIDsByGroup {
+		accesses, err := f.compliancePortal.GetDocumentAccessesByCompliancePortalFileIDs(
+			ctx,
+			coredata.NewScope(group.tenantID),
+			group.compliancePortalAccessID,
+			fileIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load compliance portal file accesses: %w", err)
+		}
+
+		for _, access := range accesses {
+			if access.CompliancePortalFileID == nil {
+				continue
+			}
+
+			result[CompliancePortalDocumentAccessByFileKey{
+				TenantID:                 group.tenantID,
+				CompliancePortalAccessID: group.compliancePortalAccessID,
+				CompliancePortalFileID:   *access.CompliancePortalFileID,
+			}] = access
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchOrganizations(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.Organization, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	orgs, err := f.probo.Organizations.GetByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load organizations: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.Organization, len(orgs))
+	for _, org := range orgs {
+		result[org.ID] = org
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchFrameworks(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.Framework, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	frameworks, err := f.probo.Frameworks.GetByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load frameworks: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.Framework, len(frameworks))
+	for _, v := range frameworks {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchControls(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.Control, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	controls, err := f.probo.Controls.GetByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load controls: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.Control, len(controls))
+	for _, v := range controls {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchThirdParties(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.ThirdParty, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	thirdParties, err := f.probo.ThirdParties.GetByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load thirdParties: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.ThirdParty, len(thirdParties))
+	for _, v := range thirdParties {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchDocuments(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.Document, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	documents, err := f.probo.Documents.GetByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load documents: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.Document, len(documents))
+	for _, v := range documents {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchProfiles(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.MembershipProfile, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	profiles, err := f.iam.OrganizationService.GetProfilesByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load profiles: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.MembershipProfile, len(profiles))
+	for _, v := range profiles {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchIdentities(
+	ctx context.Context,
+	keys []gid.GID,
+) (map[gid.GID]*coredata.Identity, error) {
+	identities, err := f.iam.AccountService.GetIdentitiesByIDs(ctx, keys)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load identities: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.Identity, len(identities))
+	for _, identity := range identities {
+		result[identity.ID] = identity
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchRisks(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.Risk, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	risks, err := f.probo.Risks.GetByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load risks: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.Risk, len(risks))
+	for _, v := range risks {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchTreatmentProgress(
+	ctx context.Context,
+	keys []gid.GID,
+) (map[gid.GID]riskmanagement.TreatmentProgress, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	progress, err := f.riskManagement.GetTreatmentProgressByIDs(ctx, scope, keys)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load treatment progress: %w", err)
+	}
+
+	return progress, nil
+}
+
+func (f *batchFetcher) fetchMeasures(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.Measure, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	measures, err := f.probo.Measures.GetByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load measures: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.Measure, len(measures))
+	for _, v := range measures {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchTasks(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.Task, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	tasks, err := f.task.GetByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load tasks: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.Task, len(tasks))
+	for _, v := range tasks {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchTaskExternalLinks(
+	ctx context.Context,
+	keys []gid.GID,
+) (map[gid.GID]*coredata.TaskExternalLink, error) {
+	result := make(map[gid.GID]*coredata.TaskExternalLink, len(keys))
+	if f.task == nil || f.task.Sync == nil {
+		return result, nil
+	}
+
+	taskIDsByTenant := make(map[gid.TenantID][]gid.GID)
+
+	for _, taskID := range keys {
+		tenantID := taskID.TenantID()
+		taskIDsByTenant[tenantID] = append(taskIDsByTenant[tenantID], taskID)
+	}
+
+	for tenantID, taskIDs := range taskIDsByTenant {
+		links, err := f.task.Sync.GetLinksByTaskIDs(ctx, coredata.NewScope(tenantID), taskIDs)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load task external links: %w", err)
+		}
+
+		maps.Copy(result, links)
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchFiles(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.File, error) {
+	result := make(map[gid.GID]*coredata.File, len(keys))
+	fileIDsByTenant := make(map[gid.TenantID][]gid.GID)
+
+	for _, fileID := range keys {
+		tenantID := fileID.TenantID()
+		fileIDsByTenant[tenantID] = append(fileIDsByTenant[tenantID], fileID)
+	}
+
+	for tenantID, fileIDs := range fileIDsByTenant {
+		files, err := f.probo.Files.GetByIDs(ctx, coredata.NewScope(tenantID), fileIDs...)
+		if err != nil {
+			return nil, fmt.Errorf("cannot batch load files: %w", err)
+		}
+
+		for _, file := range files {
+			result[file.ID] = file
+		}
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCookieBanners(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.CookieBanner, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	banners, err := f.cookieBanner.GetCookieBannersByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load cookie banners: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.CookieBanner, len(banners))
+	for _, v := range banners {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCookieCategories(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.CookieCategory, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	categories, err := f.cookieBanner.GetCookieCategoriesByIDs(ctx, scope, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load cookie categories: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.CookieCategory, len(categories))
+	for _, v := range categories {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCommonTrackerPatterns(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.CommonTrackerPattern, error) {
+	patterns, err := f.cookieBanner.GetCommonTrackerPatternsByIDs(ctx, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load common tracker patterns: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.CommonTrackerPattern, len(patterns))
+	for _, v := range patterns {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchCommonThirdParties(ctx context.Context, keys []gid.GID) (map[gid.GID]*coredata.CommonThirdParty, error) {
+	parties, err := f.thirdParty.GetCommonThirdPartiesByIDs(ctx, keys...)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load common third parties: %w", err)
+	}
+
+	result := make(map[gid.GID]*coredata.CommonThirdParty, len(parties))
+	for _, v := range parties {
+		result[v.ID] = v
+	}
+
+	return result, nil
+}
+
+func (f *batchFetcher) fetchThirdPartyAdministratorIDs(ctx context.Context, keys []gid.GID) (map[gid.GID][]gid.GID, error) {
+	scope := coredata.NewScopeFromObjectID(keys[0])
+
+	administratorIDsByThirdPartyID, err := f.probo.ThirdParties.MapAdministratorIDsForThirdPartyIDs(ctx, scope, keys)
+	if err != nil {
+		return nil, fmt.Errorf("cannot batch load third party administrator ids: %w", err)
+	}
+
+	result := make(map[gid.GID][]gid.GID, len(keys))
+	for _, id := range keys {
+		if ids, ok := administratorIDsByThirdPartyID[id]; ok {
+			result[id] = ids
+		} else {
+			result[id] = []gid.GID{}
+		}
+	}
+
+	return result, nil
+}
+
+// fetchAuthorizes evaluates the batch with a single AuthorizeMulti call and
+// surfaces per-key denials via dataloadgen.MappedFetchError. When
+// AuthorizeMulti cannot evaluate the batch as a whole (e.g. mixed
+// organizations), we fall back to per-item Authorize so every key still
+// gets a scope or iam error.
+//
+// The Authorize loader is created with WithoutCache() so repeated calls
+// with the same (resource, action) within a single request still produce
+// one audit log entry per call.
+func (f *batchFetcher) fetchAuthorizes(
+	ctx context.Context,
+	keys []AuthorizeKey,
+) (map[AuthorizeKey]AuthorizeResult, error) {
+	identity := authn.IdentityFromContext(ctx)
+	if identity == nil {
+		return nil, fmt.Errorf("cannot authorize without an identity in context")
+	}
+
+	session := authn.SessionFromContext(ctx)
+
+	items := make([]iam.MultiAuthorizeItem, 0, len(keys))
+	for _, key := range keys {
+		attrs, err := decodeAuthorizeKeyAttributes(key.ResourceAttributes)
+		if err != nil {
+			return nil, fmt.Errorf("cannot decode authorize key attributes: %w", err)
+		}
+
+		items = append(items, iam.MultiAuthorizeItem{
+			Resource:            key.ResourceID,
+			Action:              key.Action,
+			ResourceAttributes:  attrs,
+			DryRun:              key.DryRun,
+			SkipAssumptionCheck: key.SkipAssumptionCheck,
+		})
+	}
+
+	multiParams := iam.AuthorizeMultiParams{
+		Principal: identity.ID,
+		Items:     items,
+	}
+	if session != nil {
+		multiParams.Session = &session.ID
+	}
+
+	scope, decisions, err := f.iam.Authorizer.AuthorizeMulti(ctx, multiParams)
+	if err != nil {
+		return f.fetchAuthorizesIndividually(ctx, keys, identity.ID, session)
+	}
+
+	result := make(map[AuthorizeKey]AuthorizeResult, len(keys))
+	perKeyErrs := make(dataloadgen.MappedFetchError[AuthorizeKey])
+
+	for i, key := range keys {
+		if decisions[i] != nil {
+			perKeyErrs[key] = decisions[i]
+			continue
+		}
+
+		result[key] = AuthorizeResult{Scope: scope}
+	}
+
+	if len(perKeyErrs) > 0 {
+		return result, perKeyErrs
+	}
+
+	return result, nil
+}
+
+// fetchAuthorizesIndividually is the per-item fallback used when
+// AuthorizeMulti cannot evaluate the batch as a whole.
+func (f *batchFetcher) fetchAuthorizesIndividually(
+	ctx context.Context,
+	keys []AuthorizeKey,
+	principalID gid.GID,
+	session *coredata.Session,
+) (map[AuthorizeKey]AuthorizeResult, error) {
+	result := make(map[AuthorizeKey]AuthorizeResult, len(keys))
+	perKeyErrs := make(dataloadgen.MappedFetchError[AuthorizeKey])
+
+	for _, key := range keys {
+		attrs, err := decodeAuthorizeKeyAttributes(key.ResourceAttributes)
+		if err != nil {
+			return nil, fmt.Errorf("cannot decode authorize key attributes: %w", err)
+		}
+
+		params := iam.AuthorizeParams{
+			Principal:           principalID,
+			Resource:            key.ResourceID,
+			Action:              key.Action,
+			ResourceAttributes:  make(map[string]string, len(attrs)),
+			DryRun:              key.DryRun,
+			SkipAssumptionCheck: key.SkipAssumptionCheck,
+		}
+		maps.Copy(params.ResourceAttributes, attrs)
+
+		if session != nil {
+			params.Session = &session.ID
+		}
+
+		scope, err := f.iam.Authorizer.Authorize(ctx, params)
+		if err != nil {
+			perKeyErrs[key] = err
+			continue
+		}
+
+		result[key] = AuthorizeResult{Scope: scope}
+	}
+
+	if len(perKeyErrs) > 0 {
+		return result, perKeyErrs
+	}
+
+	return result, nil
+}
+
+func EncodeAuthorizeKeyAttributes(attrs policy.Attributes) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+
+	b, _ := json.Marshal(attrs)
+
+	return string(b)
+}
+
+func decodeAuthorizeKeyAttributes(s string) (policy.Attributes, error) {
+	attrs := policy.Attributes{}
+	if s == "" {
+		return attrs, nil
+	}
+
+	if err := json.Unmarshal([]byte(s), &attrs); err != nil {
+		return nil, err
+	}
+
+	return attrs, nil
+}
+
+func gidKeysByTenant(keys []gid.GID) map[gid.TenantID][]gid.GID {
+	keysByTenant := make(map[gid.TenantID][]gid.GID)
+
+	for _, key := range keys {
+		tenantID := key.TenantID()
+		keysByTenant[tenantID] = append(keysByTenant[tenantID], key)
+	}
+
+	return keysByTenant
+}

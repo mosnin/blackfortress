@@ -1,0 +1,170 @@
+'use client';
+
+import type { Invitation } from '@db';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Badge,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  TableCell,
+  TableRow,
+  Text,
+} from '@trycompai/design-system';
+import { OverflowMenuVertical, TrashCan } from '@trycompai/design-system/icons';
+import { useEffect, useState } from 'react';
+
+interface PendingInvitationRowProps {
+  invitation: Invitation & {
+    role: string;
+    createdAt?: Date;
+  };
+  onCancel: (invitationId: string) => Promise<void>;
+  canCancel: boolean;
+  /** How many requirement columns the table renders (one dash per column). */
+  requirementColumnCount?: number;
+}
+
+export function PendingInvitationRow({
+  invitation,
+  onCancel,
+  canCancel,
+  requirementColumnCount = 1,
+}: PendingInvitationRowProps) {
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState(false);
+
+  const handleCancelDialogOpenChange = (open: boolean) => {
+    setIsCancelDialogOpen(open);
+  };
+
+  const handleOpenCancelDialog = () => {
+    setDropdownOpen(false);
+    setIsCancelDialogOpen(true);
+  };
+
+  const handleCancelClick = () => {
+    setPendingRemove(true);
+    setIsCancelDialogOpen(false);
+  };
+
+  useEffect(() => {
+    if (pendingRemove && !isCancelDialogOpen) {
+      (async () => {
+        setIsCancelling(true);
+        await onCancel(invitation.id);
+        setIsCancelling(false);
+        setPendingRemove(false);
+      })();
+    }
+  }, [pendingRemove, isCancelDialogOpen, onCancel, invitation.id]);
+
+  const roles = Array.isArray(invitation.role)
+    ? invitation.role
+    : typeof invitation.role === 'string' && invitation.role.includes(',')
+      ? invitation.role.split(',')
+      : [invitation.role];
+
+  return (
+    <>
+      <TableRow>
+        {/* NAME */}
+        <TableCell>
+          <div className="min-w-0">
+            <Text>{invitation.email}</Text>
+          </div>
+        </TableCell>
+
+        {/* STATUS */}
+        <TableCell>
+          <Badge variant="outline">Pending</Badge>
+        </TableCell>
+
+        {/* ROLE */}
+        <TableCell>
+          <div className="w-[160px]">
+            <div className="flex flex-wrap gap-1">
+              {roles.map((role: string) => (
+                <Badge key={role} variant="outline">
+                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        </TableCell>
+
+        {/* ONBOARDED */}
+        <TableCell>
+          <Text size="sm" variant="muted">—</Text>
+        </TableCell>
+
+        {/* OFFBOARDED */}
+        <TableCell>
+          <Text size="sm" variant="muted">—</Text>
+        </TableCell>
+
+        {/* Requirement columns — never applicable before the invite is accepted */}
+        {Array.from({ length: requirementColumnCount }).map((_, i) => (
+          <TableCell key={i}>
+            <Text size="sm" variant="muted">
+              —
+            </Text>
+          </TableCell>
+        ))}
+
+        {/* ACTIONS */}
+        <TableCell>
+          <div className="flex justify-center">
+            <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+              <DropdownMenuTrigger
+                variant="ellipsis"
+                disabled={isCancelling || !canCancel}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <OverflowMenuVertical />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem variant="destructive" onClick={handleOpenCancelDialog}>
+                  <TrashCan size={16} />
+                  Cancel Invitation
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </TableCell>
+      </TableRow>
+
+      <AlertDialog open={isCancelDialogOpen} onOpenChange={handleCancelDialogOpenChange}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Invitation</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel the invitation for {invitation.email}?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <p className="text-muted-foreground mt-1 text-xs">This action cannot be undone.</p>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={handleCancelClick}
+              disabled={isCancelling}
+            >
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}

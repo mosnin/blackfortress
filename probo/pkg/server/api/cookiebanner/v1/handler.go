@@ -1,0 +1,612 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package cookiebanner_v1
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"go.gearno.de/kit/httpserver"
+	"go.gearno.de/kit/log"
+	"go.probo.inc/probo/pkg/cookiebanner"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/geoloc"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/server/api/clientip"
+	"go.probo.inc/probo/pkg/server/jsonx"
+	"go.probo.inc/probo/pkg/uri"
+	"go.probo.inc/probo/pkg/validator"
+)
+
+type Handler struct {
+	logger          *log.Logger
+	cookieBannerSvc *cookiebanner.Service
+	geolocSvc       *geoloc.Service
+}
+
+func NewMux(
+	logger *log.Logger,
+	cookieBannerSvc *cookiebanner.Service,
+	geolocSvc *geoloc.Service,
+) *chi.Mux {
+	h := &Handler{
+		logger:          logger,
+		cookieBannerSvc: cookieBannerSvc,
+		geolocSvc:       geolocSvc,
+	}
+
+	r := chi.NewMux()
+	r.Route("/{bannerID}", func(r chi.Router) {
+		r.Use(newSDKVersionMiddleware())
+		r.Use(newCORSMiddleware(logger, cookieBannerSvc))
+		r.Get("/config", h.handleGetConfig)
+		r.Get("/consents/{visitorID}", h.handleGetConsent)
+		r.Post("/consents", h.handlePostConsent)
+		r.Post("/detected-cookies", h.handleReportDetectedCookies)
+		r.Post("/report", h.handleReportDetectedTrackers)
+	})
+
+	return r
+}
+
+func (h *Handler) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	bannerID, err := gid.ParseGID(chi.URLParam(r, "bannerID"))
+	if err != nil {
+		jsonx.RenderBadRequest(w, fmt.Errorf("invalid banner id"))
+		return
+	}
+
+	lang := r.URL.Query().Get("lang")
+	sdkVersion := sdkVersionFromContext(r.Context())
+	location := h.resolveLocation(r)
+	regulation, _ := cookiebanner.ResolveRegulation(location)
+
+	config, err := h.cookieBannerSvc.GetActiveBannerConfig(r.Context(), bannerID, lang, regulation, sdkVersion)
+	if err != nil {
+		if errors.Is(err, cookiebanner.ErrBannerNotFound) {
+			jsonx.RenderNotFound(w, fmt.Errorf("banner not found"))
+			return
+		}
+
+		if errors.Is(err, cookiebanner.ErrNoPublishedVersion) {
+			jsonx.RenderNotFound(w, fmt.Errorf("no published version"))
+			return
+		}
+
+		h.logger.ErrorCtx(r.Context(), "cannot get banner config", log.Error(err), log.String("sdk_version", sdkVersion))
+		jsonx.RenderInternalServerError(w)
+
+		return
+	}
+
+	httpserver.RenderJSON(w, http.StatusOK, config)
+}
+
+func (h *Handler) resolveLocation(r *http.Request) *coredata.IPLocationBlock {
+	ip := clientip.Extract(r)
+
+	location, err := h.geolocSvc.LookupLocation(r.Context(), ip)
+	if err != nil {
+		h.logger.ErrorCtx(
+			r.Context(),
+			"cannot resolve location for IP",
+			log.Error(err),
+			log.String("sdk_version", sdkVersionFromContext(r.Context())),
+		)
+
+		return nil
+	}
+
+	if location.CountryCode == "" {
+		return nil
+	}
+
+	return &location
+}
+
+func (h *Handler) handleGetConsent(w http.ResponseWriter, r *http.Request) {
+	bannerID, err := gid.ParseGID(chi.URLParam(r, "bannerID"))
+	if err != nil {
+		jsonx.RenderBadRequest(w, fmt.Errorf("invalid banner id"))
+		return
+	}
+
+	visitorID := chi.URLParam(r, "visitorID")
+	if visitorID == "" {
+		jsonx.RenderBadRequest(w, fmt.Errorf("missing visitor id"))
+		return
+	}
+
+	consent, err := h.cookieBannerSvc.GetVisitorConsent(r.Context(), bannerID, visitorID)
+	if err != nil {
+		if errors.Is(err, cookiebanner.ErrBannerNotFound) {
+			jsonx.RenderNotFound(w, fmt.Errorf("banner not found"))
+			return
+		}
+
+		if errors.Is(err, cookiebanner.ErrConsentNotFound) {
+			jsonx.RenderNotFound(w, fmt.Errorf("consent not found"))
+			return
+		}
+
+		h.logger.ErrorCtx(
+			r.Context(),
+			"cannot get visitor consent",
+			log.Error(err),
+			log.String("sdk_version", sdkVersionFromContext(r.Context())),
+		)
+		jsonx.RenderInternalServerError(w)
+
+		return
+	}
+
+	httpserver.RenderJSON(w, http.StatusOK, consent)
+}
+
+type (
+	postConsentBody struct {
+		VisitorID   string                       `json:"visitor_id"`
+		Version     int                          `json:"version"`
+		Action      coredata.CookieConsentAction `json:"action"`
+		ConsentData json.RawMessage              `json:"consent_data"`
+		TC          *string                      `json:"tc,omitempty"`
+	}
+
+	postConsentResponse struct {
+		ID        string    `json:"id"`
+		VisitorID string    `json:"visitor_id"`
+		Action    string    `json:"action"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+)
+
+func (h *Handler) handlePostConsent(w http.ResponseWriter, r *http.Request) {
+	bannerID, err := gid.ParseGID(chi.URLParam(r, "bannerID"))
+	if err != nil {
+		jsonx.RenderBadRequest(w, fmt.Errorf("invalid banner id"))
+		return
+	}
+
+	var body postConsentBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonx.RenderBadRequest(w, fmt.Errorf("invalid request body"))
+		return
+	}
+
+	ip := clientip.Extract(r)
+	ua := r.UserAgent()
+	sdkVersion := sdkVersionFromContext(r.Context())
+	location := h.resolveLocation(r)
+	regulation, regulationSource := cookiebanner.ResolveRegulation(location)
+
+	cm := coredata.CookieConsentMode(cookiebanner.ConsentModeForRegulation(regulation))
+
+	req := cookiebanner.RecordConsentRequest{
+		Version:          body.Version,
+		VisitorID:        body.VisitorID,
+		IPAddress:        &ip,
+		UserAgent:        &ua,
+		ConsentData:      body.ConsentData,
+		Action:           body.Action,
+		SdkVersion:       sdkVersion,
+		Regulation:       &regulation,
+		RegulationSource: regulationSource,
+		ConsentMode:      &cm,
+		TC:               body.TC,
+	}
+	if location != nil {
+		req.CountryCode = &location.CountryCode
+		req.SubdivisionCode = location.SubdivisionCode
+	}
+
+	record, err := h.cookieBannerSvc.RecordConsent(r.Context(), bannerID, req)
+	if err != nil {
+		if errors.Is(err, cookiebanner.ErrBannerNotFound) {
+			jsonx.RenderNotFound(w, fmt.Errorf("banner not found"))
+			return
+		}
+
+		if errors.Is(err, cookiebanner.ErrVersionNotFound) || errors.Is(err, cookiebanner.ErrVersionNotPublished) {
+			jsonx.RenderBadRequest(w, fmt.Errorf("invalid version"))
+			return
+		}
+
+		if validationErrors, ok := errors.AsType[validator.ValidationErrors](err); ok {
+			jsonx.RenderBadRequest(w, validationErrors)
+			return
+		}
+
+		h.logger.ErrorCtx(r.Context(), "cannot record consent", log.Error(err), log.String("sdk_version", sdkVersion))
+		jsonx.RenderInternalServerError(w)
+
+		return
+	}
+
+	httpserver.RenderJSON(
+		w,
+		http.StatusCreated,
+		postConsentResponse{
+			ID:        record.ID.String(),
+			VisitorID: record.VisitorID,
+			Action:    string(record.Action),
+			CreatedAt: record.CreatedAt,
+		},
+	)
+}
+
+type detectedCookieEntry struct {
+	Name          string  `json:"name"`
+	MaxAgeSeconds *int    `json:"max_age_seconds"`
+	Source        string  `json:"source"`
+	InitiatorURL  *string `json:"initiator_url,omitempty"`
+}
+
+type reportDetectedCookiesBody struct {
+	Cookies []detectedCookieEntry `json:"cookies"`
+}
+
+const (
+	maxDetectedCookiesPerRequest = 100
+	maxInitiatorURLLength        = 1024
+)
+
+// sanitizeInitiatorURL validates and normalises a script URL captured
+// in the customer page's stack trace. It drops the value when it does
+// not parse as an http(s) URL with a host, or when it exceeds the
+// length cap. Returns nil for missing or invalid input.
+func sanitizeInitiatorURL(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+
+	s := strings.TrimSpace(*raw)
+	if s == "" || len(s) > maxInitiatorURLLength {
+		return nil
+	}
+
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil
+	}
+
+	if u.Host == "" {
+		return nil
+	}
+
+	return &s
+}
+
+func (h *Handler) handleReportDetectedCookies(w http.ResponseWriter, r *http.Request) {
+	bannerID, err := gid.ParseGID(chi.URLParam(r, "bannerID"))
+	if err != nil {
+		jsonx.RenderBadRequest(w, fmt.Errorf("invalid banner id"))
+		return
+	}
+
+	var body reportDetectedCookiesBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonx.RenderBadRequest(w, fmt.Errorf("invalid request body"))
+		return
+	}
+
+	if len(body.Cookies) == 0 {
+		jsonx.RenderBadRequest(w, fmt.Errorf("cookies list is empty"))
+		return
+	}
+
+	if len(body.Cookies) > maxDetectedCookiesPerRequest {
+		jsonx.RenderBadRequest(w, fmt.Errorf("too many cookies, maximum is %d", maxDetectedCookiesPerRequest))
+		return
+	}
+
+	detected := make([]cookiebanner.DetectedCookie, 0, len(body.Cookies))
+	for _, c := range body.Cookies {
+		name := strings.TrimSpace(c.Name)
+		if name == "" {
+			continue
+		}
+
+		if len(name) > cookiebanner.MaxTrackerIdentifierLength {
+			h.logger.InfoCtx(
+				r.Context(),
+				"skipping oversized detected cookie name",
+				log.String("banner_id", bannerID.String()),
+				log.String("tracker_type", string(coredata.TrackerTypeCookie)),
+				log.Int("identifier_length", len(name)),
+				log.String("sdk_version", sdkVersionFromContext(r.Context())),
+			)
+
+			continue
+		}
+
+		var source coredata.CookieSource
+
+		switch strings.TrimSpace(c.Source) {
+		case "pre-existing":
+			source = coredata.CookieSourcePreExisting
+		case "http":
+			source = coredata.CookieSourceHTTP
+		default:
+			source = coredata.CookieSourceScript
+		}
+
+		detected = append(
+			detected,
+			cookiebanner.DetectedCookie{
+				Name:          name,
+				MaxAgeSeconds: c.MaxAgeSeconds,
+				Source:        source,
+				InitiatorURL:  sanitizeInitiatorURL(c.InitiatorURL),
+			},
+		)
+	}
+
+	if len(detected) == 0 {
+		jsonx.RenderBadRequest(w, fmt.Errorf("no valid cookie names provided"))
+		return
+	}
+
+	req := cookiebanner.ReportDetectedCookiesRequest{
+		Cookies: detected,
+	}
+
+	if err := h.cookieBannerSvc.ReportDetectedCookies(r.Context(), bannerID, req); err != nil {
+		if errors.Is(err, cookiebanner.ErrBannerNotFound) {
+			jsonx.RenderNotFound(w, fmt.Errorf("banner not found"))
+			return
+		}
+
+		h.logger.ErrorCtx(
+			r.Context(),
+			"cannot report detected cookies",
+			log.Error(err),
+			log.String("sdk_version", sdkVersionFromContext(r.Context())),
+		)
+		jsonx.RenderInternalServerError(w)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type detectedStorageEntry struct {
+	Key          string  `json:"key"`
+	StorageType  string  `json:"storage_type"`
+	ValueSize    *int    `json:"value_size"`
+	Source       string  `json:"source"`
+	InitiatorURL *string `json:"initiator_url,omitempty"`
+}
+
+type detectedResourceEntry struct {
+	URL          uri.URI `json:"url"`
+	ResourceType string  `json:"resource_type"`
+}
+
+type reportDetectedTrackersBody struct {
+	Cookies   []detectedCookieEntry   `json:"cookies"`
+	Storage   []detectedStorageEntry  `json:"storage"`
+	Resources []detectedResourceEntry `json:"resources"`
+}
+
+const maxDetectedTrackersPerRequest = 100
+
+func (h *Handler) handleReportDetectedTrackers(w http.ResponseWriter, r *http.Request) {
+	bannerID, err := gid.ParseGID(chi.URLParam(r, "bannerID"))
+	if err != nil {
+		jsonx.RenderBadRequest(w, fmt.Errorf("invalid banner id"))
+		return
+	}
+
+	var body reportDetectedTrackersBody
+	// The unload-safe Beacon transport sends JSON bytes as text/plain so
+	// cross-origin reports remain CORS-safelisted and avoid a preflight.
+	// Decode the body independently of Content-Type to preserve that contract.
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonx.RenderBadRequest(w, fmt.Errorf("invalid request body"))
+		return
+	}
+
+	total := len(body.Cookies) + len(body.Storage) + len(body.Resources)
+	if total == 0 {
+		jsonx.RenderBadRequest(w, fmt.Errorf("no items provided"))
+		return
+	}
+
+	if total > maxDetectedTrackersPerRequest {
+		jsonx.RenderBadRequest(w, fmt.Errorf("too many items, maximum is %d", maxDetectedTrackersPerRequest))
+		return
+	}
+
+	var req cookiebanner.ReportDetectedTrackersRequest
+
+	for _, c := range body.Cookies {
+		name := strings.TrimSpace(c.Name)
+		if name == "" {
+			continue
+		}
+
+		if len(name) > cookiebanner.MaxTrackerIdentifierLength {
+			h.logger.InfoCtx(
+				r.Context(),
+				"skipping oversized detected cookie name",
+				log.String("banner_id", bannerID.String()),
+				log.String("tracker_type", string(coredata.TrackerTypeCookie)),
+				log.Int("identifier_length", len(name)),
+				log.String("sdk_version", sdkVersionFromContext(r.Context())),
+			)
+
+			continue
+		}
+
+		var source coredata.CookieSource
+
+		switch strings.TrimSpace(c.Source) {
+		case "pre-existing":
+			source = coredata.CookieSourcePreExisting
+		case "http":
+			source = coredata.CookieSourceHTTP
+		case "extension":
+			source = coredata.CookieSourceExtension
+		default:
+			source = coredata.CookieSourceScript
+		}
+
+		req.Cookies = append(
+			req.Cookies,
+			cookiebanner.DetectedCookie{
+				Name:          name,
+				MaxAgeSeconds: c.MaxAgeSeconds,
+				Source:        source,
+				InitiatorURL:  sanitizeInitiatorURL(c.InitiatorURL),
+			},
+		)
+	}
+
+	for _, s := range body.Storage {
+		key := strings.TrimSpace(s.Key)
+		if key == "" {
+			continue
+		}
+
+		if len(key) > cookiebanner.MaxTrackerIdentifierLength {
+			h.logger.InfoCtx(
+				r.Context(),
+				"skipping oversized detected storage key",
+				log.String("banner_id", bannerID.String()),
+				log.String("storage_type", strings.TrimSpace(s.StorageType)),
+				log.Int("identifier_length", len(key)),
+				log.String("sdk_version", sdkVersionFromContext(r.Context())),
+			)
+
+			continue
+		}
+
+		var storageType coredata.TrackerType
+
+		switch strings.TrimSpace(s.StorageType) {
+		case "local_storage":
+			storageType = coredata.TrackerTypeLocalStorage
+		case "session_storage":
+			storageType = coredata.TrackerTypeSessionStorage
+		case "indexed_db":
+			storageType = coredata.TrackerTypeIndexedDB
+		case "cache_storage":
+			storageType = coredata.TrackerTypeCacheStorage
+		default:
+			continue
+		}
+
+		var source coredata.CookieSource
+
+		switch strings.TrimSpace(s.Source) {
+		case "pre-existing":
+			source = coredata.CookieSourcePreExisting
+		case "extension":
+			source = coredata.CookieSourceExtension
+		default:
+			source = coredata.CookieSourceScript
+		}
+
+		req.Storage = append(
+			req.Storage,
+			cookiebanner.DetectedStorageItem{
+				Key:          key,
+				StorageType:  storageType,
+				ValueSize:    s.ValueSize,
+				Source:       &source,
+				InitiatorURL: sanitizeInitiatorURL(s.InitiatorURL),
+			},
+		)
+	}
+
+	for _, res := range body.Resources {
+		// The URI type validates scheme+host on UnmarshalText, so a
+		// non-empty value here is guaranteed to be a valid URL. We
+		// still need to reject the zero value, which occurs when the
+		// `url` JSON field is missing.
+		if res.URL == "" {
+			continue
+		}
+
+		var resourceType coredata.TrackerResourceType
+
+		switch strings.TrimSpace(res.ResourceType) {
+		case "script":
+			resourceType = coredata.TrackerResourceTypeScript
+		case "iframe":
+			resourceType = coredata.TrackerResourceTypeIframe
+		case "image":
+			resourceType = coredata.TrackerResourceTypeImage
+		case "stylesheet":
+			resourceType = coredata.TrackerResourceTypeStylesheet
+		case "font":
+			resourceType = coredata.TrackerResourceTypeFont
+		case "beacon":
+			resourceType = coredata.TrackerResourceTypeBeacon
+		case "fetch":
+			resourceType = coredata.TrackerResourceTypeFetch
+		case "media":
+			resourceType = coredata.TrackerResourceTypeMedia
+		case "service_worker":
+			resourceType = coredata.TrackerResourceTypeServiceWorker
+		default:
+			continue
+		}
+
+		req.Resources = append(
+			req.Resources,
+			cookiebanner.DetectedResourceItem{
+				URL:          res.URL,
+				ResourceType: resourceType,
+			},
+		)
+	}
+
+	if len(req.Cookies)+len(req.Storage)+len(req.Resources) == 0 {
+		jsonx.RenderBadRequest(w, fmt.Errorf("no valid items provided"))
+		return
+	}
+
+	if err := h.cookieBannerSvc.ReportDetectedTrackers(r.Context(), bannerID, req); err != nil {
+		if errors.Is(err, cookiebanner.ErrBannerNotFound) {
+			jsonx.RenderNotFound(w, fmt.Errorf("banner not found"))
+			return
+		}
+
+		h.logger.ErrorCtx(r.Context(), "cannot report detected trackers", log.Error(err), log.String("sdk_version", sdkVersionFromContext(r.Context())))
+		jsonx.RenderInternalServerError(w)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

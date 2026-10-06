@@ -1,0 +1,247 @@
+@import "./rich-editor.css";
+
+@plugin "@tailwindcss/typography";
+@config "../tailwind.config.js";
+
+@theme {
+    --font-sans: "Geist", "sans-serif";
+    --color-*: initial;
+
+    /*
+     * Black Fortress palette — the single (dark) theme for the legacy kit.
+     * Black canvas, white text, lime (#A3E635) accent. The v2 kit carries the
+     * same palette in ./v2/theme/colors.css.
+     */
+    --color-black: #000000;
+
+    --color-level-0: #000000;
+    --color-level-1: #0a0a0a;
+    --color-level-2: #141414;
+    --color-level-3: #262626;
+
+    /* Text colors */
+    --color-txt-primary: #ffffff;
+    --color-invert: #000000;
+    --color-txt-invert: #ffffff;
+    --color-txt-secondary: #a3a3a3;
+    --color-txt-tertiary: #737373;
+    --color-txt-quaternary: #404040;
+    --color-txt-disabled: #525252;
+    --color-txt-accent: #a3e635;
+    --color-txt-danger: #ff6369;
+    --color-txt-success: #a3e635;
+    --color-txt-info: #52a9ff;
+    --color-txt-warning: #f1a10d;
+
+    /* Backgrounds */
+    --color-primary: #a3e635;
+    --color-secondary: #141414;
+    --color-tertiary: rgba(255, 255, 255, 0);
+    --color-subtle: rgba(255, 255, 255, 0.03);
+    --color-highlight: rgba(255, 255, 255, 0.06);
+    --color-active: rgba(163, 230, 53, 0.12);
+    --color-accent: #a3e635;
+    --color-danger: rgba(254, 58, 61, 0.13);
+    --color-danger-plain: #dc3d43;
+    --color-danger-dark: rgba(255, 89, 95, 0.94);
+    --color-success: rgba(163, 230, 53, 0.1);
+    --color-info: rgba(22, 119, 254, 0.14);
+    --color-warning: rgba(254, 115, 0, 0.12);
+    --color-dialog: #000000;
+
+    /* Borders */
+    --color-border-solid: #262626;
+    --color-border-low: #262626;
+    --color-border-mid: #333333;
+    --color-border-strong: #525252;
+    --color-border-active: #ffffff;
+    --color-border-accent: #a3e635;
+    --color-border-danger: #f2555a;
+    --color-border-success: #a3e635;
+    --color-border-warning: #ffcb47;
+    --color-border-info: #369eff;
+
+    /* Hover */
+    --color-primary-hover: #bef264;
+    --color-invert-hover: #0a0a0a;
+    --color-secondary-hover: #1f1f1f;
+    --color-tertiary-hover: rgba(255, 255, 255, 0.04);
+    --color-subtle-hover: rgba(255, 255, 255, 0.06);
+    --color-highlight-hover: rgba(255, 255, 255, 0.1);
+    --color-accent-hover: #bef264;
+    --color-active-hover: rgba(163, 230, 53, 0.18);
+    --color-danger-hover: #e5484d;
+
+    /* Pressed */
+    --color-primary-pressed: #84cc16;
+    --color-invert-pressed: #141414;
+    --color-secondary-pressed: #262626;
+    --color-tertiary-pressed: rgba(255, 255, 255, 0.06);
+    --color-subtle-pressed: rgba(255, 255, 255, 0.08);
+    --color-highlight-pressed: rgba(255, 255, 255, 0.13);
+    --color-accent-pressed: #84cc16;
+    --color-active-pressed: rgba(163, 230, 53, 0.24);
+    --color-danger-pressed: #c6373c;
+
+    /* text-5xl */
+    --text-5xl: 3rem;
+    --text-5xl--line-height: 3rem;
+    --text-5xl--letter-spacing: -1.6px;
+    --text-5xl--font-weight: 600;
+
+    /* text-4xl */
+    --text-4xl: 2.25rem;
+    --text-4xl--line-height: 2.5rem;
+    --text-4xl--letter-spacing: -1.2px;
+    --text-4xl--font-weight: 600;
+
+    /* text-3xl */
+    --text-3xl: 1.875rem;
+    --text-3xl--line-height: 2.25rem;
+    --text-3xl--letter-spacing: -1px;
+    --text-3xl--font-weight: 600;
+
+    /* text-2xl */
+    --text-2xl: 1.5rem;
+    --text-2xl--line-height: 2rem;
+    --text-2xl--letter-spacing: -0.6px;
+    --text-2xl--font-weight: 600;
+
+    /* text-xl */
+    --text-xl: 1.25rem;
+    --text-xl--line-height: 1.75rem;
+    --text-xl--letter-spacing: -0.4px;
+    --text-xl--font-weight: 600;
+
+    /* text-xl-medium */
+    --text-xl-medium: 1.25rem;
+    --text-xl-medium--line-height: 1.75rem;
+    --text-xl-medium--letter-spacing: -0.4px;
+    --text-xl-medium--font-weight: 500;
+
+    /* text-lg */
+    --text-lg: 1.125rem;
+    --text-lg--line-height: 1.75rem;
+    --text-lg--letter-spacing: 0px;
+    --text-lg--font-weight: 400;
+
+    /* text-base */
+    --text-base: 1rem;
+    --text-base--line-height: 1.5rem;
+    --text-base--letter-spacing: 0px;
+    --text-base--font-weight: 400;
+
+    /* text-base-link */
+    --text-base-link: 1rem;
+    --text-base-link--line-height: 1.5rem;
+    --text-base-link--letter-spacing: 0px;
+    --text-base-link--font-weight: 400;
+
+    /* text-sm */
+    --text-sm: 0.875rem;
+    --text-sm--line-height: 1.25rem;
+    --text-sm--letter-spacing: 0px;
+    --text-sm--font-weight: 400;
+
+    /* text-sm-link */
+    --text-sm-link: 0.875rem;
+    --text-sm-link--line-height: 1.25rem;
+    --text-sm-link--letter-spacing: 0px;
+    --text-sm-link--font-weight: 500;
+
+    /* text-xs */
+    --text-xs: 0.75rem;
+    --text-xs--line-height: 1rem;
+    --text-xs--letter-spacing: 0px;
+    --text-xs--font-weight: 400;
+
+    /* text-xxs */
+    --text-xxs: 0.6875rem;
+    --text-xxs--line-height: 0.875rem;
+    --text-xxs--letter-spacing: 0px;
+    --text-xxs--font-weight: 400;
+
+    /* Shadows */
+    --shadow-*: initial;
+    --shadow-base:
+        0px 1px 3px 0px rgba(0, 0, 0, 0.5),
+        0px -1px 0px 0px rgba(0, 0, 0, 0.3) inset;
+    --shadow-hover:
+        0px 2px 6px 0px rgba(0, 0, 0, 0.6),
+        0px -1px 0px 0px rgba(0, 0, 0, 0.3) inset;
+    --shadow-focus: 0px 0px 0px 3px rgba(163, 230, 53, 0.6);
+    --shadow-mid:
+        0px 2px 4px 0px rgba(0, 0, 0, 0.5),
+        0px 2px 12px 0px rgba(0, 0, 0, 0.4),
+        0px 0px 0px 1px #262626;
+}
+
+@custom-variant document (&:where([data-theme=document] *));
+
+@layer theme {
+    /* Black Fortress is dark-only: the values above already are the dark
+     * palette, so there is no `@variant dark` override block. */
+
+    * {
+        @variant document {
+            --text-4xl: 16pt;
+            --text-4xl--line-height: 21pt;
+            --text-4xl--letter-spacing: -0.6px;
+            --text-3xl: 15pt;
+            --text-3xl--line-height: 21pt;
+            --text-3xl--letter-spacing: -0.4px;
+            --text-2xl: 14pt;
+            --text-2xl--line-height: 21pt;
+            --text-2xl--letter-spacing: 0;
+            --text-xl: 13pt;
+            --text-xl--line-height: 18pt;
+            --text-xl--letter-spacing: 0;
+            --text-lg: 12pt;
+            --text-lg--line-height: 18pt;
+            --text-lg--letter-spacing: 0;
+            --text-base: 11pt;
+            --text-base--line-height: 18pt;
+            --text-base--letter-spacing: 0;
+            --text-sm: 10pt;
+            --text-sm--line-height: 15pt;
+            --text-sm--letter-spacing: 0;
+            --text-xs: 9pt;
+            --text-xs--line-height: 15pt;
+            --text-xs--letter-spacing: 0;
+        }
+    }
+}
+
+a:focus-visible,
+button:focus-visible {
+    outline: none;
+    &:not(:hover) {
+        box-shadow: var(--shadow-focus);
+    }
+}
+
+button[data-cell]:focus-visible {
+    box-shadow: none;
+    outline: solid 2px rgba(163, 230, 53, 0.6);
+}
+
+/* Allow interpolation : https://developer.chrome.com/docs/css-ui/animate-to-height-auto */
+:root {
+    interpolate-size: allow-keywords;
+}
+
+::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--color-level-1);
+    padding: 1px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: 4px;
+}
+

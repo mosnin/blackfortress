@@ -1,0 +1,158 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+// Package deviceagent implements the probo host agent.
+package deviceagent
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+const (
+	// ConfigFileName stores persisted agent config.
+	ConfigFileName = "config.json"
+
+	// DefaultHeartbeatInterval is the default heartbeat cadence.
+	DefaultHeartbeatInterval = 5 * time.Minute
+	// MinHeartbeatInterval is the minimum heartbeat cadence.
+	MinHeartbeatInterval = 1 * time.Minute
+
+	// DefaultPostureInterval is the default posture cadence.
+	DefaultPostureInterval = 1 * time.Hour
+	// MinPostureInterval is the minimum posture cadence.
+	MinPostureInterval = 15 * time.Minute
+
+	// DefaultUpdateInterval is the default cadence at which the
+	// agent checks for new releases.
+	DefaultUpdateInterval = 4 * time.Hour
+	// MinUpdateInterval is the floor used when a smaller value is
+	// configured. Updates are network and disk heavy, so we cap
+	// frequency to once per hour.
+	MinUpdateInterval = 1 * time.Hour
+)
+
+type (
+	// Config is the persisted agent configuration.
+	Config struct {
+		ServerURL         string        `json:"server_url"`
+		DeviceID          string        `json:"device_id,omitempty"`
+		HeartbeatInterval time.Duration `json:"heartbeat_interval,omitempty"`
+		PostureInterval   time.Duration `json:"posture_interval,omitempty"`
+		UpdateInterval    time.Duration `json:"update_interval,omitempty"`
+		UpdatesDisabled   bool          `json:"updates_disabled,omitempty"`
+		AllowPrereleases  bool          `json:"allow_prereleases,omitempty"`
+	}
+)
+
+// ConfigPath returns the absolute path to the agent's config file.
+func ConfigPath(dir string) string {
+	if dir == "" {
+		dir = DefaultConfigDir()
+	}
+
+	return filepath.Join(dir, ConfigFileName)
+}
+
+// LoadConfig reads config from disk.
+func LoadConfig(dir string) (*Config, error) {
+	data, err := os.ReadFile(ConfigPath(dir))
+	if err != nil {
+		return nil, fmt.Errorf("cannot read config: %w", err)
+	}
+
+	cfg := &Config{}
+	if err := json.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("cannot decode config: %w", err)
+	}
+
+	cfg.applyDefaults()
+
+	return cfg, nil
+}
+
+// SaveConfig writes config to disk with mode 0600.
+func SaveConfig(dir string, cfg *Config) error {
+	if cfg == nil {
+		return errors.New("nil config")
+	}
+
+	if dir == "" {
+		dir = DefaultConfigDir()
+	}
+
+	if err := ensureSecureAgentDir(dir); err != nil {
+		return err
+	}
+
+	cfg.applyDefaults()
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("cannot encode config: %w", err)
+	}
+
+	path := ConfigPath(dir)
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("cannot write config: %w", err)
+	}
+
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("cannot atomically replace config: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Config) applyDefaults() {
+	c.HeartbeatInterval = normalizeHeartbeatInterval(c.HeartbeatInterval)
+	c.PostureInterval = normalizePostureInterval(c.PostureInterval)
+	c.UpdateInterval = normalizeUpdateInterval(c.UpdateInterval)
+}
+
+func normalizeHeartbeatInterval(v time.Duration) time.Duration {
+	return normalizeInterval(v, DefaultHeartbeatInterval, MinHeartbeatInterval)
+}
+
+func normalizePostureInterval(v time.Duration) time.Duration {
+	return normalizeInterval(v, DefaultPostureInterval, MinPostureInterval)
+}
+
+func normalizeUpdateInterval(v time.Duration) time.Duration {
+	return normalizeInterval(v, DefaultUpdateInterval, MinUpdateInterval)
+}
+
+func normalizeInterval(v, fallback, floor time.Duration) time.Duration {
+	if v <= 0 {
+		v = fallback
+	}
+
+	if v < floor {
+		return floor
+	}
+
+	return v
+}

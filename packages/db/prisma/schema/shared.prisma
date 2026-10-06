@@ -1,0 +1,139 @@
+model ApiKey {
+  id         String    @id @default(dbgenerated("generate_prefixed_cuid('apk'::text)"))
+  name       String
+  key        String    @unique
+  keyPrefix  String?
+  salt       String?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  isActive   Boolean   @default(true)
+  scopes     String[]  @default([])
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  // Member (org membership) that created this key. Nullable: legacy keys predate
+  // this column, and SetNull keeps the org's keys alive if the creator's
+  // membership is removed. Used by ActingUserResolver to attribute
+  // API-key-initiated mutations to the real creator instead of the org owner.
+  createdByMemberId String?
+  createdBy         Member? @relation("ApiKeyCreatedBy", fields: [createdByMemberId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([key])
+  @@index([keyPrefix])
+  @@index([createdByMemberId])
+}
+
+model AuditLog {
+  id             String              @id @default(dbgenerated("generate_prefixed_cuid('aud'::text)"))
+  timestamp      DateTime            @default(now())
+  organizationId String
+  userId         String
+  memberId       String?
+  data           Json
+  description    String?
+  entityId       String?
+  entityType     AuditLogEntityType?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  member       Member?      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([memberId])
+  @@index([entityType])
+}
+
+enum AuditLogEntityType {
+  organization
+  framework
+  requirement
+  control
+  policy
+  task
+  people
+  risk
+  vendor
+  tests
+  integration
+  trust
+  finding
+  pentest
+}
+
+enum EvidenceFormType {
+  board_meeting                   @map("board-meeting")
+  it_leadership_meeting           @map("it-leadership-meeting")
+  risk_committee_meeting          @map("risk-committee-meeting")
+  meeting
+  access_request                  @map("access-request")
+  whistleblower_report            @map("whistleblower-report")
+  penetration_test                @map("penetration-test")
+  rbac_matrix                     @map("rbac-matrix")
+  infrastructure_inventory        @map("infrastructure-inventory")
+  employee_performance_evaluation @map("employee-performance-evaluation")
+  network_diagram                 @map("network-diagram")
+  tabletop_exercise               @map("tabletop-exercise")
+  account_types                   @map("account-types")
+}
+
+model GlobalVendors {
+  website                     String   @id @unique
+  company_name                String?
+  legal_name                  String?
+  company_description         String?
+  company_hq_address          String?
+  privacy_policy_url          String?
+  terms_of_service_url        String?
+  service_level_agreement_url String?
+  security_page_url           String?
+  trust_page_url              String?
+  security_certifications     String[]
+  subprocessors               String[]
+  type_of_company             String?
+
+  // Vendor Risk Assessment (shared across all organizations)
+  riskAssessmentData      Json?
+  riskAssessmentVersion   String?
+  riskAssessmentUpdatedAt DateTime?
+
+  approved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([website])
+}
+
+enum Departments {
+  none
+  admin
+  gov
+  hr
+  it
+  itsm
+  qms
+}
+
+enum Frequency {
+  monthly
+  quarterly
+  yearly
+}
+
+enum Likelihood {
+  very_unlikely
+  unlikely
+  possible
+  likely
+  very_likely
+}
+
+enum Impact {
+  insignificant
+  minor
+  moderate
+  major
+  severe
+}

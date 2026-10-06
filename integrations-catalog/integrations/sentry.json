@@ -1,0 +1,45 @@
+{
+  "slug": "sentry",
+  "name": "Sentry",
+  "description": "Monitor Sentry projects and alert rules for application error tracking and incident response compliance",
+  "category": "Monitoring",
+  "docsUrl": "https://docs.sentry.io/api/",
+  "baseUrl": "https://sentry.io/",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "Step 1 — Create a Sentry Auth Token\n1. In Sentry, go to Settings > Auth Tokens (https://sentry.io/settings/account/api/auth-tokens/) — or for organizations: Settings > Developer Settings > User Auth Tokens\n2. Click Create New Token\n3. Add these scopes (read-only):\n   - org:read       (list organizations)\n   - project:read   (list projects)\n   - alerts:read    (read alert rules + monitoring config)\n   - member:read    (optional: read org members)\n4. Copy the token (starts with \"sntryu_\" for user tokens, \"sntrys_\" for org internal-integration tokens)\n\nStep 2 — Paste the token + your organization slug below\n\nSentry Region: This integration currently uses https://sentry.io (US). If you're on Sentry EU (de.sentry.io) or self-hosted Sentry, contact support — multi-region support is planned.",
+      "credentialFields": [
+        {
+          "label": "Auth Token",
+          "type": "password",
+          "required": true,
+          "helpText": "Create an Internal Integration token in Sentry > Settings > Developer Settings"
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "projects_active",
+      "name": "App Availability",
+      "description": "Verifies that Sentry projects exist and are actively monitoring errors",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "alert_rules",
+      "name": "Incident Response",
+      "description": "Verifies that Sentry alert rules are configured for incident response",
+      "defaultSeverity": "high",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

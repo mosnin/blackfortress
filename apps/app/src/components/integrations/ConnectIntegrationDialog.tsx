@@ -1,0 +1,771 @@
+'use client';
+
+import {
+  useIntegrationConnections,
+  useIntegrationMutations,
+  useIntegrationProviders,
+} from '@/hooks/use-integration-platform';
+import { usePermissions } from '@/hooks/use-permissions';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@trycompai/ui/dialog';
+import {
+  Button,
+  Label,
+} from '@trycompai/design-system';
+import { ArrowLeft, Loader2, Plus, Settings, Trash2 } from 'lucide-react';
+import {
+  getAwsCloudShellUrl,
+  getAwsCloudShellScript,
+  getAwsRemediationScript,
+  normalizeAwsEnvironment,
+} from '@trycompai/integration-platform';
+import Image from 'next/image';
+import { useParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+
+import { CloudShellSetup, SectionDivider } from './CloudShellSetup';
+import { CredentialInput } from './CredentialInput';
+
+interface ConnectIntegrationDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  integrationId: string;
+  integrationName: string;
+  integrationLogoUrl: string;
+  onConnected?: () => void;
+  /** Open directly to the "add new" form, skipping the connection list */
+  initialView?: 'list' | 'form';
+}
+
+interface ExistingConnection {
+  id: string;
+  displayName: string;
+  accountId?: string;
+  regions?: string[];
+  tenantId?: string;
+  subscriptionId?: string;
+  status: string;
+  lastSyncAt?: string | null;
+  isLegacy?: boolean;
+}
+
+export function ConnectIntegrationDialog({
+  open,
+  onOpenChange,
+  integrationId,
+  integrationName,
+  integrationLogoUrl,
+  onConnected,
+  initialView,
+}: ConnectIntegrationDialogProps) {
+  const { orgId } = useParams<{ orgId: string }>();
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('integration', 'create');
+  const canUpdate = hasPermission('integration', 'update');
+  const canDelete = hasPermission('integration', 'delete');
+  const {
+    startOAuth,
+    createConnection,
+    deleteConnection,
+    updateConnectionCredentials,
+    updateConnectionMetadata,
+  } = useIntegrationMutations();
+  const { providers, isLoading: isProvidersLoading } = useIntegrationProviders(true);
+  const {
+    connections: allConnections,
+    refresh: refreshConnections,
+    isLoading: isConnectionsLoading,
+  } = useIntegrationConnections();
+
+  const [connecting, setConnecting] = useState(false);
+  const [credentials, setCredentials] = useState<Record<string, string | string[]>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [view, setView] = useState<'list' | 'form' | 'configure'>('list');
+  const [isDisconnecting, setIsDisconnecting] = useState<string | null>(null);
+  const [configureConnectionId, setConfigureConnectionId] = useState<string | null>(null);
+  const [savingCredentials, setSavingCredentials] = useState(false);
+
+  const provider = providers?.find((p) => p.id === integrationId);
+  const authType = provider?.authType;
+  const credentialFields = provider?.credentialFields ?? [];
+  const supportsMultipleConnections = provider?.supportsMultipleConnections ?? false;
+  const hasSelectedAwsEnvironment =
+    integrationId !== 'aws' || typeof credentials.awsType === 'string';
+  const awsEnvironment = normalizeAwsEnvironment(credentials.awsType);
+  const regionField = credentialFields.find((field) => field.id === 'regions');
+  const regionOptions = regionField?.options ?? [];
+  const filteredRegionOptions =
+    integrationId === 'aws'
+      ? regionOptions.filter((option) =>
+          awsEnvironment === 'aws-us-gov'
+            ? option.value.startsWith('us-gov-')
+            : !option.value.startsWith('us-gov-'),
+        )
+      : regionOptions;
+  const setupScript =
+    integrationId === 'aws'
+      ? getAwsCloudShellScript(awsEnvironment)
+      : provider?.setupScript;
+  const remediationScript = getAwsRemediationScript(awsEnvironment);
+  const cloudShellUrl = getAwsCloudShellUrl(awsEnvironment);
+
+  // Track if data is still loading - use isLoading flags instead of checking for undefined
+  // since hooks return [] as fallback, not undefined
+  const isDataLoading = isProvidersLoading || isConnectionsLoading;
+
+  // Filter connections for this specific integration (exclude soft-deleted)
+  const existingConnections: ExistingConnection[] = useMemo(() => {
+    if (!allConnections) return [];
+    return allConnections
+      .filter((conn) => conn.providerSlug === integrationId && conn.status !== 'disconnected')
+      .map((conn) => {
+        const metadata = (conn.metadata || {}) as Record<string, unknown>;
+        return {
+          id: conn.id,
+          displayName:
+            typeof metadata.connectionName === 'string'
+              ? metadata.connectionName
+              : conn.providerName || integrationName,
+          accountId: typeof metadata.accountId === 'string' ? metadata.accountId : undefined,
+          regions: Array.isArray(metadata.regions) ? (metadata.regions as string[]) : undefined,
+          tenantId: typeof metadata.tenantId === 'string' ? metadata.tenantId : undefined,
+          subscriptionId:
+            typeof metadata.subscriptionId === 'string' ? metadata.subscriptionId : undefined,
+          status: conn.status,
+          lastSyncAt: conn.lastSyncAt,
+          isLegacy: false,
+        };
+      });
+  }, [allConnections, integrationId, integrationName]);
+
+  const didInitializeOnOpen = useRef(false);
+
+  // Determine initial view based on existing connections (only when opening)
+  useEffect(() => {
+    if (open && !didInitializeOnOpen.current) {
+      // Wait until data has finished loading before determining view
+      if (isDataLoading) {
+        return;
+      }
+      if (initialView) {
+        setView(initialView);
+      } else if (supportsMultipleConnections && existingConnections.length > 0) {
+        setView('list');
+      } else if (existingConnections.length === 0) {
+        setView('form');
+      } else {
+        // Non-multi connection provider with existing connection - show list (configure only)
+        setView('list');
+      }
+      setCredentials({});
+      setErrors({});
+      setConfigureConnectionId(null);
+      didInitializeOnOpen.current = true;
+    }
+
+    if (!open) {
+      didInitializeOnOpen.current = false;
+    }
+  }, [open, isDataLoading, existingConnections.length, supportsMultipleConnections]);
+
+  const allFields = useMemo(() => {
+    if (authType === 'basic') {
+      // Prefer the catalog-defined fields (e.g. Fivetran's api_key/api_secret) so the
+      // inputs are labeled correctly and the values are stored under the keys the
+      // runtime reads to build the Basic auth header. Fall back to generic
+      // username/password only when the provider ships no credential fields.
+      if (credentialFields.length > 0) {
+        return credentialFields;
+      }
+      return [
+        {
+          id: 'username',
+          label: 'Username',
+          type: 'text' as const,
+          required: true,
+          placeholder: 'Enter username',
+        },
+        {
+          id: 'password',
+          label: 'Password',
+          type: 'password' as const,
+          required: true,
+          placeholder: 'Enter password',
+        },
+      ];
+    }
+    if (authType === 'api_key' && credentialFields.length === 0) {
+      return [
+        {
+          id: 'api_key',
+          label: 'API Key',
+          type: 'password' as const,
+          required: true,
+          placeholder: 'Enter your API key',
+        },
+      ];
+    }
+    if (authType === 'custom' && credentialFields.length > 0) {
+      return credentialFields;
+    }
+    return credentialFields;
+  }, [authType, credentialFields]);
+
+  const handleOAuthConnect = useCallback(async () => {
+    setConnecting(true);
+    try {
+      const redirectUrl = window.location.href;
+      const result = await startOAuth(integrationId, redirectUrl);
+      if (result.authorizationUrl) {
+        window.location.href = result.authorizationUrl;
+      } else {
+        toast.error(result.error || 'Failed to start connection');
+        setConnecting(false);
+      }
+    } catch {
+      toast.error('Failed to start connection');
+      setConnecting(false);
+    }
+  }, [integrationId, startOAuth]);
+
+  const handleCredentialConnect = useCallback(async () => {
+    // Auto-fill fields when setupScript is present
+    const finalCredentials = { ...credentials };
+    if (provider?.setupScript) {
+      if (!finalCredentials.externalId) {
+        finalCredentials.externalId = orgId;
+      }
+      if (!finalCredentials.connectionName) {
+        // Extract account ID from Role ARN: arn:aws:iam::123456789012:role/Name
+        const arnMatch = String(finalCredentials.roleArn ?? '').match(/:(\d{12}):/);
+        finalCredentials.connectionName = arnMatch
+          ? `AWS ${arnMatch[1]}`
+          : `AWS Account`;
+      }
+    }
+
+    const newErrors: Record<string, string> = {};
+    for (const field of allFields) {
+      // Skip validation for auto-filled fields
+      if (provider?.setupScript && (field.id === 'externalId' || field.id === 'connectionName')) continue;
+
+      const value = finalCredentials[field.id];
+      const isMissing =
+        field.type === 'multi-select'
+          ? !Array.isArray(value) || value.length === 0
+          : !String(value ?? '').trim();
+
+      if (field.required && isMissing) {
+        newErrors[field.id] = `${field.label} is required`;
+      }
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    setConnecting(true);
+    setErrors({});
+
+    try {
+      const result = await createConnection(integrationId, finalCredentials);
+
+      if (!result.success) {
+        toast.error(result.error || 'Failed to create connection');
+        setConnecting(false);
+        return;
+      }
+
+      // AWS credentials are validated on the server before creation
+      const isVerified = integrationId === 'aws';
+      toast.success(`${integrationName} connected${isVerified ? ' and verified' : ''}!`);
+
+      await refreshConnections();
+      setCredentials({});
+
+      // After connecting, go back to list if multi-connection
+      if (supportsMultipleConnections) {
+        setView('list');
+      }
+      onConnected?.();
+      if (!supportsMultipleConnections) {
+        onOpenChange(false);
+      }
+    } catch {
+      toast.error('Failed to create connection');
+    } finally {
+      setConnecting(false);
+    }
+  }, [
+    allFields,
+    credentials,
+    createConnection,
+    integrationId,
+    integrationName,
+    onConnected,
+    onOpenChange,
+    refreshConnections,
+    supportsMultipleConnections,
+  ]);
+
+  const handleDisconnect = useCallback(
+    async (connectionId: string) => {
+      if (
+        !confirm(
+          'Are you sure you want to disconnect this connection? All associated data will be removed.',
+        )
+      ) {
+        return;
+      }
+
+      setIsDisconnecting(connectionId);
+      // Capture current count before deletion to avoid stale closure issues
+      const currentConnectionCount = existingConnections.length;
+      try {
+        const result = await deleteConnection(connectionId);
+        if (result.success) {
+          toast.success('Connection disconnected');
+          await refreshConnections();
+          // If this was the last connection, switch to form view
+          if (currentConnectionCount <= 1) {
+            setView('form');
+          }
+        } else {
+          toast.error(result.error || 'Failed to disconnect');
+        }
+      } catch {
+        toast.error('Failed to disconnect');
+      } finally {
+        setIsDisconnecting(null);
+      }
+    },
+    [deleteConnection, existingConnections, refreshConnections],
+  );
+
+  const handleConfigure = useCallback(
+    (connectionId: string) => {
+      // Find the connection to get existing values
+      const connection = allConnections?.find((c) => c.id === connectionId);
+      const metadata = (connection?.metadata || {}) as Record<string, unknown>;
+
+      // Pre-fill credentials from metadata
+      const prefillCredentials: Record<string, string | string[]> = {};
+
+      if (typeof metadata.connectionName === 'string') {
+        prefillCredentials.connectionName = metadata.connectionName;
+      }
+      if (typeof metadata.roleArn === 'string') {
+        prefillCredentials.roleArn = metadata.roleArn;
+      }
+      if (typeof metadata.externalId === 'string') {
+        prefillCredentials.externalId = metadata.externalId;
+      }
+      if (typeof metadata.awsType === 'string') {
+        prefillCredentials.awsType = metadata.awsType;
+      }
+      if (Array.isArray(metadata.regions)) {
+        const existingRegions = metadata.regions as string[];
+        const existingAwsEnvironment = normalizeAwsEnvironment(metadata.awsType);
+        prefillCredentials.regions = existingRegions.filter((region) =>
+          existingAwsEnvironment === 'aws-us-gov'
+            ? region.startsWith('us-gov-')
+            : !region.startsWith('us-gov-'),
+        );
+      }
+      // Azure-specific metadata pre-fill
+      if (typeof metadata.tenantId === 'string') {
+        prefillCredentials.tenantId = metadata.tenantId;
+      }
+      if (typeof metadata.subscriptionId === 'string') {
+        prefillCredentials.subscriptionId = metadata.subscriptionId;
+      }
+
+      setConfigureConnectionId(connectionId);
+      setCredentials(prefillCredentials);
+      setErrors({});
+      setView('configure');
+    },
+    [allConnections],
+  );
+
+  const handleSaveCredentials = useCallback(async () => {
+    if (!configureConnectionId || !orgId) return;
+
+    const hasValues = Object.values(credentials).some((value) =>
+      Array.isArray(value) ? value.length > 0 : String(value ?? '').trim() !== '',
+    );
+    if (!hasValues) {
+      toast.error('Please enter at least one value to update');
+      return;
+    }
+
+    setSavingCredentials(true);
+    try {
+      // Update credentials (API validates before saving for AWS)
+      const credResult = await updateConnectionCredentials(configureConnectionId, credentials);
+
+      if (!credResult.success) {
+        toast.error(credResult.error || 'Failed to update credentials');
+        setSavingCredentials(false);
+        return;
+      }
+
+      // Also update metadata for display purposes
+      const metadataUpdates: Record<string, unknown> = {};
+      if (typeof credentials.connectionName === 'string' && credentials.connectionName.trim()) {
+        metadataUpdates.connectionName = credentials.connectionName.trim();
+      }
+      if (Array.isArray(credentials.regions) && credentials.regions.length > 0) {
+        metadataUpdates.regions = credentials.regions;
+      }
+      if (typeof credentials.roleArn === 'string' && credentials.roleArn.trim()) {
+        metadataUpdates.roleArn = credentials.roleArn.trim();
+        const arnMatch = credentials.roleArn.match(
+          /^arn:(?:aws|aws-us-gov):iam::(\d{12}):role\/.+$/,
+        );
+        if (arnMatch) {
+          metadataUpdates.accountId = arnMatch[1];
+        }
+      }
+      if (typeof credentials.awsType === 'string' && credentials.awsType.trim()) {
+        metadataUpdates.awsType = credentials.awsType.trim();
+      }
+      if (typeof credentials.externalId === 'string' && credentials.externalId.trim()) {
+        metadataUpdates.externalId = credentials.externalId.trim();
+      }
+      // Azure-specific metadata updates
+      if (typeof credentials.tenantId === 'string' && credentials.tenantId.trim()) {
+        metadataUpdates.tenantId = credentials.tenantId.trim();
+      }
+      if (typeof credentials.subscriptionId === 'string' && credentials.subscriptionId.trim()) {
+        metadataUpdates.subscriptionId = credentials.subscriptionId.trim();
+      }
+
+      if (Object.keys(metadataUpdates).length > 0) {
+        const metaResult = await updateConnectionMetadata(configureConnectionId, metadataUpdates);
+        if (!metaResult.success) {
+          toast.error(metaResult.error || 'Failed to update connection details');
+          setSavingCredentials(false);
+          return;
+        }
+      }
+
+      toast.success('Connection updated and verified!');
+      await refreshConnections();
+      setCredentials({});
+      setView('list');
+    } catch {
+      toast.error('Failed to update connection');
+    } finally {
+      setSavingCredentials(false);
+    }
+  }, [configureConnectionId, credentials, orgId, refreshConnections, updateConnectionCredentials, updateConnectionMetadata]);
+
+  const updateCredential = (fieldId: string, value: string | string[]) => {
+    setCredentials((prev) => ({
+      ...prev,
+      [fieldId]: value,
+      ...(fieldId === 'awsType' ? { regions: [] } : {}),
+    }));
+    if (errors[fieldId]) {
+      setErrors((prev) => {
+        const newErrors = { ...prev };
+        delete newErrors[fieldId];
+        return newErrors;
+      });
+    }
+  };
+
+  const renderConnectionList = () => {
+    return (
+      <div className="space-y-4">
+        {existingConnections.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No connections yet. Add your first connection below.
+          </p>
+        ) : (
+          <div className="space-y-3 max-h-[300px] overflow-y-auto">
+            {existingConnections.map((conn) => (
+              <div
+                key={conn.id}
+                className="rounded-lg border p-3 flex items-start justify-between gap-3"
+              >
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-sm truncate">{conn.displayName}</p>
+                    {conn.isLegacy && (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground shrink-0">
+                        Legacy
+                      </span>
+                    )}
+                  </div>
+                  {(conn.accountId || conn.regions?.length || conn.tenantId || conn.subscriptionId) && (
+                    <div className="text-xs text-muted-foreground">
+                      {[
+                        conn.accountId && `Account: ${conn.accountId}`,
+                        conn.regions?.length && `${conn.regions.length} regions`,
+                        conn.tenantId && `Tenant: ${conn.tenantId}`,
+                        conn.subscriptionId && `Subscription: ${conn.subscriptionId}`,
+                      ]
+                        .filter(Boolean)
+                        .join(' • ')}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {!conn.isLegacy && canUpdate && (
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      onClick={() => handleConfigure(conn.id)}
+                      iconLeft={<Settings className="h-4 w-4" />}
+                    />
+                  )}
+                  {canDelete && (
+                    <Button
+                      variant="destructive"
+                      size="icon-sm"
+                      onClick={() => handleDisconnect(conn.id)}
+                      disabled={isDisconnecting === conn.id}
+                      loading={isDisconnecting === conn.id}
+                      iconLeft={isDisconnecting !== conn.id ? <Trash2 className="h-4 w-4" /> : undefined}
+                    />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {canCreate && (supportsMultipleConnections || existingConnections.length === 0) && (
+          <Button onClick={() => setView('form')} width="full" iconLeft={<Plus className="h-4 w-4" />}>
+            {existingConnections.length > 0 ? 'Add Account' : 'Add Connection'}
+          </Button>
+        )}
+      </div>
+    );
+  };
+
+  const renderAuthForm = () => {
+    const showBackButton = supportsMultipleConnections && existingConnections.length > 0;
+
+    switch (authType) {
+      case 'oauth2':
+        return (
+          <div className="space-y-3">
+            {showBackButton && (
+              <div className="mb-2">
+                <Button variant="ghost" size="sm" onClick={() => setView('list')} iconLeft={<ArrowLeft className="h-4 w-4" />}>
+                  Back to connections
+                </Button>
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground">
+              This integration uses OAuth to securely connect to your {integrationName} account.
+            </p>
+            <Button onClick={handleOAuthConnect} disabled={connecting || !canCreate} width="full" loading={connecting}>
+              {connecting ? 'Connecting...' : `Continue with ${integrationName}`}
+            </Button>
+          </div>
+        );
+
+      case 'api_key':
+      case 'basic':
+      case 'custom':
+        if (allFields.length === 0) {
+          return (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This integration requires custom configuration.
+              </p>
+            </div>
+          );
+        }
+
+        return (
+          <div className="space-y-4">
+            {showBackButton && (
+              <Button variant="ghost" size="sm" onClick={() => setView('list')} iconLeft={<ArrowLeft className="h-4 w-4" />}>
+                Back to connections
+              </Button>
+            )}
+            {setupScript && (
+              <CloudShellSetup
+                script={setupScript}
+                externalId={orgId}
+                cloudShellUrl={cloudShellUrl}
+                disabled={!hasSelectedAwsEnvironment}
+              />
+            )}
+            {!provider?.setupScript && provider?.setupInstructions && (
+              <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-md max-h-32 overflow-y-auto overflow-x-hidden">
+                <p className="whitespace-pre-wrap text-xs break-words">{provider.setupInstructions}</p>
+              </div>
+            )}
+            {allFields
+              .filter((field) => {
+                if (!provider?.setupScript) return true;
+                if (field.id === 'externalId') return false;
+                if (field.id === 'connectionName') return false;
+                return true;
+              })
+              .map((field) => (
+              <div key={field.id}>
+                {/* Section divider + quick setup before remediationRoleArn */}
+                {field.id === 'remediationRoleArn' && integrationId === 'aws' && (
+                  <>
+                    <SectionDivider label="Auto-Remediation (Optional)" />
+                    <div className="mb-4 mt-4">
+                      <CloudShellSetup
+                        script={remediationScript}
+                        externalId={orgId}
+                        cloudShellUrl={cloudShellUrl}
+                        disabled={!hasSelectedAwsEnvironment}
+                        title="Remediation Role Setup"
+                        subtitle="Create a write-access role for auto-fix"
+                        footnote="The remediation role is separate from your audit role — your audit role stays read-only."
+                      />
+                    </div>
+                  </>
+                )}
+                {/* Section divider before regions */}
+                {field.id === 'regions' && integrationId === 'aws' && (
+                  <SectionDivider label="Scan Configuration" />
+                )}
+                <div className="space-y-1.5 mt-4">
+                  <Label htmlFor={field.id}>
+                    {field.label}
+                    {field.required && <span className="text-destructive ml-1">*</span>}
+                  </Label>
+                  <CredentialInput
+                    field={field}
+                    value={credentials[field.id] || (field.type === 'multi-select' ? [] : '')}
+                    onChange={(value) => updateCredential(field.id, value)}
+                    optionsOverride={field.id === 'regions' ? filteredRegionOptions : undefined}
+                    disabled={field.id === 'regions' && !hasSelectedAwsEnvironment}
+                  />
+                  {field.helpText && (
+                    <p className="text-[11px] text-muted-foreground/70">{field.helpText}</p>
+                  )}
+                  {errors[field.id] && <p className="text-xs text-destructive">{errors[field.id]}</p>}
+                </div>
+              </div>
+            ))}
+            <Button onClick={handleCredentialConnect} disabled={connecting || !canCreate} width="full" loading={connecting}>
+              {connecting ? 'Connecting...' : 'Connect'}
+            </Button>
+          </div>
+        );
+
+      default:
+        return (
+          <p className="text-sm text-muted-foreground">
+            Unable to determine authentication method.
+          </p>
+        );
+    }
+  };
+
+  const renderConfigureForm = () => {
+    const connection = existingConnections.find((c) => c.id === configureConnectionId);
+
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" onClick={() => setView('list')} iconLeft={<ArrowLeft className="h-4 w-4" />}>
+          Back to connections
+        </Button>
+
+        <div className="rounded-md bg-muted/50 border p-3">
+          <p className="text-xs text-muted-foreground">
+            Configuring: <strong>{connection?.displayName}</strong>
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Current values are pre-filled. Edit any field you want to update.
+          </p>
+        </div>
+
+        {allFields.map((field) => (
+          <div key={field.id} className="space-y-2">
+            <Label htmlFor={field.id}>{field.label}</Label>
+            <CredentialInput
+              field={field}
+              value={credentials[field.id] || (field.type === 'multi-select' ? [] : '')}
+              onChange={(value) => updateCredential(field.id, value)}
+              optionsOverride={field.id === 'regions' ? filteredRegionOptions : undefined}
+              disabled={field.id === 'regions' && !hasSelectedAwsEnvironment}
+            />
+            {field.helpText && <p className="text-xs text-muted-foreground">{field.helpText}</p>}
+          </div>
+        ))}
+
+        <Button onClick={handleSaveCredentials} disabled={savingCredentials || !canUpdate} width="full" loading={savingCredentials}>
+          {savingCredentials ? 'Saving...' : 'Update Connection'}
+        </Button>
+      </div>
+    );
+  };
+
+  const getDialogTitle = () => {
+    if (view === 'configure') {
+      return `Configure ${integrationName}`;
+    }
+    if (view === 'list' && existingConnections.length > 0) {
+      return `${integrationName} Connections`;
+    }
+    return `Connect ${integrationName}`;
+  };
+
+  const getDialogDescription = () => {
+    if (view === 'configure') {
+      return 'Update your connection credentials.';
+    }
+    if (view === 'list' && existingConnections.length > 0) {
+      return `Manage your ${integrationName} accounts or add a new one.`;
+    }
+    return `Configure your ${integrationName} connection.`;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md overflow-hidden">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center overflow-hidden">
+              <Image
+                src={integrationLogoUrl}
+                alt={integrationName}
+                width={28}
+                height={28}
+                className="object-contain"
+                unoptimized
+              />
+            </div>
+            {getDialogTitle()}
+          </DialogTitle>
+          <DialogDescription>{getDialogDescription()}</DialogDescription>
+        </DialogHeader>
+
+        <div className="pt-2 max-h-[60vh] min-h-[300px] overflow-y-scroll">
+          {isDataLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              {view === 'list' && renderConnectionList()}
+              {view === 'form' && renderAuthForm()}
+              {view === 'configure' && renderConfigureForm()}
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

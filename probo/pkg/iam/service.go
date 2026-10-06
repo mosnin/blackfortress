@@ -1,0 +1,557 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package iam
+
+import (
+	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"go.gearno.de/kit/log"
+	"go.gearno.de/kit/pg"
+	"go.opentelemetry.io/otel/trace"
+	"go.probo.inc/probo/pkg/baseurl"
+	"go.probo.inc/probo/pkg/certmanager"
+	"go.probo.inc/probo/pkg/connector"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/crypto/cipher"
+	"go.probo.inc/probo/pkg/crypto/jose"
+	"go.probo.inc/probo/pkg/crypto/passwdhash"
+	"go.probo.inc/probo/pkg/filemanager"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/oauth2"
+	"go.probo.inc/probo/pkg/iam/oauth2scope"
+	"go.probo.inc/probo/pkg/iam/oidc"
+	"go.probo.inc/probo/pkg/iam/saml"
+	"go.probo.inc/probo/pkg/iam/scim"
+	"go.probo.inc/probo/pkg/uri"
+)
+
+type (
+	Service struct {
+		pg                             *pg.Client
+		fm                             *filemanager.Service
+		hp                             *passwdhash.Profile
+		dummyHash                      []byte
+		baseURL                        string
+		tokenSecret                    string
+		disableSignup                  bool
+		invitationTokenValidity        time.Duration
+		passwordResetTokenValidity     time.Duration
+		magicLinkTokenValidity         time.Duration
+		emailConfirmationTokenValidity time.Duration
+		sessionDuration                time.Duration
+		bucket                         string
+		compliancePortalBaseDomain     string
+		certManager                    *certmanager.Service
+		certificate                    *x509.Certificate
+		privateKey                     *rsa.PrivateKey
+		logger                         *log.Logger
+
+		AccountService      *AccountService
+		OrganizationService *OrganizationService
+		SessionService      *SessionService
+		AuthService         *AuthService
+		SAMLService         *saml.Service
+		OIDCService         *oidc.Service
+		SCIMService         *scim.Service
+		APIKeyService       *APIKeyService
+		OAuth2ServerService *oauth2.Service
+		Authorizer          *Authorizer
+		OAuth2ScopeRegistry *oauth2scope.Registry
+
+		samlDomainVerifier *SAMLDomainVerifier
+		LogExports         *LogExportService
+	}
+
+	Config struct {
+		DisableSignup                  bool
+		InvitationTokenValidity        time.Duration
+		PasswordResetTokenValidity     time.Duration
+		MagicLinkTokenValidity         time.Duration
+		EmailConfirmationTokenValidity time.Duration
+		SessionDuration                time.Duration
+		Bucket                         string
+		TokenSecret                    string
+		BaseURL                        *baseurl.BaseURL
+		CompliancePortalBaseDomain     string
+		CertManager                    *certmanager.Service
+		EncryptionKey                  cipher.EncryptionKey
+		Certificate                    *x509.Certificate
+		PrivateKey                     *rsa.PrivateKey
+		Logger                         *log.Logger
+		TracerProvider                 trace.TracerProvider
+		Registerer                     prometheus.Registerer
+		ConnectorRegistry              *connector.Registry
+		DomainVerificationInterval     time.Duration
+		DomainVerificationResolverAddr string
+		SCIMBridgeSyncInterval         time.Duration
+		SCIMBridgePollInterval         time.Duration
+		GoogleOIDC                     oidc.ProviderConfig
+		MicrosoftOIDC                  oidc.ProviderConfig
+		OAuth2ServerKeyRing            *jose.KeyRing
+		OAuth2ServerOptions            []oauth2.Option
+		OAuth2ScopeRegistry            *oauth2scope.Registry
+	}
+)
+
+func mustHashDummy(hp *passwdhash.Profile) []byte {
+	h, err := hp.HashPassword([]byte("dummy"))
+	if err != nil {
+		panic(fmt.Sprintf("cannot hash dummy password: %v", err))
+	}
+
+	return h
+}
+
+func NewService(
+	ctx context.Context,
+	pgClient *pg.Client,
+	fm *filemanager.Service,
+	hp *passwdhash.Profile,
+	cfg Config,
+) (*Service, error) {
+	if cfg.Bucket == "" {
+		return nil, fmt.Errorf("bucket is required")
+	}
+
+	if cfg.TokenSecret == "" {
+		return nil, fmt.Errorf("token secret is required")
+	}
+
+	if cfg.BaseURL == nil {
+		return nil, fmt.Errorf("base URL is required")
+	}
+
+	if len(cfg.EncryptionKey) == 0 {
+		return nil, fmt.Errorf("encryption key is required")
+	}
+
+	if cfg.OAuth2ScopeRegistry == nil {
+		return nil, fmt.Errorf("oauth2 scope registry is required")
+	}
+
+	if cfg.CertManager == nil {
+		return nil, fmt.Errorf("cert manager is required")
+	}
+
+	svc := &Service{
+		pg:                             pgClient,
+		fm:                             fm,
+		hp:                             hp,
+		dummyHash:                      mustHashDummy(hp),
+		baseURL:                        cfg.BaseURL.String(),
+		tokenSecret:                    cfg.TokenSecret,
+		disableSignup:                  cfg.DisableSignup,
+		invitationTokenValidity:        cfg.InvitationTokenValidity,
+		passwordResetTokenValidity:     cfg.PasswordResetTokenValidity,
+		magicLinkTokenValidity:         cfg.MagicLinkTokenValidity,
+		emailConfirmationTokenValidity: cfg.EmailConfirmationTokenValidity,
+		sessionDuration:                cfg.SessionDuration,
+		bucket:                         cfg.Bucket,
+		compliancePortalBaseDomain:     cfg.CompliancePortalBaseDomain,
+		certManager:                    cfg.CertManager,
+		certificate:                    cfg.Certificate,
+		privateKey:                     cfg.PrivateKey,
+		logger:                         cfg.Logger,
+	}
+
+	svc.AccountService = NewAccountService(svc)
+	svc.OrganizationService = NewOrganizationService(svc)
+	svc.SessionService = NewSessionService(svc)
+	svc.AuthService = NewAuthService(svc)
+	svc.APIKeyService = NewAPIKeyService(svc)
+
+	svc.OAuth2ScopeRegistry = cfg.OAuth2ScopeRegistry
+
+	svc.Authorizer = NewAuthorizer(
+		pgClient,
+		cfg.Logger.Named("authorizer"),
+		svc.OAuth2ScopeRegistry,
+	)
+	svc.Authorizer.RegisterPolicySet(IAMPolicySet())
+
+	samlService, err := saml.NewService(svc.pg, svc.baseURL, svc.certificate, svc.privateKey, cfg.Logger)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create SAML service: %w", err)
+	}
+
+	svc.SAMLService = samlService
+
+	svc.OIDCService = oidc.NewService(
+		svc.pg,
+		svc.baseURL,
+		cfg.GoogleOIDC,
+		cfg.MicrosoftOIDC,
+		cfg.Logger,
+	)
+
+	svc.SCIMService = scim.NewService(
+		svc.pg,
+		cfg.Logger.Named("scim"),
+		scim.ServiceConfig{
+			TracerProvider:    cfg.TracerProvider,
+			Registerer:        cfg.Registerer,
+			EncryptionKey:     cfg.EncryptionKey,
+			ConnectorRegistry: cfg.ConnectorRegistry,
+			BridgeRunner: scim.BridgeRunnerConfig{
+				Interval:     cfg.SCIMBridgeSyncInterval,
+				PollInterval: cfg.SCIMBridgePollInterval,
+				BaseURL:      cfg.BaseURL,
+			},
+		},
+	)
+
+	svc.OAuth2ServerService = oauth2.NewService(
+		pgClient,
+		cfg.OAuth2ServerKeyRing,
+		uri.URI(cfg.BaseURL.String()),
+		cfg.Logger.Named("oauth2"),
+		append(
+			[]oauth2.Option{oauth2.WithRegistry(svc.OAuth2ScopeRegistry)},
+			cfg.OAuth2ServerOptions...,
+		)...,
+	)
+
+	svc.samlDomainVerifier = NewSAMLDomainVerifier(
+		pgClient,
+		cfg.Logger,
+		cfg.TracerProvider,
+		cfg.DomainVerificationInterval,
+		cfg.DomainVerificationResolverAddr,
+	)
+
+	svc.LogExports = NewLogExportService(
+		pgClient,
+		fm,
+		cfg.Bucket,
+		cfg.BaseURL.String(),
+	)
+
+	return svc, nil
+}
+
+// OAuth2ServerMetadata returns the OIDC discovery document.
+func (s *Service) OAuth2ServerMetadata(endpoints oauth2.Endpoints) *oauth2.ServerMetadata {
+	return oauth2.NewMetadata(uri.URI(s.baseURL), endpoints, s.OAuth2ScopeRegistry.RegisteredScopes())
+}
+
+// OAuth2ProtectedResourceMetadata returns the RFC 9728 protected resource metadata document.
+func (s *Service) OAuth2ProtectedResourceMetadata(resource uri.URI) *oauth2.ProtectedResourceMetadata {
+	return oauth2.NewProtectedResourceMetadata(
+		resource,
+		s.OAuth2ServerService.Issuer(),
+		s.OAuth2ScopeRegistry.AllWriteScopes(),
+	)
+}
+
+// OAuth2MCPResource returns the MCP protected-resource identifier.
+func (s *Service) OAuth2MCPResource() (uri.URI, error) {
+	return oauth2.MCPResource(uri.URI(s.baseURL))
+}
+
+func (s *Service) IsSignUpEnabled() bool {
+	return !s.disableSignup
+}
+
+func (s *Service) IdentityHasMembership(
+	ctx context.Context,
+	identityID gid.GID,
+	role *coredata.MembershipRole,
+) (bool, error) {
+	filter := coredata.NewMembershipProfileFilter(nil).
+		WithMembership().
+		WithStates(coredata.ProfileStateActive)
+
+	if role != nil {
+		filter = filter.WithRole(*role)
+	}
+
+	count, err := s.AccountService.CountProfiles(ctx, identityID, filter)
+	if err != nil {
+		return false, fmt.Errorf("cannot count memberships: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+func (s *Service) Run(ctx context.Context) error {
+	wg := sync.WaitGroup{}
+
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(context.Canceled)
+
+	samlCtx, stopSAML := context.WithCancel(context.WithoutCancel(ctx))
+
+	wg.Go(
+		func() {
+			if err := s.SAMLService.Run(samlCtx); err != nil {
+				cancel(fmt.Errorf("saml service crashed: %w", err))
+			}
+		},
+	)
+
+	oidcCtx, stopOIDC := context.WithCancel(context.WithoutCancel(ctx))
+
+	wg.Go(
+		func() {
+			if err := s.OIDCService.Run(oidcCtx); err != nil {
+				cancel(fmt.Errorf("oidc service crashed: %w", err))
+			}
+		},
+	)
+
+	domainVerifierCtx, stopDomainVerifier := context.WithCancel(context.WithoutCancel(ctx))
+
+	wg.Go(
+		func() {
+			if err := s.samlDomainVerifier.Run(domainVerifierCtx); err != nil {
+				cancel(fmt.Errorf("saml domain verifier crashed: %w", err))
+			}
+		},
+	)
+
+	scimCtx, stopSCIM := context.WithCancel(context.WithoutCancel(ctx))
+
+	wg.Go(
+		func() {
+			if err := s.SCIMService.Run(scimCtx); err != nil {
+				cancel(fmt.Errorf("scim service crashed: %w", err))
+			}
+		},
+	)
+
+	oauth2Ctx, stopOAuth2Server := context.WithCancel(context.WithoutCancel(ctx))
+
+	wg.Go(
+		func() {
+			if err := s.OAuth2ServerService.Run(oauth2Ctx); err != nil {
+				cancel(fmt.Errorf("oauth2 server service crashed: %w", err))
+			}
+		},
+	)
+
+	<-ctx.Done()
+
+	stopSAML()
+	stopOIDC()
+	stopDomainVerifier()
+	stopSCIM()
+	stopOAuth2Server()
+
+	wg.Wait()
+
+	return context.Cause(ctx)
+}
+
+func (s *Service) GetMembership(ctx context.Context, membershipID gid.GID) (*coredata.Membership, error) {
+	var (
+		scope      = coredata.NewScopeFromObjectID(membershipID)
+		membership = &coredata.Membership{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := membership.LoadByID(ctx, conn, scope, membershipID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewMembershipNotFoundError(membershipID)
+				}
+
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return membership, nil
+}
+
+func (s *Service) GetInvitation(ctx context.Context, invitationID gid.GID) (*coredata.Invitation, error) {
+	var (
+		scope      = coredata.NewScopeFromObjectID(invitationID)
+		invitation = &coredata.Invitation{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := invitation.LoadByID(ctx, conn, scope, invitationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewInvitationNotFoundError(invitationID)
+				}
+
+				return fmt.Errorf("cannot load invitation: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return invitation, nil
+}
+
+func (s *Service) GetSession(ctx context.Context, sessionID gid.GID) (*coredata.Session, error) {
+	session := &coredata.Session{}
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := session.LoadByID(ctx, conn, sessionID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return session, nil
+}
+
+func (s *Service) GetSAMLconfiguration(ctx context.Context, samlConfigurationID gid.GID) (*coredata.SAMLConfiguration, error) {
+	var (
+		scope             = coredata.NewScopeFromObjectID(samlConfigurationID)
+		samlConfiguration = &coredata.SAMLConfiguration{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := samlConfiguration.LoadByID(ctx, conn, scope, samlConfigurationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return saml.NewSAMLConfigurationNotFoundError(samlConfigurationID)
+				}
+
+				return fmt.Errorf("cannot load SAML configuration: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return samlConfiguration, nil
+}
+
+func (s *Service) GetPersonalAPIKey(ctx context.Context, personalAPIKeyID gid.GID) (*coredata.PersonalAPIKey, error) {
+	personalAPIKey := &coredata.PersonalAPIKey{}
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := personalAPIKey.LoadByID(ctx, conn, personalAPIKeyID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewPersonalAPIKeyNotFoundError(personalAPIKeyID)
+				}
+
+				return fmt.Errorf("cannot load personal API key: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return personalAPIKey, nil
+}
+
+func (s *Service) GetSCIMConfiguration(ctx context.Context, scimConfigurationID gid.GID) (*coredata.SCIMConfiguration, error) {
+	var (
+		scope             = coredata.NewScopeFromObjectID(scimConfigurationID)
+		scimConfiguration = &coredata.SCIMConfiguration{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := scimConfiguration.LoadByID(ctx, conn, scope, scimConfigurationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return scim.NewSCIMConfigurationNotFoundError(scimConfigurationID)
+				}
+
+				return fmt.Errorf("cannot load SCIM configuration: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return scimConfiguration, nil
+}
+
+func (s *Service) GetSCIMEvent(ctx context.Context, scimEventID gid.GID) (*coredata.SCIMEvent, error) {
+	var (
+		scope     = coredata.NewScopeFromObjectID(scimEventID)
+		scimEvent = &coredata.SCIMEvent{}
+	)
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := scimEvent.LoadByID(ctx, conn, scope, scimEventID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return fmt.Errorf("SCIM event not found: %s", scimEventID)
+				}
+
+				return fmt.Errorf("cannot load SCIM event: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return scimEvent, nil
+}

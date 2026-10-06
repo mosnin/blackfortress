@@ -1,0 +1,184 @@
+import type { IntegrationManifest } from '../../types';
+import { environmentAliasesVariable } from '../environment-aliases';
+import {
+  environmentSeparationCheck,
+  keyVaultProtectionCheck,
+  keyVaultRbacCheck,
+  monitorLoggingAlertingCheck,
+  mysqlFlexibleTlsCheck,
+  nsgNoOpenPortsCheck,
+  postgresqlFlexibleTlsCheck,
+  rbacLeastPrivilegeCheck,
+  sqlAuditingCheck,
+  sqlPublicAccessCheck,
+  sqlTlsCheck,
+  storageEncryptionCheck,
+  storageHttpsTlsCheck,
+  storagePublicAccessCheck,
+} from './checks';
+
+export const azureManifest: IntegrationManifest = {
+  id: 'azure',
+  name: 'Microsoft Azure',
+  description:
+    'Read-only monitoring of security posture, identity, network, and compliance in Microsoft Azure',
+  category: 'Cloud',
+  logoUrl:
+    'https://img.logo.dev/azure.com?token=pk_AZatYxV5QDSfWpRDaBxzRQ',
+  docsUrl: 'https://docs.microsoft.com/en-us/azure/defender-for-cloud/',
+  supportsMultipleConnections: true,
+  isActive: true,
+
+  auth: {
+    type: 'oauth2',
+    config: {
+      authorizeUrl:
+        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+      tokenUrl:
+        'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+      scopes: [
+        'https://management.azure.com/user_impersonation',
+        'offline_access',
+        'openid',
+        'profile',
+      ],
+      pkce: false,
+      clientAuthMethod: 'body',
+      supportsRefreshToken: true,
+      authorizationParams: {
+        prompt: 'consent',
+      },
+      setupInstructions: `## Platform Admin: Enable Azure OAuth
+
+1. Go to [Azure Portal → App registrations](https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
+2. Click **New registration**
+3. Name: \`CompAI Cloud Tests\`
+4. Supported account types: **Accounts in any organizational directory** (Multitenant)
+5. Redirect URI: Add the callback URL shown below as **Web** type
+6. Click **Register**
+7. Copy the **Application (client) ID** and paste below
+8. Go to **Certificates & secrets** → **New client secret** → copy the **Value**
+
+---
+
+### About Permissions
+
+**OAuth Scope:** This integration uses the \`user_impersonation\` scope on Azure Management API. This allows API calls on behalf of the signed-in user.
+
+**Actual Access is Controlled by Azure RBAC:** The OAuth scope only enables API calls. The user can only access resources their Azure roles allow. Users connecting should have at minimum:
+- **Reader** — general resource visibility
+- **Security Reader** — Microsoft Defender for Cloud data
+
+Our integration only makes read-only API calls for security scanning.`,
+      createAppUrl:
+        'https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade',
+    },
+  },
+
+  baseUrl: 'https://management.azure.com',
+
+  capabilities: ['checks'],
+
+  services: [
+    { id: 'defender', name: 'Microsoft Defender for Cloud', description: 'Cloud security posture management and threat protection', enabledByDefault: true, implemented: true },
+    { id: 'entra-id', name: 'Microsoft Entra ID', description: 'Identity and access management monitoring', enabledByDefault: false, implemented: true },
+    { id: 'policy', name: 'Azure Policy', description: 'Resource compliance and governance policy evaluation', enabledByDefault: false, implemented: true },
+    { id: 'key-vault', name: 'Key Vault', description: 'Secret, key, and certificate management monitoring', enabledByDefault: false, implemented: true },
+    { id: 'monitor', name: 'Azure Monitor', description: 'Activity logs and diagnostic settings audit', enabledByDefault: false, implemented: true },
+    { id: 'network-watcher', name: 'Network Watcher', description: 'Network security group and flow log monitoring', enabledByDefault: false, implemented: true },
+    { id: 'storage-account', name: 'Storage Accounts', description: 'HTTPS enforcement, public access, TLS version, and encryption checks', enabledByDefault: false, implemented: true },
+    { id: 'sql-database', name: 'SQL Database', description: 'Auditing, TDE, firewall rules, and public access checks', enabledByDefault: false, implemented: true },
+    { id: 'mysql-flexible', name: 'Database for MySQL', description: 'Flexible Server TLS 1.2 / secure transport enforcement checks', enabledByDefault: false, implemented: true },
+    { id: 'postgresql-flexible', name: 'Database for PostgreSQL', description: 'Flexible Server TLS 1.2 / secure transport enforcement checks', enabledByDefault: false, implemented: true },
+    { id: 'virtual-machine', name: 'Virtual Machines', description: 'Disk encryption, managed identity, and secure boot checks', enabledByDefault: false, implemented: true },
+    { id: 'app-service', name: 'App Service', description: 'HTTPS enforcement, TLS, managed identity, and remote debugging checks', enabledByDefault: false, implemented: true },
+    { id: 'aks', name: 'AKS', description: 'Kubernetes RBAC, network policies, private cluster, and auto-upgrade checks', enabledByDefault: false, implemented: true },
+    { id: 'container-registry', name: 'Container Registry', description: 'Admin user, content trust, public access, and retention policy checks', enabledByDefault: false, implemented: true },
+    { id: 'cosmos-db', name: 'Cosmos DB', description: 'Public access, key-based auth, failover, and backup configuration checks', enabledByDefault: false, implemented: true },
+  ],
+
+  variables: [
+    {
+      id: 'subscription_ids',
+      label: 'Azure Subscriptions',
+      type: 'multi-select',
+      required: false,
+      helpText:
+        'Select which subscriptions to scan (select all to scan everything). Leave empty to keep scanning the single auto-detected subscription.',
+      fetchOptions: async (ctx) => {
+        try {
+          type SubsPage = {
+            value?: Array<{
+              subscriptionId: string;
+              displayName?: string;
+              state?: string;
+            }>;
+            nextLink?: string;
+          };
+          const subs: NonNullable<SubsPage['value']> = [];
+          // ARM paginates via nextLink — follow it so large tenants can see
+          // and select every subscription. The page cap matches armListAll's
+          // (a loop guard against malformed nextLink chains, not a budget).
+          let url: string | undefined =
+            'https://management.azure.com/subscriptions?api-version=2020-01-01';
+          let pages = 0;
+          while (url && pages < 50) {
+            const data: SubsPage = await ctx.fetch<SubsPage>(url);
+            subs.push(...(data.value ?? []));
+            // only follow nextLink on the ARM host, so the bearer token can't
+            // be sent elsewhere
+            url =
+              data.nextLink &&
+              data.nextLink.startsWith('https://management.azure.com/')
+                ? data.nextLink
+                : undefined;
+            pages++;
+          }
+          return subs
+            .filter((s) => s.state === 'Enabled')
+            .sort((a, b) => (a.displayName ?? '').localeCompare(b.displayName ?? ''))
+            .map((s) => ({
+              value: s.subscriptionId,
+              label: s.displayName
+                ? `${s.displayName} (${s.subscriptionId})`
+                : s.subscriptionId,
+            }));
+        } catch {
+          // Graceful empty picker (matches the GCP project_ids precedent) —
+          // the user can still rely on the saved subscription_id default.
+          return [];
+        }
+      },
+    },
+    {
+      // Kept for the Cloud Tests product, which auto-detects and reads this
+      // value on its own path. The evidence checks scope via subscription_ids
+      // and only fall back to this when subscriptions cannot be listed.
+      id: 'subscription_id',
+      label: 'Azure Subscription ID',
+      type: 'text',
+      required: false,
+      helpText:
+        'Auto-detected after connecting. If not detected, find it at portal.azure.com → Subscriptions',
+      placeholder: 'Auto-detected',
+    },
+    environmentAliasesVariable,
+  ],
+
+  checks: [
+    storageHttpsTlsCheck,
+    storagePublicAccessCheck,
+    storageEncryptionCheck,
+    sqlTlsCheck,
+    sqlPublicAccessCheck,
+    sqlAuditingCheck,
+    mysqlFlexibleTlsCheck,
+    postgresqlFlexibleTlsCheck,
+    keyVaultProtectionCheck,
+    keyVaultRbacCheck,
+    nsgNoOpenPortsCheck,
+    rbacLeastPrivilegeCheck,
+    monitorLoggingAlertingCheck,
+    environmentSeparationCheck,
+  ],
+};

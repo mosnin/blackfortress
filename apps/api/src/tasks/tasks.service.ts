@@ -1,0 +1,1406 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { filterDescriptionByFrameworks } from './description-framework-filter';
+import { db, TaskStatus, Prisma, TaskFrequency } from '@db';
+import { TaskResponseDto } from './dto/task-responses.dto';
+import { TaskNotifierService } from './task-notifier.service';
+import { checkAutoCompletePhases } from '../frameworks/frameworks-timeline.helper';
+import { TimelinesService } from '../timelines/timelines.service';
+import { isMemberOrgParticipant } from '../utils/org-participation';
+
+function computeNextTaskReviewDate(
+  frequency: TaskFrequency | null | undefined,
+): Date {
+  const now = new Date();
+  switch (frequency) {
+    case TaskFrequency.daily:
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    case TaskFrequency.weekly:
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
+    case TaskFrequency.monthly:
+      return new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    case TaskFrequency.quarterly:
+      return new Date(now.getFullYear(), now.getMonth() + 3, now.getDate());
+    case TaskFrequency.yearly:
+      return new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+    default:
+      return new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+  }
+}
+
+@Injectable()
+export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
+  constructor(
+    private readonly taskNotifierService: TaskNotifierService,
+    private readonly timelinesService: TimelinesService,
+  ) {}
+
+  /**
+   * Resolve a user actor for API-key authenticated requests.
+   * We attribute changes to an active organization owner to preserve audit trail requirements.
+   */
+  async getApiKeyActorUserId(organizationId: string): Promise<string> {
+    const ownerMember = await db.member.findFirst({
+      where: {
+        organizationId,
+        deactivated: false,
+        isActive: true,
+        role: {
+          contains: 'owner',
+        },
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+      select: {
+        userId: true,
+      },
+    });
+
+    if (!ownerMember?.userId) {
+      throw new BadRequestException(
+        'No active organization owner found. API key task updates require an active owner member.',
+      );
+    }
+
+    return ownerMember.userId;
+  }
+
+  /**
+   * Fetch the active framework names for an organisation.
+   */
+  private async getActiveFrameworkNames(
+    organizationId: string,
+  ): Promise<string[]> {
+    const instances = await db.frameworkInstance.findMany({
+      where: { organizationId },
+      include: {
+        framework: { select: { name: true } },
+        customFramework: { select: { name: true } },
+      },
+    });
+    return instances
+      .map((fi) => fi.framework?.name ?? fi.customFramework?.name)
+      .filter((name): name is string => Boolean(name));
+  }
+
+  /**
+   * Get all tasks for an organization
+   * @param organizationId - The organization ID
+   * @param assignmentFilter - Optional filter for assignment-based access (for employee/contractor roles)
+   */
+  async getTasks(
+    organizationId: string,
+    assignmentFilter: Prisma.TaskWhereInput = {},
+    options?: { includeRelations?: boolean },
+  ) {
+    try {
+      const [tasks, activeFrameworkNames] = await Promise.all([
+        db.task.findMany({
+          where: {
+            organizationId,
+            archivedAt: null,
+            ...assignmentFilter,
+          },
+          ...(options?.includeRelations && {
+            include: {
+              controls: {
+                select: { id: true, name: true },
+              },
+              evidenceAutomations: {
+                select: {
+                  id: true,
+                  isEnabled: true,
+                  name: true,
+                  runs: {
+                    orderBy: { createdAt: 'desc' as const },
+                    take: 3,
+                    select: {
+                      status: true,
+                      success: true,
+                      evaluationStatus: true,
+                      createdAt: true,
+                      triggeredBy: true,
+                      runDuration: true,
+                    },
+                  },
+                },
+              },
+            },
+          }),
+          orderBy: [{ status: 'asc' }, { order: 'asc' }, { createdAt: 'asc' }],
+        }),
+        this.getActiveFrameworkNames(organizationId),
+      ]);
+
+      const filterDescription = (desc: string) =>
+        filterDescriptionByFrameworks(desc, activeFrameworkNames);
+
+      if (options?.includeRelations) {
+        return {
+          data: tasks.map((t) => ({
+            ...t,
+            description: filterDescription(t.description),
+          })),
+          count: tasks.length,
+        };
+      }
+
+      return {
+        data: tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: filterDescription(task.description),
+          status: task.status,
+          createdAt: task.createdAt,
+          updatedAt: task.updatedAt,
+          taskTemplateId: task.taskTemplateId,
+        })),
+        count: tasks.length,
+      };
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+      throw new InternalServerErrorException('Failed to fetch tasks');
+    }
+  }
+
+  async getTaskTemplates(frameworkId?: string) {
+    const templates = await db.frameworkEditorTaskTemplate.findMany({
+      orderBy: { name: 'asc' },
+      where: frameworkId
+        ? {
+            controlTemplates: {
+              some: { requirements: { some: { frameworkId } } },
+            },
+          }
+        : undefined,
+    });
+
+    return templates;
+  }
+
+  /**
+   * Get a single task by ID
+   */
+  async getTask(organizationId: string, taskId: string) {
+    try {
+      const [task, activeFrameworkNames] = await Promise.all([
+        db.task.findFirst({
+          where: {
+            id: taskId,
+            organizationId,
+            archivedAt: null,
+          },
+          include: {
+            assignee: true,
+            controls: { where: { archivedAt: null } },
+            approver: { include: { user: true } },
+          },
+        }),
+        this.getActiveFrameworkNames(organizationId),
+      ]);
+
+      if (!task) {
+        throw new BadRequestException('Task not found or access denied');
+      }
+
+      return {
+        ...task,
+        description: filterDescriptionByFrameworks(
+          task.description,
+          activeFrameworkNames,
+        ),
+      };
+    } catch (error) {
+      console.error('Error fetching task:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to fetch task');
+    }
+  }
+
+  /**
+   * Verify that a task exists and user has access
+   */
+  async verifyTaskAccess(
+    organizationId: string,
+    taskId: string,
+  ): Promise<void> {
+    const task = await db.task.findFirst({
+      where: {
+        id: taskId,
+        organizationId,
+        archivedAt: null,
+      },
+    });
+
+    if (!task) {
+      throw new BadRequestException('Task not found or access denied');
+    }
+  }
+
+  /**
+   * Get audit activity for a task
+   */
+  async getTaskActivity(
+    organizationId: string,
+    taskId: string,
+    skip = 0,
+    take = 10,
+  ) {
+    await this.verifyTaskAccess(organizationId, taskId);
+
+    const where = {
+      organizationId,
+      entityType: 'task' as const,
+      entityId: taskId,
+    };
+
+    const [logs, total] = await Promise.all([
+      db.auditLog.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              role: true,
+            },
+          },
+        },
+        orderBy: { timestamp: 'desc' },
+        skip,
+        take,
+      }),
+      db.auditLog.count({ where }),
+    ]);
+
+    return { logs, total };
+  }
+
+  /**
+   * Get all automation runs for a task
+   */
+  async getTaskAutomationRuns(organizationId: string, taskId: string) {
+    // Verify task access
+    await this.verifyTaskAccess(organizationId, taskId);
+
+    const runs = await db.evidenceAutomationRun.findMany({
+      where: {
+        taskId,
+      },
+      include: {
+        evidenceAutomation: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return runs;
+  }
+
+  /**
+   * Get page options for the tasks overview page
+   */
+  async getTaskPageOptions(organizationId: string, userId?: string) {
+    const [controls, frameworkInstances, organization, member] =
+      await Promise.all([
+        db.control.findMany({
+          where: { organizationId, archivedAt: null },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+        db.frameworkInstance.findMany({
+          where: { organizationId },
+          include: {
+            framework: { select: { id: true, name: true } },
+            customFramework: { select: { id: true, name: true } },
+            requirementsMapped: { select: { controlId: true } },
+          },
+        }),
+        db.organization.findUnique({
+          where: { id: organizationId },
+          select: { name: true, evidenceApprovalEnabled: true },
+        }),
+        userId
+          ? db.member.findFirst({
+              where: { userId, organizationId, deactivated: false },
+              select: { role: true },
+            })
+          : null,
+      ]);
+
+    const roles =
+      member?.role
+        ?.split(',')
+        .map((r) => r.trim())
+        .filter(Boolean) || [];
+    const hasEvidenceExportAccess = roles.some((r) =>
+      ['auditor', 'admin', 'owner'].includes(r),
+    );
+
+    return {
+      controls,
+      frameworkInstances,
+      organizationName: organization?.name ?? null,
+      hasEvidenceExportAccess,
+      evidenceApprovalEnabled: organization?.evidenceApprovalEnabled ?? false,
+    };
+  }
+
+  /**
+   * Update status for multiple tasks
+   */
+  async updateTasksStatus(
+    organizationId: string,
+    taskIds: string[],
+    status: TaskStatus,
+    reviewDate: Date | undefined,
+    changedByUserId: string,
+    notRelevantJustification?: string,
+  ): Promise<{ updatedCount: number }> {
+    try {
+      // The approval-workflow constraints only apply when evidence approval is
+      // enabled for the org. With it disabled, applying them would silently drop
+      // tasks carrying a stale approverId / in_review status from the bulk
+      // update (and throw "No tasks were updated" if all targets are dropped).
+      const organization = await db.organization.findUnique({
+        where: { id: organizationId },
+        select: { evidenceApprovalEnabled: true },
+      });
+      const evidenceApprovalEnabled =
+        organization?.evidenceApprovalEnabled ?? false;
+
+      const where: Record<string, unknown> = {
+        id: { in: taskIds },
+        organizationId,
+      };
+
+      if (evidenceApprovalEnabled) {
+        // Cannot change status of tasks currently in review
+        where.status = { not: 'in_review' as TaskStatus };
+        // Cannot mark tasks as done if they have an approver assigned
+        if (status === TaskStatus.done) {
+          where.approverId = null;
+        }
+      }
+
+      const justificationData =
+        status === TaskStatus.not_relevant
+          ? { notRelevantJustification: notRelevantJustification ?? null }
+          : { notRelevantJustification: null };
+
+      const result = await db.task.updateMany({
+        where,
+        data: {
+          status,
+          updatedAt: new Date(),
+          ...justificationData,
+          ...(reviewDate !== undefined ? { reviewDate } : {}),
+        },
+      });
+
+      if (result.count === 0) {
+        throw new BadRequestException(
+          'No tasks were updated. Check task IDs or organization access.',
+        );
+      }
+
+      // Send notifications (fire-and-forget, don't block response)
+      this.taskNotifierService
+        .notifyBulkStatusChange({
+          organizationId,
+          taskIds,
+          newStatus: status,
+          changedByUserId,
+        })
+        .catch((error) => {
+          console.error(
+            'Failed to send bulk status change notifications:',
+            error,
+          );
+        });
+
+      // Any task status change can shift AUTO_TASKS metric in either
+      // direction (done/not_relevant can complete a phase; back to
+      // todo/in_progress can regress one). checkAutoCompletePhases also
+      // kicks off regression reconciliation, so fire on every change.
+      checkAutoCompletePhases({
+        organizationId,
+        timelinesService: this.timelinesService,
+      }).catch((err) => {
+        this.logger.warn('timeline auto-complete check failed', err);
+      });
+
+      return { updatedCount: result.count };
+    } catch (error) {
+      console.error('Error updating task statuses:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to update task statuses');
+    }
+  }
+
+  /**
+   * Update assignee for multiple tasks
+   */
+  async updateTasksAssignee(
+    organizationId: string,
+    taskIds: string[],
+    assigneeId: string | null,
+    changedByUserId: string,
+  ): Promise<{ updatedCount: number }> {
+    try {
+      if (assigneeId) {
+        const assigneeMember = await db.member.findFirst({
+          where: { id: assigneeId, organizationId },
+          include: { user: { select: { role: true } } },
+        });
+        if (!assigneeMember) {
+          throw new BadRequestException(
+            'Assignee is not a member of this organization',
+          );
+        }
+        if (
+          !(await isMemberOrgParticipant(
+            assigneeMember.user.role,
+            organizationId,
+          ))
+        ) {
+          throw new BadRequestException(
+            'Cannot assign a platform admin as assignee',
+          );
+        }
+      }
+
+      const result = await db.task.updateMany({
+        where: {
+          id: {
+            in: taskIds,
+          },
+          organizationId,
+        },
+        data: {
+          assigneeId,
+          updatedAt: new Date(),
+        },
+      });
+
+      if (result.count === 0) {
+        throw new BadRequestException(
+          'No tasks were updated. Check task IDs or organization access.',
+        );
+      }
+
+      // Send notifications (fire-and-forget, don't block response)
+      this.taskNotifierService
+        .notifyBulkAssigneeChange({
+          organizationId,
+          taskIds,
+          newAssigneeId: assigneeId,
+          changedByUserId,
+        })
+        .catch((error) => {
+          console.error(
+            'Failed to send bulk assignee change notifications:',
+            error,
+          );
+        });
+
+      return { updatedCount: result.count };
+    } catch (error) {
+      console.error('Error updating task assignees:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to update task assignees');
+    }
+  }
+
+  /**
+   * Delete multiple tasks
+   */
+  async deleteTasks(
+    organizationId: string,
+    taskIds: string[],
+  ): Promise<{ deletedCount: number }> {
+    try {
+      const result = await db.task.deleteMany({
+        where: {
+          id: {
+            in: taskIds,
+          },
+          organizationId,
+        },
+      });
+
+      if (result.count === 0) {
+        throw new BadRequestException(
+          'No tasks were deleted. Check task IDs or organization access.',
+        );
+      }
+
+      // Check timeline auto-completion after bulk task deletion (total task count changed)
+      checkAutoCompletePhases({
+        organizationId,
+        timelinesService: this.timelinesService,
+      }).catch((err) => {
+        this.logger.warn('timeline auto-complete check failed', err);
+      });
+
+      return { deletedCount: result.count };
+    } catch (error) {
+      console.error('Error deleting tasks:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to delete tasks');
+    }
+  }
+
+  /**
+   * Update a single task
+   */
+  async updateTask(
+    organizationId: string,
+    taskId: string,
+    updateData: {
+      title?: string;
+      description?: string;
+      status?: TaskStatus;
+      assigneeId?: string | null;
+      approverId?: string | null;
+      frequency?: TaskFrequency;
+      integrationScheduleFrequency?: TaskFrequency;
+      department?: string | null;
+      reviewDate?: Date | null;
+      notRelevantJustification?: string;
+    },
+    changedByUserId: string,
+  ): Promise<TaskResponseDto> {
+    try {
+      // Get existing task to track changes
+      const existingTask = await db.task.findFirst({
+        where: {
+          id: taskId,
+          organizationId,
+          archivedAt: null,
+        },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          assigneeId: true,
+          approverId: true,
+          // The submit-for-review → approve workflow only applies when the org
+          // has evidence approval enabled. When it's disabled, the approver
+          // dropdown and review flow are hidden in the UI, so a leftover
+          // approverId / in_review status must never block a direct status
+          // change (otherwise the task is wedged with no way to clear it).
+          organization: { select: { evidenceApprovalEnabled: true } },
+        },
+      });
+
+      if (!existingTask) {
+        throw new BadRequestException('Task not found or access denied');
+      }
+
+      const evidenceApprovalEnabled =
+        existingTask.organization?.evidenceApprovalEnabled ?? false;
+
+      // Prepare update data - Prisma handles updatedAt automatically
+      const dataToUpdate: {
+        title?: string;
+        description?: string;
+        status?: TaskStatus;
+        assigneeId?: string | null;
+        approverId?: string | null;
+        frequency?: TaskFrequency;
+        integrationScheduleFrequency?: TaskFrequency;
+        department?: string | null;
+        reviewDate?: Date | null;
+        notRelevantJustification?: string | null;
+      } = {};
+
+      if (updateData.title !== undefined) {
+        dataToUpdate.title = updateData.title;
+      }
+      if (updateData.description !== undefined) {
+        dataToUpdate.description = updateData.description;
+      }
+      if (updateData.status !== undefined) {
+        // Only enforce the approval-workflow locks when evidence approval is
+        // enabled for the org. With it disabled, these would wedge a task that
+        // carries a stale approverId / in_review status (see comment above).
+        if (evidenceApprovalEnabled) {
+          // Prevent bypassing the approval workflow via direct status change
+          if (
+            existingTask.status === 'in_review' &&
+            updateData.status !== 'in_review'
+          ) {
+            throw new BadRequestException(
+              'Cannot change status directly while task is in review. Use the approve or reject actions instead.',
+            );
+          }
+          // Prevent directly setting status to 'done' when an approver is assigned
+          // (must go through submitForReview → approveTask workflow)
+          if (
+            updateData.status === 'done' &&
+            existingTask.status !== 'done' &&
+            existingTask.approverId
+          ) {
+            throw new BadRequestException(
+              'Cannot mark task as done directly when an approver is assigned. Submit for review instead.',
+            );
+          }
+        }
+        dataToUpdate.status = updateData.status;
+
+        if (updateData.status === TaskStatus.not_relevant) {
+          dataToUpdate.notRelevantJustification =
+            updateData.notRelevantJustification ?? null;
+        } else {
+          dataToUpdate.notRelevantJustification = null;
+        }
+      }
+      if (updateData.assigneeId !== undefined) {
+        if (updateData.assigneeId !== null) {
+          const assigneeMember = await db.member.findFirst({
+            where: { id: updateData.assigneeId, organizationId },
+            include: { user: { select: { role: true } } },
+          });
+          if (!assigneeMember) {
+            throw new BadRequestException(
+              'Assignee is not a member of this organization',
+            );
+          }
+          if (
+            !(await isMemberOrgParticipant(
+              assigneeMember.user.role,
+              organizationId,
+            ))
+          ) {
+            throw new BadRequestException(
+              'Cannot assign a platform admin as assignee',
+            );
+          }
+        }
+        dataToUpdate.assigneeId =
+          updateData.assigneeId === null ? null : updateData.assigneeId;
+      }
+      if (updateData.approverId !== undefined) {
+        dataToUpdate.approverId =
+          updateData.approverId === null ? null : updateData.approverId;
+      } else if (!evidenceApprovalEnabled && existingTask.approverId) {
+        // Self-heal: with approval disabled, a leftover approverId is invisible
+        // in the UI and non-functional — clear it on any update so it can't
+        // silently re-block future status changes.
+        dataToUpdate.approverId = null;
+      }
+      if (updateData.frequency !== undefined) {
+        dataToUpdate.frequency = updateData.frequency;
+        // When frequency changes, recalculate the review date
+        dataToUpdate.reviewDate = computeNextTaskReviewDate(
+          updateData.frequency,
+        );
+      }
+      if (updateData.integrationScheduleFrequency !== undefined) {
+        dataToUpdate.integrationScheduleFrequency =
+          updateData.integrationScheduleFrequency;
+      }
+      if (updateData.department !== undefined) {
+        dataToUpdate.department = updateData.department;
+      }
+      if (updateData.reviewDate !== undefined) {
+        dataToUpdate.reviewDate = updateData.reviewDate;
+      }
+
+      // When status changes to done, set review date based on frequency
+      if (updateData.status === TaskStatus.done && !updateData.reviewDate) {
+        const task = await db.task.findFirst({
+          where: { id: taskId, organizationId, archivedAt: null },
+          select: { frequency: true },
+        });
+        dataToUpdate.reviewDate = computeNextTaskReviewDate(task?.frequency);
+      }
+
+      // Get the current member for audit logging
+      const currentMember = await db.member.findFirst({
+        where: { userId: changedByUserId, organizationId, deactivated: false },
+      });
+
+      // Update the task
+      const updatedTask = await db.task.update({
+        where: {
+          id: taskId,
+          organizationId,
+        },
+        data: dataToUpdate as any, // Type assertion needed due to Prisma's strict typing
+        include: {
+          assignee: true,
+        },
+      });
+
+      // Write audit logs and send notifications for status changes
+      if (
+        updateData.status !== undefined &&
+        existingTask.status !== updateData.status
+      ) {
+        const oldStatusLabel = existingTask.status.replace('_', ' ');
+        const newStatusLabel = updateData.status.replace('_', ' ');
+
+        await db.auditLog.create({
+          data: {
+            organizationId,
+            userId: changedByUserId,
+            memberId: currentMember?.id ?? null,
+            entityType: 'task',
+            entityId: taskId,
+            description: `changed status from ${oldStatusLabel} to ${newStatusLabel}`,
+            data: {
+              action: 'update',
+              taskTitle: existingTask.title,
+              field: 'status',
+              oldValue: existingTask.status,
+              newValue: updateData.status,
+              ...(updateData.status === TaskStatus.not_relevant &&
+                updateData.notRelevantJustification && {
+                  notRelevantJustification: updateData.notRelevantJustification,
+                }),
+            },
+          },
+        });
+
+        this.taskNotifierService
+          .notifyStatusChange({
+            organizationId,
+            taskId,
+            taskTitle: existingTask.title,
+            oldStatus: existingTask.status,
+            newStatus: updateData.status,
+            changedByUserId,
+          })
+          .catch((error) => {
+            console.error('Failed to send status change notifications:', error);
+          });
+
+        // Any status change can shift AUTO_TASKS metric in either direction,
+        // and checkAutoCompletePhases also triggers regression reconciliation.
+        checkAutoCompletePhases({
+          organizationId,
+          timelinesService: this.timelinesService,
+        }).catch((err) => {
+          this.logger.warn('timeline auto-complete check failed', err);
+        });
+      }
+
+      // Write audit logs and send notifications for assignee changes
+      if (
+        updateData.assigneeId !== undefined &&
+        (existingTask.assigneeId ?? null) !== (updateData.assigneeId ?? null)
+      ) {
+        // Resolve assignee names for the audit log
+        const [oldAssignee, newAssignee] = await Promise.all([
+          existingTask.assigneeId
+            ? db.member.findUnique({
+                where: { id: existingTask.assigneeId },
+                include: { user: { select: { name: true, email: true } } },
+              })
+            : null,
+          updateData.assigneeId
+            ? db.member.findUnique({
+                where: { id: updateData.assigneeId },
+                include: { user: { select: { name: true, email: true } } },
+              })
+            : null,
+        ]);
+
+        const oldName = oldAssignee
+          ? oldAssignee.user.name || oldAssignee.user.email
+          : 'unassigned';
+        const newName = newAssignee
+          ? newAssignee.user.name || newAssignee.user.email
+          : 'unassigned';
+
+        await db.auditLog.create({
+          data: {
+            organizationId,
+            userId: changedByUserId,
+            memberId: currentMember?.id ?? null,
+            entityType: 'task',
+            entityId: taskId,
+            description: `changed assignee from ${oldName} to ${newName}`,
+            data: {
+              action: 'update',
+              taskTitle: existingTask.title,
+              field: 'assignee',
+              oldValue: existingTask.assigneeId,
+              newValue: updateData.assigneeId,
+            },
+          },
+        });
+
+        this.taskNotifierService
+          .notifyAssigneeChange({
+            organizationId,
+            taskId,
+            taskTitle: existingTask.title,
+            oldAssigneeId: existingTask.assigneeId,
+            newAssigneeId: updateData.assigneeId,
+            changedByUserId,
+          })
+          .catch((error) => {
+            console.error(
+              'Failed to send assignee change notifications:',
+              error,
+            );
+          });
+      }
+
+      return updatedTask;
+    } catch (error) {
+      console.error('Error updating task:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to update task');
+    }
+  }
+
+  /**
+   * Create a new task
+   */
+  async createTask(
+    organizationId: string,
+    createData: {
+      title: string;
+      description: string;
+      assigneeId?: string | null;
+      frequency?: string | null;
+      department?: string | null;
+      controlIds?: string[];
+      taskTemplateId?: string | null;
+      vendorId?: string | null;
+    },
+  ): Promise<TaskResponseDto> {
+    try {
+      // Get automation status from template if one is selected
+      let automationStatus: 'AUTOMATED' | 'MANUAL' = 'AUTOMATED';
+      if (createData.taskTemplateId) {
+        const template = await db.frameworkEditorTaskTemplate.findUnique({
+          where: { id: createData.taskTemplateId },
+          select: { automationStatus: true },
+        });
+        if (template) {
+          automationStatus = template.automationStatus;
+        }
+      }
+
+      const task = await db.task.create({
+        data: {
+          title: createData.title,
+          description: createData.description,
+          assigneeId: createData.assigneeId || null,
+          organizationId,
+          status: 'todo',
+          order: 0,
+          frequency: (createData.frequency as TaskFrequency) || null,
+          department: createData.department || null,
+          automationStatus,
+          taskTemplateId: createData.taskTemplateId || null,
+          ...(createData.controlIds &&
+            createData.controlIds.length > 0 && {
+              controls: {
+                connect: createData.controlIds.map((id) => ({ id })),
+              },
+            }),
+          ...(createData.vendorId && {
+            vendors: {
+              connect: { id: createData.vendorId },
+            },
+          }),
+        },
+      });
+
+      // Task creation drops the AUTO_TASKS completion % (denominator up,
+      // numerator unchanged), so reconciliation can regress a COMPLETED
+      // phase back to IN_PROGRESS if we're now under 100%.
+      checkAutoCompletePhases({
+        organizationId,
+        timelinesService: this.timelinesService,
+      }).catch((err) => {
+        this.logger.warn('timeline auto-complete check failed', err);
+      });
+
+      return {
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+        taskTemplateId: task.taskTemplateId,
+        integrationScheduleFrequency: task.integrationScheduleFrequency,
+        integrationLastRunAt: task.integrationLastRunAt,
+      };
+    } catch (error) {
+      console.error('Error creating task:', error);
+      throw new InternalServerErrorException('Failed to create task');
+    }
+  }
+
+  /**
+   * Regenerate task from its associated template
+   */
+  async regenerateFromTemplate(organizationId: string, taskId: string) {
+    const task = await db.task.findFirst({
+      where: { id: taskId, organizationId, archivedAt: null },
+      include: { taskTemplate: true },
+    });
+
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    if (!task.taskTemplate) {
+      throw new BadRequestException(
+        'Task has no associated template to regenerate from',
+      );
+    }
+
+    const updated = await db.task.update({
+      where: { id: taskId },
+      data: {
+        title: task.taskTemplate.name,
+        description: task.taskTemplate.description,
+        automationStatus: task.taskTemplate.automationStatus,
+      },
+    });
+
+    return { id: updated.id, title: updated.title };
+  }
+
+  /**
+   * Reorder tasks (update order and status for multiple tasks)
+   */
+  async reorderTasks(
+    organizationId: string,
+    updates: { id: string; order: number; status: TaskStatus }[],
+  ): Promise<void> {
+    for (const { id, order, status } of updates) {
+      await db.task.update({
+        where: { id, organizationId },
+        data: { order, status },
+      });
+    }
+  }
+
+  /**
+   * Delete a single task by ID
+   */
+  async deleteTask(organizationId: string, taskId: string): Promise<void> {
+    const task = await db.task.findFirst({
+      where: {
+        id: taskId,
+        organizationId,
+        archivedAt: null,
+      },
+    });
+
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    await db.task.delete({
+      where: { id: taskId },
+    });
+
+    // Check timeline auto-completion after task deletion (total task count changed)
+    checkAutoCompletePhases({
+      organizationId,
+      timelinesService: this.timelinesService,
+    }).catch((err) => {
+      this.logger.warn('timeline auto-complete check failed', err);
+    });
+  }
+
+  /**
+   * Submit a task for review (moves status to in_review)
+   */
+  async submitForReview(
+    organizationId: string,
+    taskId: string,
+    userId: string,
+    approverId: string,
+  ): Promise<TaskResponseDto> {
+    const task = await db.task.findFirst({
+      where: { id: taskId, organizationId, archivedAt: null },
+    });
+
+    if (!task) {
+      throw new BadRequestException('Task not found or access denied');
+    }
+
+    if (task.status === 'in_review') {
+      throw new BadRequestException('Task is already in review');
+    }
+
+    if (task.status === 'done') {
+      throw new BadRequestException('Task is already done');
+    }
+
+    // Verify the approver exists and is active
+    const approver = await db.member.findFirst({
+      where: { id: approverId, organizationId, deactivated: false },
+      include: { user: true },
+    });
+
+    if (!approver) {
+      throw new BadRequestException('Approver not found or is deactivated');
+    }
+
+    if (!(await isMemberOrgParticipant(approver.user.role, organizationId))) {
+      throw new BadRequestException(
+        'Cannot assign a platform admin as approver',
+      );
+    }
+
+    const currentMember = await db.member.findFirst({
+      where: { userId, organizationId, deactivated: false },
+    });
+
+    const updatedTask = await db.$transaction(async (tx) => {
+      const updated = await tx.task.update({
+        where: { id: taskId, organizationId },
+        data: {
+          status: TaskStatus.in_review,
+          previousStatus: task.status,
+          approverId,
+        },
+        include: { assignee: true, approver: true },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          memberId: currentMember?.id ?? null,
+          entityType: 'task',
+          entityId: taskId,
+          description: `submitted evidence for review by ${approver.user.name || approver.user.email}`,
+          data: {
+            action: 'review',
+            taskTitle: task.title,
+            approverId,
+            previousStatus: task.status,
+          },
+        },
+      });
+
+      return updated;
+    });
+
+    // Notify approver (fire-and-forget)
+    this.taskNotifierService
+      .notifyEvidenceReviewRequested({
+        organizationId,
+        taskId,
+        taskTitle: task.title,
+        submittedByUserId: userId,
+        approverMemberId: approverId,
+      })
+      .catch((error) => {
+        console.error(
+          'Failed to send evidence review request notifications:',
+          error,
+        );
+      });
+
+    return updatedTask;
+  }
+
+  /**
+   * Bulk submit tasks for review
+   */
+  async bulkSubmitForReview(
+    organizationId: string,
+    taskIds: string[],
+    userId: string,
+    approverId: string,
+  ): Promise<{ submittedCount: number }> {
+    // Verify the approver exists and is active
+    const approver = await db.member.findFirst({
+      where: { id: approverId, organizationId, deactivated: false },
+      include: { user: true },
+    });
+
+    if (!approver) {
+      throw new BadRequestException('Approver not found or is deactivated');
+    }
+
+    if (!(await isMemberOrgParticipant(approver.user.role, organizationId))) {
+      throw new BadRequestException(
+        'Cannot assign a platform admin as approver',
+      );
+    }
+
+    const tasks = await db.task.findMany({
+      where: {
+        id: { in: taskIds },
+        organizationId,
+        archivedAt: null,
+        status: { notIn: ['in_review', 'done'] },
+      },
+    });
+
+    if (tasks.length === 0) {
+      throw new BadRequestException('No eligible tasks found for review');
+    }
+
+    const currentMember = await db.member.findFirst({
+      where: { userId, organizationId, deactivated: false },
+    });
+
+    await db.$transaction(async (tx) => {
+      for (const task of tasks) {
+        await tx.task.update({
+          where: { id: task.id, organizationId },
+          data: {
+            status: TaskStatus.in_review,
+            previousStatus: task.status,
+            approverId,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId,
+            userId,
+            memberId: currentMember?.id ?? null,
+            entityType: 'task',
+            entityId: task.id,
+            description: `submitted evidence for review by ${approver.user.name || approver.user.email}`,
+            data: {
+              action: 'review',
+              taskTitle: task.title,
+              approverId,
+              previousStatus: task.status,
+            },
+          },
+        });
+      }
+    });
+
+    // Send a single notification for all tasks (fire-and-forget)
+    this.taskNotifierService
+      .notifyBulkEvidenceReviewRequested({
+        organizationId,
+        taskIds: tasks.map((t) => t.id),
+        taskCount: tasks.length,
+        submittedByUserId: userId,
+        approverMemberId: approverId,
+      })
+      .catch((error) => {
+        console.error(
+          'Failed to send bulk evidence review request notifications:',
+          error,
+        );
+      });
+
+    return { submittedCount: tasks.length };
+  }
+
+  /**
+   * Approve a task (moves status from in_review to done)
+   */
+  async approveTask(
+    organizationId: string,
+    taskId: string,
+    userId: string,
+  ): Promise<TaskResponseDto> {
+    const task = await db.task.findFirst({
+      where: { id: taskId, organizationId, archivedAt: null },
+      include: {
+        approver: { include: { user: true } },
+        assignee: { include: { user: true } },
+      },
+    });
+
+    if (!task) {
+      throw new BadRequestException('Task not found or access denied');
+    }
+
+    if (task.status !== 'in_review') {
+      throw new BadRequestException('Task must be in review to approve');
+    }
+
+    // Verify the current user is the assigned approver
+    const currentMember = await db.member.findFirst({
+      where: { userId, organizationId, deactivated: false },
+      include: { user: true },
+    });
+
+    if (!currentMember) {
+      throw new ForbiddenException('User is not a member of this organization');
+    }
+
+    if (task.approverId !== currentMember.id) {
+      throw new ForbiddenException(
+        'Only the assigned approver can approve this task',
+      );
+    }
+
+    const now = new Date();
+
+    const updatedTask = await db.$transaction(async (tx) => {
+      const updated = await tx.task.update({
+        where: { id: taskId, organizationId },
+        data: {
+          status: TaskStatus.done,
+          approvedAt: now,
+          reviewDate: computeNextTaskReviewDate(task.frequency),
+          previousStatus: null,
+        },
+        include: { assignee: true, approver: true },
+      });
+
+      const assigneeName = task.assignee
+        ? task.assignee.user.name || task.assignee.user.email
+        : 'Unknown';
+
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          memberId: currentMember.id,
+          entityType: 'task',
+          entityId: taskId,
+          description: `approved evidence by ${assigneeName}`,
+          data: {
+            action: 'approve',
+            taskTitle: task.title,
+            assigneeName,
+          },
+        },
+      });
+
+      return updated;
+    });
+
+    // Check timeline auto-completion when task is approved (status changed to done)
+    checkAutoCompletePhases({
+      organizationId,
+      timelinesService: this.timelinesService,
+    }).catch((err) => {
+      this.logger.warn('timeline auto-complete check failed', err);
+    });
+
+    return updatedTask;
+  }
+
+  /**
+   * Reject a task (reverts status from in_review to previousStatus)
+   */
+  async rejectTask(
+    organizationId: string,
+    taskId: string,
+    userId: string,
+  ): Promise<TaskResponseDto> {
+    const task = await db.task.findFirst({
+      where: { id: taskId, organizationId, archivedAt: null },
+      include: {
+        approver: { include: { user: true } },
+        assignee: { include: { user: true } },
+      },
+    });
+
+    if (!task) {
+      throw new BadRequestException('Task not found or access denied');
+    }
+
+    if (task.status !== 'in_review') {
+      throw new BadRequestException('Task must be in review to reject');
+    }
+
+    // Verify the current user is the assigned approver or an admin/owner
+    const currentMember = await db.member.findFirst({
+      where: { userId, organizationId, deactivated: false },
+      include: { user: true },
+    });
+
+    if (!currentMember) {
+      throw new ForbiddenException('User is not a member of this organization');
+    }
+
+    const memberRoles =
+      currentMember.role?.split(',').map((r: string) => r.trim()) ?? [];
+    const isAdminOrOwner =
+      memberRoles.includes('admin') || memberRoles.includes('owner');
+    const isApprover = task.approverId === currentMember.id;
+
+    if (!isApprover && !isAdminOrOwner) {
+      throw new ForbiddenException(
+        'Only the assigned approver or an admin/owner can reject this task',
+      );
+    }
+
+    const isCancellation = !isApprover && isAdminOrOwner;
+    const revertStatus = task.previousStatus ?? TaskStatus.todo;
+
+    const updatedTask = await db.$transaction(async (tx) => {
+      const updated = await tx.task.update({
+        where: { id: taskId, organizationId },
+        data: {
+          status: revertStatus,
+          previousStatus: null,
+          approverId: null,
+          approvedAt: null,
+        },
+        include: { assignee: true, approver: true },
+      });
+
+      const assigneeName = task.assignee
+        ? task.assignee.user.name || task.assignee.user.email
+        : 'Unknown';
+
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          userId,
+          memberId: currentMember.id,
+          entityType: 'task',
+          entityId: taskId,
+          description: isCancellation
+            ? `cancelled evidence review for ${assigneeName}`
+            : `rejected evidence by ${assigneeName}`,
+          data: {
+            action: isCancellation ? 'reject' : 'reject',
+            taskTitle: task.title,
+            revertedToStatus: revertStatus,
+          },
+        },
+      });
+
+      return updated;
+    });
+
+    return updatedTask;
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "Portale di conformità",
+    "getAccess": "Richiedi accesso",
+    "openMenu": "Apri menu",
+    "closeMenu": "Chiudi menu",
+    "menuTitle": "Menu",
+    "nav": {
+      "documents": "Documenti",
+      "subprocessors": "Subprocessori",
+      "updates": "Aggiornamenti",
+      "requests": "Richieste"
+    }
+  },
+  "userMenu": {
+    "subscribe": "Iscriviti agli aggiornamenti",
+    "subscribed": "Iscritto agli aggiornamenti",
+    "signOut": "Esci",
+    "signOutFailed": "Impossibile uscire",
+    "switchToDarkMode": "Passa alla modalità scura",
+    "switchToLightMode": "Passa alla modalità chiara"
+  },
+  "common": {
+    "error": "Qualcosa è andato storto",
+    "previousPage": "Pagina precedente",
+    "nextPage": "Pagina successiva",
+    "pageOf": "Pagina {{current}} di {{total}}",
+    "zoomOut": "Riduci zoom",
+    "zoomIn": "Aumenta zoom"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "Accesso richiesto"
+    },
+    "fullName": {
+      "title": "Aggiunga il Suo nome",
+      "label": "Nome completo",
+      "placeholder": "Mario Rossi",
+      "required": "Il nome completo è obbligatorio",
+      "tooShort": "Il nome completo è troppo corto",
+      "submit": "Continua"
+    },
+    "errors": {
+      "fullNameFailed": "Impossibile salvare il Suo nome. La preghiamo di riprovare.",
+      "requestFailed": "Impossibile completare la Sua richiesta di accesso. La preghiamo di riprovare."
+    }
+  },
+  "home": {
+    "heroTitle": "La conformità presso {{name}}.",
+    "heroDescription": "Benvenuti nel nostro Portale di conformità. Qui potete trovare la nostra documentazione di sicurezza e le nostre certificazioni.",
+    "sections": {
+      "compliance": "Conformità",
+      "securityCommitments": "Impegni di sicurezza",
+      "trustedBy": "Si fidano di noi",
+      "recentUpdates": "Aggiornamenti recenti"
+    },
+    "recentUpdates": {
+      "viewAll": "Vedi tutti"
+    }
+  },
+  "notFound": {
+    "title": "Pagina non trovata",
+    "description": "La pagina che sta cercando non esiste o è stata spostata.",
+    "backHome": "Torna alla home"
+  },
+  "errors": {
+    "notFound": {
+      "title": "Pagina non trovata",
+      "description": "La pagina che sta cercando non esiste o potrebbe essere stata spostata."
+    },
+    "forbidden": {
+      "title": "Accesso negato",
+      "description": "Non ha l'autorizzazione per visualizzare questa pagina."
+    },
+    "serverError": {
+      "title": "Qualcosa è andato storto",
+      "description": "Si è verificato un errore imprevisto. La preghiamo di riprovare a breve."
+    },
+    "generic": {
+      "title": "Qualcosa è andato storto",
+      "description": "Si è verificato un errore imprevisto. La preghiamo di riprovare a breve."
+    },
+    "actions": {
+      "backToCompliancePortal": "Torna al portale di conformità",
+      "tryAgain": "Riprova",
+      "contactSupport": "Contatta il supporto",
+      "requestAccess": "Richiedi accesso"
+    },
+    "inline": {
+      "message": "Impossibile caricare il contenuto",
+      "retry": "Riprova"
+    }
+  },
+  "footer": {
+    "poweredBy": "Offerto da"
+  },
+  "pagination": {
+    "previous": "Pagina precedente",
+    "next": "Pagina successiva"
+  },
+  "locale": {
+    "label": "Lingua",
+    "updateFailed": "Impossibile aggiornare la lingua",
+    "mismatch": {
+      "message": "Stai visualizzando questa pagina in {{language}}.",
+      "switchToMine": "Passa a {{language}}",
+      "useThis": "Usa {{language}} come mia lingua",
+      "dismiss": "Ignora"
+    }
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "Firmi l'accordo di riservatezza per accedere ai documenti privati.",
+      "sign": "Leggi e firma",
+      "dismiss": "Chiudi"
+    }
+  }
+}

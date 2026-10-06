@@ -1,0 +1,9 @@
+{
+  "back": "Documents",
+  "title": "Non-Disclosure Agreement",
+  "subtitle": "{{name}} requires you to sign an NDA before accessing compliance documents.",
+  "sign": "Sign",
+  "tryAgain": "Try again",
+  "sealing": "Sealing your signature…",
+  "failedDescription": "We encountered an issue processing your signature. Please try again."
+}

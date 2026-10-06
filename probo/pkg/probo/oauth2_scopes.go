@@ -1,0 +1,464 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package probo
+
+import (
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+const (
+	ScopeV1AiSystemRead coredata.OAuth2Scope = "v1:ai-system:read"
+	ScopeV1AiSystem     coredata.OAuth2Scope = "v1:ai-system"
+
+	ScopeV1AssetRead coredata.OAuth2Scope = "v1:asset:read"
+	ScopeV1Asset     coredata.OAuth2Scope = "v1:asset"
+
+	ScopeV1AuditRead coredata.OAuth2Scope = "v1:audit:read"
+	ScopeV1Audit     coredata.OAuth2Scope = "v1:audit"
+
+	ScopeV1BusinessFunctionRead coredata.OAuth2Scope = "v1:business-function:read"
+	ScopeV1BusinessFunction     coredata.OAuth2Scope = "v1:business-function"
+
+	ScopeV1CommonThirdPartyRead coredata.OAuth2Scope = "v1:common-third-party:read"
+	ScopeV1CommonThirdParty     coredata.OAuth2Scope = "v1:common-third-party"
+
+	ScopeV1ConnectorRead coredata.OAuth2Scope = "v1:connector:read"
+	ScopeV1Connector     coredata.OAuth2Scope = "v1:connector"
+
+	ScopeV1ControlRead coredata.OAuth2Scope = "v1:control:read"
+	ScopeV1Control     coredata.OAuth2Scope = "v1:control"
+
+	ScopeV1DatumRead coredata.OAuth2Scope = "v1:datum:read"
+	ScopeV1Datum     coredata.OAuth2Scope = "v1:datum"
+
+	ScopeV1DocumentRead coredata.OAuth2Scope = "v1:document:read"
+	ScopeV1Document     coredata.OAuth2Scope = "v1:document"
+
+	ScopeV1OrgRead coredata.OAuth2Scope = "v1:org:read"
+	ScopeV1Org     coredata.OAuth2Scope = "v1:org"
+
+	ScopeV1PrivacyRead coredata.OAuth2Scope = "v1:privacy:read"
+	ScopeV1Privacy     coredata.OAuth2Scope = "v1:privacy"
+
+	ScopeV1RiskRead coredata.OAuth2Scope = "v1:risk:read"
+	ScopeV1Risk     coredata.OAuth2Scope = "v1:risk"
+
+	ScopeV1SlackConnectionRead coredata.OAuth2Scope = "v1:slack-connection:read"
+	ScopeV1SlackConnection     coredata.OAuth2Scope = "v1:slack-connection"
+
+	ScopeV1TaskRead coredata.OAuth2Scope = "v1:task:read"
+	ScopeV1Task     coredata.OAuth2Scope = "v1:task"
+
+	ScopeV1ThirdPartyRead coredata.OAuth2Scope = "v1:third-party:read"
+	ScopeV1ThirdParty     coredata.OAuth2Scope = "v1:third-party"
+
+	ScopeV1WebhookRead coredata.OAuth2Scope = "v1:webhook:read"
+	ScopeV1Webhook     coredata.OAuth2Scope = "v1:webhook"
+)
+
+// OAuth2ScopeMappings maps OAuth2 scopes to core probo actions.
+var OAuth2ScopeMappings = map[coredata.OAuth2Scope][]string{
+
+	ScopeV1AiSystemRead: {
+		ActionAiSystemGet,
+		ActionAiSystemList,
+	},
+	ScopeV1AiSystem: {
+		ActionAiSystemGet,
+		ActionAiSystemList,
+		ActionAiSystemCreate,
+		ActionAiSystemUpdate,
+		ActionAiSystemDelete,
+		ActionAiSystemPublish,
+	},
+	ScopeV1AssetRead: {
+		ActionAssetGet,
+		ActionAssetList,
+	},
+	ScopeV1Asset: {
+		ActionAssetGet,
+		ActionAssetList,
+		ActionAssetCreate,
+		ActionAssetUpdate,
+		ActionAssetDelete,
+		ActionAssetPublish,
+	},
+	ScopeV1AuditRead: {
+		ActionAuditGet,
+		ActionAuditList,
+		ActionFindingGet,
+		ActionFindingList,
+		ActionReportGet,
+		ActionReportGetReportUrl,
+		ActionReportDownloadUrlGet,
+	},
+	ScopeV1Audit: {
+		ActionAuditGet,
+		ActionAuditList,
+		ActionFindingGet,
+		ActionFindingList,
+		ActionReportGet,
+		ActionReportGetReportUrl,
+		ActionReportDownloadUrlGet,
+		ActionAuditCreate,
+		ActionAuditUpdate,
+		ActionAuditDelete,
+		ActionAuditReportUpload,
+		ActionAuditReportDelete,
+		ActionFindingCreate,
+		ActionFindingUpdate,
+		ActionFindingDelete,
+		ActionFindingAuditMappingCreate,
+		ActionFindingAuditMappingDelete,
+		ActionFindingPublish,
+	},
+	ScopeV1BusinessFunctionRead: {
+		ActionBusinessFunctionGet,
+		ActionBusinessFunctionList,
+	},
+	ScopeV1BusinessFunction: {
+		ActionBusinessFunctionGet,
+		ActionBusinessFunctionList,
+		ActionBusinessFunctionCreate,
+		ActionBusinessFunctionUpdate,
+		ActionBusinessFunctionDelete,
+		ActionBusinessFunctionPublish,
+	},
+	ScopeV1CommonThirdPartyRead: {
+		ActionCommonThirdPartyGet,
+		ActionCommonThirdPartyList,
+		ActionCommonGVLVendorList,
+	},
+	ScopeV1ConnectorRead: {
+		ActionConnectorList,
+		ActionConnectorGet,
+	},
+	ScopeV1Connector: {
+		ActionConnectorList,
+		ActionConnectorGet,
+		ActionConnectorCreate,
+		ActionConnectorDelete,
+		ActionConnectorInitiate,
+		ActionConnectorDiscover,
+	},
+	ScopeV1ControlRead: {
+		ActionControlGet,
+		ActionControlList,
+		ActionMeasureGet,
+		ActionMeasureList,
+		ActionFrameworkGet,
+		ActionFrameworkList,
+		ActionFrameworkExport,
+		ActionObligationGet,
+		ActionObligationList,
+		ActionStatementOfApplicabilityList,
+		ActionStatementOfApplicabilityGet,
+		ActionApplicabilityStatementGet,
+		ActionApplicabilityStatementList,
+		ActionEvidenceList,
+	},
+	ScopeV1Control: {
+		ActionControlGet,
+		ActionControlList,
+		ActionMeasureGet,
+		ActionMeasureList,
+		ActionFrameworkGet,
+		ActionFrameworkList,
+		ActionFrameworkExport,
+		ActionObligationGet,
+		ActionObligationList,
+		ActionStatementOfApplicabilityList,
+		ActionStatementOfApplicabilityGet,
+		ActionApplicabilityStatementGet,
+		ActionApplicabilityStatementList,
+		ActionControlCreate,
+		ActionControlUpdate,
+		ActionControlDelete,
+		ActionControlMeasureMappingCreate,
+		ActionControlMeasureMappingDelete,
+		ActionControlDocumentMappingCreate,
+		ActionControlDocumentMappingDelete,
+		ActionControlAuditMappingCreate,
+		ActionControlAuditMappingDelete,
+		ActionControlObligationMappingCreate,
+		ActionControlObligationMappingDelete,
+		ActionMeasureCreate,
+		ActionMeasureUpdate,
+		ActionMeasureDelete,
+		ActionMeasureEvidenceUpload,
+		ActionEvidenceList,
+		ActionEvidenceDelete,
+		ActionMeasureImport,
+		ActionMeasureDocumentMappingCreate,
+		ActionMeasureDocumentMappingDelete,
+		ActionMeasureThirdPartyMappingCreate,
+		ActionMeasureThirdPartyMappingDelete,
+		ActionFrameworkCreate,
+		ActionFrameworkUpdate,
+		ActionFrameworkDelete,
+		ActionFrameworkImport,
+		ActionObligationCreate,
+		ActionObligationUpdate,
+		ActionObligationDelete,
+		ActionObligationPublish,
+		ActionStatementOfApplicabilityCreate,
+		ActionStatementOfApplicabilityUpdate,
+		ActionStatementOfApplicabilityDelete,
+		ActionStatementOfApplicabilityPublish,
+		ActionApplicabilityStatementCreate,
+		ActionApplicabilityStatementUpdate,
+		ActionApplicabilityStatementDelete,
+	},
+	ScopeV1DatumRead: {
+		ActionDatumGet,
+		ActionDatumList,
+	},
+	ScopeV1Datum: {
+		ActionDatumGet,
+		ActionDatumList,
+		ActionDatumCreate,
+		ActionDatumUpdate,
+		ActionDatumDelete,
+		ActionDatumPublish,
+	},
+	ScopeV1DocumentRead: {
+		ActionDocumentGet,
+		ActionDocumentList,
+		ActionDocumentVersionGet,
+		ActionDocumentVersionList,
+		ActionDocumentVersionExportPDF,
+		ActionDocumentVersionApprovalList,
+		ActionDocumentVersionExport,
+		ActionEmployeeDocumentGet,
+		ActionEmployeeDocumentList,
+		ActionEmployeeDocumentVersionExportPDF,
+		ActionDocumentVersionSignatureGet,
+		ActionDocumentVersionSignatureList,
+		ActionElectronicSignatureGet,
+		ActionFileGet,
+	},
+	ScopeV1Document: {
+		ActionDocumentGet,
+		ActionDocumentList,
+		ActionDocumentVersionGet,
+		ActionDocumentVersionList,
+		ActionDocumentVersionExportPDF,
+		ActionDocumentVersionApprovalList,
+		ActionDocumentVersionExport,
+		ActionEmployeeDocumentGet,
+		ActionEmployeeDocumentList,
+		ActionEmployeeDocumentVersionExportPDF,
+		ActionDocumentVersionSignatureGet,
+		ActionDocumentVersionSignatureList,
+		ActionElectronicSignatureGet,
+		ActionFileGet,
+		ActionDocumentCreate,
+		ActionDocumentUpdate,
+		ActionDocumentDelete,
+		ActionDocumentArchive,
+		ActionDocumentUnarchive,
+		ActionDocumentDeleteDraft,
+		ActionDocumentVersionSign,
+		ActionDocumentVersionVoidApproval,
+		ActionDocumentVersionApprove,
+		ActionDocumentVersionReject,
+		ActionDocumentVersionPublish,
+		ActionDocumentVersionSignatureRequest,
+		ActionDocumentVersionCancelSignature,
+	},
+	ScopeV1OrgRead: {
+		ActionOrganizationGet,
+		ActionOrganizationGetLogoUrl,
+		ActionOrganizationGetHorizontalLogoUrl,
+		ActionOrganizationContextGet,
+	},
+	ScopeV1Org: {
+		ActionOrganizationGet,
+		ActionOrganizationGetLogoUrl,
+		ActionOrganizationGetHorizontalLogoUrl,
+		ActionOrganizationContextGet,
+		ActionOrganizationUpdate,
+		ActionOrganizationContextUpdate,
+	},
+	ScopeV1PrivacyRead: {
+		ActionProcessingActivityList,
+		ActionProcessingActivityGet,
+		ActionDataProtectionImpactAssessmentList,
+		ActionDataProtectionImpactAssessmentGet,
+		ActionTransferImpactAssessmentList,
+		ActionTransferImpactAssessmentGet,
+		ActionRightsRequestList,
+		ActionRightsRequestGet,
+		ActionCookieBannerGet,
+		ActionCookieBannerList,
+		ActionCookieBannerVersionGet,
+		ActionCookieBannerVersionList,
+		ActionCookieCategoryGet,
+		ActionCookieCategoryList,
+		ActionCookieGet,
+		ActionCookieList,
+		ActionCookieConsentRecordList,
+		ActionTrackerPatternGet,
+		ActionTrackerPatternList,
+		ActionTrackerResourceGet,
+		ActionTrackerResourceList,
+		ActionCommonGVLVendorList,
+	},
+	ScopeV1Privacy: {
+		ActionProcessingActivityList,
+		ActionProcessingActivityGet,
+		ActionDataProtectionImpactAssessmentList,
+		ActionDataProtectionImpactAssessmentGet,
+		ActionTransferImpactAssessmentList,
+		ActionTransferImpactAssessmentGet,
+		ActionRightsRequestList,
+		ActionRightsRequestGet,
+		ActionCookieBannerGet,
+		ActionCookieBannerList,
+		ActionCookieBannerVersionGet,
+		ActionCookieBannerVersionList,
+		ActionCookieCategoryGet,
+		ActionCookieCategoryList,
+		ActionCookieGet,
+		ActionCookieList,
+		ActionCookieConsentRecordList,
+		ActionTrackerPatternGet,
+		ActionTrackerPatternList,
+		ActionTrackerResourceGet,
+		ActionTrackerResourceList,
+		ActionCommonGVLVendorList,
+		ActionProcessingActivityCreate,
+		ActionProcessingActivityUpdate,
+		ActionProcessingActivityDelete,
+		ActionProcessingActivityPublish,
+		ActionDataProtectionImpactAssessmentCreate,
+		ActionDataProtectionImpactAssessmentUpdate,
+		ActionDataProtectionImpactAssessmentDelete,
+		ActionDataProtectionImpactAssessmentPublish,
+		ActionTransferImpactAssessmentCreate,
+		ActionTransferImpactAssessmentUpdate,
+		ActionTransferImpactAssessmentDelete,
+		ActionTransferImpactAssessmentPublish,
+		ActionRightsRequestCreate,
+		ActionRightsRequestUpdate,
+		ActionRightsRequestDelete,
+		ActionCookieBannerCreate,
+		ActionCookieBannerUpdate,
+		ActionCookieBannerDelete,
+		ActionCookieBannerActivate,
+		ActionCookieBannerDeactivate,
+		ActionCookieBannerRegeneratePolicy,
+		ActionCookieBannerVersionPublish,
+		ActionCookieCategoryCreate,
+		ActionCookieCategoryUpdate,
+		ActionCookieCategoryDelete,
+		ActionCookieCreate,
+		ActionCookieUpdate,
+		ActionCookieDelete,
+		ActionTrackerPatternCreate,
+		ActionTrackerPatternUpdate,
+		ActionTrackerPatternDelete,
+		ActionTrackerResourceCreate,
+		ActionTrackerResourceUpdate,
+		ActionTrackerResourceDelete,
+	},
+	ScopeV1RiskRead: {
+		ActionRiskGet,
+		ActionRiskList,
+	},
+	ScopeV1Risk: {
+		ActionRiskGet,
+		ActionRiskList,
+		ActionRiskCreate,
+		ActionRiskUpdate,
+		ActionRiskDelete,
+		ActionRiskMeasureMappingCreate,
+		ActionRiskMeasureMappingDelete,
+		ActionRiskDocumentMappingCreate,
+		ActionRiskDocumentMappingDelete,
+		ActionRiskObligationMappingCreate,
+		ActionRiskObligationMappingDelete,
+		ActionRiskPublish,
+	},
+	ScopeV1SlackConnectionRead: {
+		ActionSlackConnectionList,
+	},
+	ScopeV1ThirdPartyRead: {
+		ActionThirdPartyList,
+		ActionThirdPartyGet,
+		ActionThirdPartyRelationList,
+		ActionThirdPartyContactGet,
+		ActionThirdPartyContactList,
+		ActionThirdPartyServiceGet,
+		ActionThirdPartyServiceList,
+		ActionThirdPartyComplianceReportGet,
+		ActionThirdPartyComplianceReportList,
+		ActionThirdPartyBusinessAssociateAgreementGet,
+		ActionThirdPartyDataPrivacyAgreementGet,
+		ActionThirdPartyRiskAssessmentList,
+	},
+	ScopeV1ThirdParty: {
+		ActionThirdPartyList,
+		ActionThirdPartyGet,
+		ActionThirdPartyRelationList,
+		ActionThirdPartyContactGet,
+		ActionThirdPartyContactList,
+		ActionThirdPartyServiceGet,
+		ActionThirdPartyServiceList,
+		ActionThirdPartyComplianceReportGet,
+		ActionThirdPartyComplianceReportList,
+		ActionThirdPartyBusinessAssociateAgreementGet,
+		ActionThirdPartyDataPrivacyAgreementGet,
+		ActionThirdPartyRiskAssessmentList,
+		ActionThirdPartyCreate,
+		ActionThirdPartyUpdate,
+		ActionThirdPartyDelete,
+		ActionThirdPartyVet,
+		ActionThirdPartyPublish,
+		ActionThirdPartyRelationCreate,
+		ActionThirdPartyContactCreate,
+		ActionThirdPartyContactUpdate,
+		ActionThirdPartyContactDelete,
+		ActionThirdPartyServiceCreate,
+		ActionThirdPartyServiceUpdate,
+		ActionThirdPartyServiceDelete,
+		ActionThirdPartyComplianceReportUpload,
+		ActionThirdPartyComplianceReportDelete,
+		ActionThirdPartyBusinessAssociateAgreementUpload,
+		ActionThirdPartyBusinessAssociateAgreementUpdate,
+		ActionThirdPartyBusinessAssociateAgreementDelete,
+		ActionThirdPartyDataPrivacyAgreementUpload,
+		ActionThirdPartyDataPrivacyAgreementUpdate,
+		ActionThirdPartyDataPrivacyAgreementDelete,
+		ActionThirdPartyRiskAssessmentCreate,
+	},
+	ScopeV1WebhookRead: {
+		ActionWebhookSubscriptionList,
+		ActionWebhookSubscriptionGet,
+	},
+	ScopeV1Webhook: {
+		ActionWebhookSubscriptionList,
+		ActionWebhookSubscriptionGet,
+		ActionWebhookSubscriptionCreate,
+		ActionWebhookSubscriptionUpdate,
+		ActionWebhookSubscriptionDelete,
+	},
+}

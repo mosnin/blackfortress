@@ -1,0 +1,1250 @@
+import { PolicyPdfRendererService } from './policy-pdf-renderer.service';
+
+describe('PolicyPdfRendererService', () => {
+  let service: PolicyPdfRendererService;
+
+  beforeEach(() => {
+    service = new PolicyPdfRendererService();
+  });
+
+  describe('renderPoliciesPdfBuffer', () => {
+    it('returns a valid PDF buffer for a simple policy', () => {
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Privacy Policy',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'We respect your privacy.' }],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+    });
+
+    it('handles multiple policies', () => {
+      const policies = [
+        {
+          name: 'Policy A',
+          content: {
+            type: 'doc',
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Content A' }],
+              },
+            ],
+          },
+        },
+        {
+          name: 'Policy B',
+          content: {
+            type: 'doc',
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Content B' }],
+              },
+            ],
+          },
+        },
+      ];
+
+      const result = service.renderPoliciesPdfBuffer(policies, 'Test Org');
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('handles empty content', () => {
+      const result = service.renderPoliciesPdfBuffer(
+        [{ name: 'Empty Policy', content: null }],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('does not crash when content.content is not an array (Drata migration import)', () => {
+      // Regression for the Drata-migration download-all bug: imported,
+      // non-TipTap policy content can have `content.content` as a string/object
+      // rather than a JSONContent[] array. convertToInternalFormat used to call
+      // .map on it -> "content.map is not a function" -> the whole bundle
+      // rejected with a 500. A single malformed policy must not poison the
+      // bundle; it should degrade to an empty body.
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Imported Policy',
+            content: {
+              type: 'doc',
+              content: 'This was a plain string, not a TipTap node array.',
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+    });
+
+    it('does not crash when a nested node content is not an array', () => {
+      // The malformed shape can also appear nested: a top-level array whose
+      // item has a non-array `content`. The recursive convertToInternalFormat
+      // call must guard against .map on a non-array too.
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Nested Malformed Policy',
+            content: {
+              type: 'doc',
+              content: [
+                { type: 'paragraph', content: 'plain string instead of nodes' },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('handles policies without organization name', () => {
+      const result = service.renderPoliciesPdfBuffer([
+        {
+          name: 'Standalone Policy',
+          content: {
+            type: 'doc',
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Standalone content.' }],
+              },
+            ],
+          },
+        },
+      ]);
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('handles rich content with headings, bold, lists', () => {
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Rich Policy',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'heading',
+                  attrs: { level: 1 },
+                  content: [{ type: 'text', text: 'Section 1' }],
+                },
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Bold text',
+                      marks: [{ type: 'bold' }],
+                    },
+                  ],
+                },
+                {
+                  type: 'bulletList',
+                  content: [
+                    {
+                      type: 'listItem',
+                      content: [
+                        {
+                          type: 'paragraph',
+                          content: [{ type: 'text', text: 'Item 1' }],
+                        },
+                      ],
+                    },
+                    {
+                      type: 'listItem',
+                      content: [
+                        {
+                          type: 'paragraph',
+                          content: [{ type: 'text', text: 'Item 2' }],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('handles emoji characters without producing garbled output', () => {
+      // Regression test for CS-191: flag emojis like 🇬🇧🇫🇷 were rendered as
+      // garbled text "Ø<ÝìØ<Ýç +þ" because Helvetica can't render emojis
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Policy with Emojis',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: '🇬🇧🇫🇷 English version available bellow',
+                    },
+                  ],
+                },
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: '🎉 Welcome to our policy 🌍',
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+
+      // Verify the PDF text does NOT contain garbled emoji byte sequences
+      const pdfText = result.toString('latin1');
+      expect(pdfText).not.toContain('Ø<Ýì');
+      expect(pdfText).not.toContain('Ø<Ýç');
+    });
+
+    it('preserves accented characters alongside emojis', () => {
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: "Politique d'Authentification",
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: "🇫🇷 Résumé des règles d'authentification café",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('handles content with only emojis', () => {
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Emoji Only',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: '🎉🌍😀🇬🇧' }],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+
+    it('handles emojis in headings and list items', () => {
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: '📋 Policy Title',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'heading',
+                  attrs: { level: 1 },
+                  content: [{ type: 'text', text: '🔒 Security Section' }],
+                },
+                {
+                  type: 'bulletList',
+                  content: [
+                    {
+                      type: 'listItem',
+                      content: [
+                        {
+                          type: 'paragraph',
+                          content: [
+                            { type: 'text', text: '✅ Requirement met' },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('renders tables with header row and data cells (CS-221)', () => {
+      // Regression test for CS-221: tables in policy content rendered as
+      // stacked text in PDFs because there was no 'table' case in processContent.
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Data Retention Policy',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'heading',
+                  attrs: { level: 2 },
+                  content: [{ type: 'text', text: 'Appendix A' }],
+                },
+                {
+                  type: 'table',
+                  content: [
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableHeader',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: 'Data Type' }],
+                            },
+                          ],
+                        },
+                        {
+                          type: 'tableHeader',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [
+                                { type: 'text', text: 'Retention Period' },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: 'User logs' }],
+                            },
+                          ],
+                        },
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: '90 days' }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [
+                                { type: 'text', text: 'Billing records' },
+                              ],
+                            },
+                          ],
+                        },
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: '7 years' }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+    });
+
+    it('renders tables with cell colspan', () => {
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Colspan Policy',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'table',
+                  content: [
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableHeader',
+                          attrs: { colspan: 2 },
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [
+                                { type: 'text', text: 'Merged header' },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: 'Left' }],
+                            },
+                          ],
+                        },
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: 'Right' }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('separates text from multi-paragraph cells with newlines', () => {
+      // Regression test for the CS-221 review comment: cells with multiple
+      // block children (paragraphs, hardBreaks) used to be concatenated
+      // without a separator, so "Retention Period" + "30 days" rendered as
+      // "Retention Period30 days". extractCellText joins top-level blocks
+      // with \n so splitTextToSize wraps them correctly.
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Multi-paragraph Cell Policy',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'table',
+                  content: [
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [
+                                { type: 'text', text: 'Retention Period' },
+                              ],
+                            },
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: '30 days' }],
+                            },
+                          ],
+                        },
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [
+                                { type: 'text', text: 'Line one' },
+                                { type: 'hardBreak' },
+                                { type: 'text', text: 'Line two' },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+
+      // The concatenated-without-separator strings must NOT appear in the PDF.
+      const pdfText = result.toString('latin1');
+      expect(pdfText).not.toContain('Retention Period30 days');
+      expect(pdfText).not.toContain('Line oneLine two');
+    });
+
+    it('renders bullet and numbered list items inside a cell with markers', () => {
+      // A cell whose only block is a bulletList used to concatenate items
+      // (e.g. "AlphaBeta") because extractInlineText didn't recognize list
+      // containers as line-break boundaries. After the fix, items must
+      // also carry the same bullet/number prefix as the top-level list
+      // renderer so they read as a list rather than plain-text lines.
+
+      // Helper: pull every (text)Tj token from a jsPDF buffer, with
+      // non-ASCII bytes spelled out as \xNN (jsPDF emits the bullet
+      // character U+2022 as WinAnsi byte 0x95 in its own Tj command).
+      const tokensFrom = (buf: Buffer): string[] => {
+        const raw = buf.toString('binary');
+        const out: string[] = [];
+        const re = /\((.*?)\)\s*Tj/g;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(raw)) !== null) {
+          const bytes = Buffer.from(m[1], 'binary');
+          out.push(
+            Array.from(bytes)
+              .map((b) =>
+                b < 0x20 || b > 0x7e
+                  ? `\\x${b.toString(16).padStart(2, '0')}`
+                  : String.fromCharCode(b),
+              )
+              .join(''),
+          );
+        }
+        return out;
+      };
+
+      const orderedResult = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Ordered List in Cell',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'table',
+                  content: [
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'orderedList',
+                              content: [
+                                {
+                                  type: 'listItem',
+                                  content: [
+                                    {
+                                      type: 'paragraph',
+                                      content: [
+                                        { type: 'text', text: 'First step' },
+                                      ],
+                                    },
+                                  ],
+                                },
+                                {
+                                  type: 'listItem',
+                                  content: [
+                                    {
+                                      type: 'paragraph',
+                                      content: [
+                                        { type: 'text', text: 'Second step' },
+                                      ],
+                                    },
+                                  ],
+                                },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(orderedResult).toBeInstanceOf(Buffer);
+      const orderedTokens = tokensFrom(orderedResult);
+      // Numbered prefixes and their item text must both be present.
+      // jsPDF may emit the prefix and item text as separate adjacent Tj
+      // commands (e.g. "1." + "First step"); accept either form.
+      const orderedHas = (needle: string): boolean =>
+        orderedTokens.some((t) => t.includes(needle));
+      expect(orderedHas('1.')).toBe(true);
+      expect(orderedHas('2.')).toBe(true);
+      expect(orderedHas('First step')).toBe(true);
+      expect(orderedHas('Second step')).toBe(true);
+      // The concatenated-without-markers string must NOT appear.
+      const orderedRaw = orderedResult.toString('latin1');
+      expect(orderedRaw).not.toContain('First stepSecond step');
+
+      const bulletResult = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Bullet List in Cell',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'table',
+                  content: [
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'bulletList',
+                              content: [
+                                {
+                                  type: 'listItem',
+                                  content: [
+                                    {
+                                      type: 'paragraph',
+                                      content: [
+                                        { type: 'text', text: 'Alpha' },
+                                      ],
+                                    },
+                                  ],
+                                },
+                                {
+                                  type: 'listItem',
+                                  content: [
+                                    {
+                                      type: 'paragraph',
+                                      content: [
+                                        { type: 'text', text: 'Beta' },
+                                      ],
+                                    },
+                                  ],
+                                },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      const bulletTokens = tokensFrom(bulletResult);
+      // jsPDF emits the bullet character U+2022 as WinAnsi byte 0x95. The
+      // whole line '• Alpha' may show up as one token '\x95 Alpha', or as
+      // two adjacent tokens '\x95' + ' Alpha' depending on jsPDF's text
+      // layout. Accept both.
+      const contains = (needle: string): boolean =>
+        bulletTokens.some((t) => t.includes(needle));
+      expect(contains('Alpha')).toBe(true);
+      expect(contains('Beta')).toBe(true);
+      expect(contains('\\x95')).toBe(true);
+      // The concatenated-without-separator string must NOT appear.
+      const bulletRaw = bulletResult.toString('latin1');
+      expect(bulletRaw).not.toContain('AlphaBeta');
+    });
+
+    it('renders very long cell text across wrapped lines', () => {
+      // Stress test: a single cell with text much longer than the column
+      // width. Must not throw, must produce a valid PDF, and must grow the
+      // row height (so lines don't overlap).
+      const longText =
+        'This is a very long cell value that should wrap across multiple lines inside the cell. '.repeat(
+          4,
+        );
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Long Text Policy',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'table',
+                  content: [
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: longText }],
+                            },
+                          ],
+                        },
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: 'short' }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+    });
+
+    it('inserts a page break when a table row does not fit the current page', () => {
+      // 50 rows forces at least one page break mid-table. Must not throw.
+      const rows = Array.from({ length: 50 }, (_, i) => ({
+        type: 'tableRow' as const,
+        content: [
+          {
+            type: 'tableCell' as const,
+            content: [
+              {
+                type: 'paragraph' as const,
+                content: [{ type: 'text' as const, text: `Row ${i + 1}` }],
+              },
+            ],
+          },
+          {
+            type: 'tableCell' as const,
+            content: [
+              {
+                type: 'paragraph' as const,
+                content: [{ type: 'text' as const, text: `Value ${i + 1}` }],
+              },
+            ],
+          },
+        ],
+      }));
+
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Long Table Policy',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'table',
+                  content: [
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableHeader',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: 'Row' }],
+                            },
+                          ],
+                        },
+                        {
+                          type: 'tableHeader',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: 'Value' }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                    ...rows,
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('renders content that follows a table on the same page', () => {
+      // yPosition must advance past the table so following content doesn't
+      // overlap it.
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Table Then Paragraph',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'table',
+                  content: [
+                    {
+                      type: 'tableRow',
+                      content: [
+                        {
+                          type: 'tableCell',
+                          content: [
+                            {
+                              type: 'paragraph',
+                              content: [{ type: 'text', text: 'Cell' }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Paragraph after the table renders normally.',
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('handles empty tables without crashing', () => {
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Empty Table Policy',
+            content: {
+              type: 'doc',
+              content: [{ type: 'table', content: [] }],
+            },
+          },
+        ],
+        'Test Org',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    // --- CS-704: heading keep-together (no orphaned headings) ---------------
+
+    // Split an (uncompressed) jsPDF buffer into per-page visible text. jsPDF
+    // writes one content stream per page, so the concatenated (text)Tj tokens
+    // between two `endstream` markers are exactly one page's text. This lets
+    // us assert which page a given string lands on.
+    const pageTextsFrom = (buf: Buffer): string[] =>
+      buf
+        .toString('latin1')
+        .split('endstream')
+        .map((segment) => {
+          const start = segment.lastIndexOf('stream');
+          if (start === -1) return '';
+          const body = segment.slice(start + 'stream'.length);
+          const re = /\((.*?)\)\s*Tj/g;
+          let text = '';
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(body)) !== null) text += m[1];
+          return text;
+        })
+        .filter((t) => t.length > 0);
+
+    const pageIndexContaining = (pages: string[], needle: string): number =>
+      pages.findIndex((t) => t.includes(needle));
+
+    // Like pageTextsFrom but keeps blank pages (in order), so a blank leading
+    // page shifts the index of later content. Drops the trailing xref/trailer
+    // segment that follows the final content stream.
+    const orderedPageTexts = (buf: Buffer): string[] => {
+      const segments = buf.toString('latin1').split('endstream');
+      return segments.slice(0, -1).map((segment) => {
+        const start = segment.lastIndexOf('stream');
+        if (start === -1) return '';
+        const body = segment.slice(start + 'stream'.length);
+        const re = /\((.*?)\)\s*Tj/g;
+        let text = '';
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(body)) !== null) text += m[1];
+        return text;
+      });
+    };
+
+    it('does not orphan a heading at the bottom of a page (CS-704)', () => {
+      // Sweep headings across many vertical offsets by growing the amount of
+      // filler before each one. Without keep-together logic at least one
+      // heading lands at a page bottom with its body flowing to the next page.
+      // With the fix, every heading must share a page with the first line of
+      // its section.
+      const SECTIONS = 30;
+      const nodes: Array<Record<string, unknown>> = [];
+      for (let i = 0; i < SECTIONS; i++) {
+        for (let f = 0; f < i; f++) {
+          nodes.push({
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: `filler ${i}-${f} advancing the cursor down the page`,
+              },
+            ],
+          });
+        }
+        nodes.push({
+          type: 'heading',
+          attrs: { level: 2 },
+          content: [{ type: 'text', text: `HEADINGMARKER${i} Section ${i}` }],
+        });
+        nodes.push({
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: `BODYMARKER${i} first line of the section body content`,
+            },
+          ],
+        });
+      }
+
+      const result = service.renderPoliciesPdfBuffer([
+        { name: 'Keep Together Policy', content: { type: 'doc', content: nodes } },
+      ]);
+
+      const pages = pageTextsFrom(result);
+      expect(pages.length).toBeGreaterThan(1); // multi-page, or the test is moot
+
+      const orphaned: number[] = [];
+      for (let i = 0; i < SECTIONS; i++) {
+        const headingPage = pageIndexContaining(pages, `HEADINGMARKER${i}`);
+        const bodyPage = pageIndexContaining(pages, `BODYMARKER${i}`);
+        expect(headingPage).toBeGreaterThanOrEqual(0);
+        expect(bodyPage).toBeGreaterThanOrEqual(0);
+        if (headingPage !== bodyPage) orphaned.push(i);
+      }
+
+      expect(orphaned).toEqual([]);
+    });
+
+    it('does not push a trailing heading (no following content) to its own page', () => {
+      // The keep-together reserve must only apply when a section actually
+      // follows the heading — a heading that is the last node stays on the
+      // current page rather than being bumped to a fresh one.
+      const result = service.renderPoliciesPdfBuffer([
+        {
+          name: 'Trailing Heading Policy',
+          content: {
+            type: 'doc',
+            content: [
+              {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'INTROBODY opening paragraph' }],
+              },
+              {
+                type: 'heading',
+                attrs: { level: 2 },
+                content: [{ type: 'text', text: 'TRAILINGHEADING appendix' }],
+              },
+            ],
+          },
+        },
+      ]);
+
+      const pages = pageTextsFrom(result);
+      const introPage = pageIndexContaining(pages, 'INTROBODY');
+      const headingPage = pageIndexContaining(pages, 'TRAILINGHEADING');
+      expect(introPage).toBe(0);
+      expect(headingPage).toBe(0);
+    });
+
+    it('does not bump a heading when only empty nodes follow it', () => {
+      // A heading near the page bottom followed ONLY by empty paragraphs / hard
+      // breaks (common trailing nodes in TipTap docs) must be treated as a
+      // trailing heading — reserving keep-together space for a non-existent
+      // section would bump it to a lonely page.
+      const nodes: Array<Record<string, unknown>> = [];
+      for (let f = 0; f < 23; f++) {
+        nodes.push({
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: `filler line ${f} to consume vertical space` },
+          ],
+        });
+      }
+      nodes.push({
+        type: 'heading',
+        attrs: { level: 2 },
+        content: [{ type: 'text', text: 'EMPTYTRAILHEADING near the bottom' }],
+      });
+      // Empty trailing content that renders nothing visible.
+      nodes.push({ type: 'paragraph' });
+      nodes.push({ type: 'paragraph', content: [{ type: 'hardBreak' }] });
+
+      const result = service.renderPoliciesPdfBuffer([
+        { name: 'Empty Trailing Policy', content: { type: 'doc', content: nodes } },
+      ]);
+
+      const pages = pageTextsFrom(result);
+      // The heading shares the page with the filler above it, rather than being
+      // pushed onto a page of its own.
+      expect(pageIndexContaining(pages, 'filler line 22')).toBe(0);
+      expect(pageIndexContaining(pages, 'EMPTYTRAILHEADING')).toBe(0);
+    });
+
+    it('keeps a heading with a following table that has a tall first row', () => {
+      // A heading immediately followed by a table with a tall first row must
+      // not be orphaned: the reserve has to account for the table's first-row
+      // height, not just a few plain text lines. Sweep offsets so at least one
+      // heading lands where the fixed text-only reserve would have orphaned it.
+      const tallCell = (label: string) => ({
+        type: 'tableCell',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: `${label} line one line two line three line four line five line six`,
+              },
+            ],
+          },
+        ],
+      });
+
+      const SECTIONS = 24;
+      const nodes: Array<Record<string, unknown>> = [];
+      for (let i = 0; i < SECTIONS; i++) {
+        for (let f = 0; f < i; f++) {
+          nodes.push({
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: `filler ${i}-${f} advancing the cursor` },
+            ],
+          });
+        }
+        nodes.push({
+          type: 'heading',
+          attrs: { level: 2 },
+          content: [{ type: 'text', text: `TABLEHEADING${i} Section ${i}` }],
+        });
+        nodes.push({
+          type: 'table',
+          content: [
+            {
+              type: 'tableRow',
+              content: [tallCell(`TABLECELL${i}`), tallCell(`meta${i}`)],
+            },
+          ],
+        });
+      }
+
+      const result = service.renderPoliciesPdfBuffer([
+        { name: 'Heading Table Policy', content: { type: 'doc', content: nodes } },
+      ]);
+
+      const pages = pageTextsFrom(result);
+      const orphaned: number[] = [];
+      for (let i = 0; i < SECTIONS; i++) {
+        const headingPage = pageIndexContaining(pages, `TABLEHEADING${i}`);
+        const tablePage = pageIndexContaining(pages, `TABLECELL${i}`);
+        expect(headingPage).toBeGreaterThanOrEqual(0);
+        expect(tablePage).toBeGreaterThanOrEqual(0);
+        if (headingPage !== tablePage) orphaned.push(i);
+      }
+      expect(orphaned).toEqual([]);
+    });
+
+    it('does not emit a blank leading page for an oversized heading', () => {
+      // A nameless policy whose first (and only) node is a heading taller than
+      // the page must start rendering on page 1, not after an empty page. The
+      // reserve is capped at the usable page height so the up-front check can't
+      // add a page while the current one is still empty.
+      const longHeadingText = Array.from(
+        { length: 200 },
+        () => 'BLANKGUARDWORD',
+      ).join(' ');
+
+      const result = service.renderPoliciesPdfBuffer([
+        {
+          name: '',
+          content: {
+            type: 'doc',
+            content: [
+              {
+                type: 'heading',
+                attrs: { level: 1 },
+                content: [{ type: 'text', text: longHeadingText }],
+              },
+            ],
+          },
+        },
+      ]);
+
+      const orderedPages = orderedPageTexts(result);
+      // The very first page carries heading text — no blank page precedes it.
+      expect(orderedPages[0]).toContain('BLANKGUARDWORD');
+    });
+
+    it('paginates a heading longer than a page instead of overflowing', () => {
+      // Pathological guard: a heading that wraps to more lines than fit on one
+      // page must span multiple pages rather than run off the bottom margin.
+      const longHeadingText = Array.from(
+        { length: 200 },
+        () => 'OVERFLOWWORD',
+      ).join(' ');
+
+      const result = service.renderPoliciesPdfBuffer([
+        {
+          name: 'Giant Heading Policy',
+          content: {
+            type: 'doc',
+            content: [
+              {
+                type: 'heading',
+                attrs: { level: 1 },
+                content: [{ type: 'text', text: longHeadingText }],
+              },
+            ],
+          },
+        },
+      ]);
+
+      const pages = pageTextsFrom(result);
+      const pagesWithHeading = pages.filter((t) =>
+        t.includes('OVERFLOWWORD'),
+      ).length;
+      expect(pagesWithHeading).toBeGreaterThan(1);
+    });
+
+    it('applies custom primary color', () => {
+      const result = service.renderPoliciesPdfBuffer(
+        [
+          {
+            name: 'Branded Policy',
+            content: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Content' }],
+                },
+              ],
+            },
+          },
+        ],
+        'Branded Org',
+        '#ff6600',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+    });
+  });
+});

@@ -1,0 +1,95 @@
+type Organization implements Node {
+  id: ID!
+  name: String!
+  logo: File @goField(forceResolver: true)
+  horizontalLogo: File @goField(forceResolver: true)
+  createdAt: Datetime!
+  updatedAt: Datetime!
+
+  profiles(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+    orderBy: ProfileOrder
+    filter: ProfileFilter
+  ): ProfileConnection @goField(forceResolver: true)
+
+  samlConfigurations(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+  ): SAMLConfigurationConnection @goField(forceResolver: true)
+
+  scimConfiguration: SCIMConfiguration @goField(forceResolver: true)
+  scimBridgeTypes: [SCIMBridgeTypeInfo!]! @goField(forceResolver: true)
+
+  auditLogEntries(
+    first: Int
+    after: CursorKey
+    last: Int
+    before: CursorKey
+    orderBy: AuditLogEntryOrder
+    filter: AuditLogEntryFilter
+  ): AuditLogEntryConnection! @goField(forceResolver: true)
+
+  viewer: Profile @goField(forceResolver: true)
+
+  permission(action: String!, attributes: Map): Boolean!
+    @goField(forceResolver: true)
+    @authentication(required: PRESENT)
+}
+
+extend type Mutation {
+  createOrganization(
+    input: CreateOrganizationInput!
+  ): CreateOrganizationPayload @authentication(required: PRESENT)
+  updateOrganization(
+    input: UpdateOrganizationInput!
+  ): UpdateOrganizationPayload @authentication(required: PRESENT)
+  deleteOrganization(
+    input: DeleteOrganizationInput!
+  ): DeleteOrganizationPayload @authentication(required: PRESENT)
+  deleteOrganizationHorizontalLogo(
+    input: DeleteOrganizationHorizontalLogoInput!
+  ): DeleteOrganizationHorizontalLogoPayload @authentication(required: PRESENT)
+}
+
+input CreateOrganizationInput {
+  name: String!
+  logoFile: Upload
+  horizontalLogoFile: Upload
+}
+
+input UpdateOrganizationInput {
+  organizationId: ID!
+  name: String
+  logoFile: Upload
+  horizontalLogoFile: Upload
+}
+
+input DeleteOrganizationInput {
+  organizationId: ID!
+}
+
+input DeleteOrganizationHorizontalLogoInput {
+  organizationId: ID!
+}
+
+type CreateOrganizationPayload {
+  organization: Organization
+  profile: Profile!
+}
+
+type UpdateOrganizationPayload {
+  organization: Organization
+}
+
+type DeleteOrganizationPayload {
+  deletedOrganizationId: ID!
+}
+
+type DeleteOrganizationHorizontalLogoPayload {
+  organization: Organization!
+}

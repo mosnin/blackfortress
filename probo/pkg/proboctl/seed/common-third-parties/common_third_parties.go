@@ -1,0 +1,234 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package commonthirdparties
+
+import (
+	"bytes"
+	"context"
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/spf13/cobra"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/proboctl/cmdutil"
+	"go.probo.inc/probo/pkg/slug"
+)
+
+//go:embed data/data.json
+var dataJSON []byte
+
+type thirdPartyData struct {
+	Name                          string   `json:"name"`
+	Category                      *string  `json:"category,omitempty"`
+	HeadquarterAddress            *string  `json:"headquarterAddress,omitempty"`
+	LegalName                     *string  `json:"legalName,omitempty"`
+	WebsiteURL                    *string  `json:"websiteUrl,omitempty"`
+	PrivacyPolicyURL              *string  `json:"privacyPolicyUrl,omitempty"`
+	ServiceLevelAgreementURL      *string  `json:"serviceLevelAgreementUrl,omitempty"`
+	ServiceSoftwareAgreementURL   *string  `json:"serviceSoftwareAgreementUrl,omitempty"`
+	DataProcessingAgreementURL    *string  `json:"dataProcessingAgreementUrl,omitempty"`
+	BusinessAssociateAgreementURL *string  `json:"businessAssociateAgreementUrl,omitempty"`
+	SubprocessorsListURL          *string  `json:"subprocessorsListUrl,omitempty"`
+	Certifications                []string `json:"certifications,omitempty"`
+	StatusPageURL                 *string  `json:"statusPageUrl,omitempty"`
+	TermsOfServiceURL             *string  `json:"termsOfServiceUrl,omitempty"`
+	SecurityPageURL               *string  `json:"securityPageUrl,omitempty"`
+	TrustPageURL                  *string  `json:"trustPageUrl,omitempty"`
+	Domains                       []string `json:"domains,omitempty"`
+}
+
+func NewCmdCommonThirdParties(f *cmdutil.Factory) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "common-third-parties",
+		Short: "Seed common third parties",
+		Long: "Seed the common_third_parties table from the embedded dataset. " +
+			"Re-running is safe: existing rows are upserted on conflict (slug) " +
+			"so ids and created_at are preserved.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := f.IOStreams.Out
+			errOut := f.IOStreams.ErrOut
+			ctx := cmd.Context()
+
+			thirdParties, err := loadThirdParties()
+			if err != nil {
+				return fmt.Errorf("cannot load third-party data: %w", err)
+			}
+
+			pgClient, err := f.PgClient()
+			if err != nil {
+				return fmt.Errorf("cannot create pg client: %w", err)
+			}
+
+			_, _ = fmt.Fprintf(out, "seeding %d common third parties\n", len(thirdParties))
+
+			var inserted, updated, domainsInserted, domainsUpdated int
+
+			if err := pgClient.WithTx(
+				ctx,
+				func(ctx context.Context, tx pg.Tx) error {
+					now := time.Now()
+
+					for _, tp := range thirdParties {
+						// Curated by definition, so the seed asserts it on
+						// every run: this is the one caller that should move
+						// a row's review state without a human doing it.
+						validatedReview := coredata.CommonThirdPartyReviewValidated
+
+						party := coredata.CommonThirdParty{
+							ID:                            gid.New(gid.NilTenant, coredata.CommonThirdPartyEntityType),
+							Name:                          tp.Name,
+							Slug:                          slug.Make(tp.Name),
+							Category:                      parseCategory(errOut, tp),
+							HeadquarterAddress:            tp.HeadquarterAddress,
+							LegalName:                     tp.LegalName,
+							WebsiteURL:                    tp.WebsiteURL,
+							PrivacyPolicyURL:              tp.PrivacyPolicyURL,
+							ServiceLevelAgreementURL:      tp.ServiceLevelAgreementURL,
+							ServiceSoftwareAgreementURL:   tp.ServiceSoftwareAgreementURL,
+							DataProcessingAgreementURL:    tp.DataProcessingAgreementURL,
+							BusinessAssociateAgreementURL: tp.BusinessAssociateAgreementURL,
+							SubprocessorsListURL:          tp.SubprocessorsListURL,
+							Certifications:                tp.Certifications,
+							// Seed entries are curated by definition, so they
+							// start where a review would put them and stay out
+							// of the unreviewed backlog. This is also why prune
+							// refuses to delete them.
+							Review:            &validatedReview,
+							StatusPageURL:     tp.StatusPageURL,
+							TermsOfServiceURL: tp.TermsOfServiceURL,
+							SecurityPageURL:   tp.SecurityPageURL,
+							TrustPageURL:      tp.TrustPageURL,
+							CreatedAt:         now,
+							UpdatedAt:         now,
+						}
+
+						wasInserted, err := party.Upsert(ctx, tx)
+						if err != nil {
+							return fmt.Errorf("cannot upsert common third party %q: %w", tp.Name, err)
+						}
+
+						// Upsert returns the written row and syncs the
+						// receiver, so party.ID identifies the row the
+						// domains below belong to on both paths. Do not
+						// reload by name here: lower(name) is not unique,
+						// so a reload could return a different row and
+						// attach this entry's domains to it.
+						if wasInserted {
+							inserted++
+						} else {
+							updated++
+						}
+
+						for _, domain := range tp.Domains {
+							d := coredata.CommonThirdPartyDomain{
+								ID:                 gid.New(gid.NilTenant, coredata.CommonThirdPartyDomainEntityType),
+								CommonThirdPartyID: party.ID,
+								Domain:             domain,
+								CreatedAt:          now,
+								UpdatedAt:          now,
+							}
+
+							domainInserted, err := d.Upsert(ctx, tx)
+							if err != nil {
+								return fmt.Errorf("cannot upsert domain %q for %q: %w", domain, tp.Name, err)
+							}
+
+							if domainInserted {
+								domainsInserted++
+							} else {
+								domainsUpdated++
+							}
+						}
+					}
+
+					return nil
+				},
+			); err != nil {
+				return err
+			}
+
+			_, _ = fmt.Fprintf(out, "seeded %d third parties (%d inserted, %d updated)\n", len(thirdParties), inserted, updated)
+			_, _ = fmt.Fprintf(out, "seeded %d domains (%d inserted, %d updated)\n", domainsInserted+domainsUpdated, domainsInserted, domainsUpdated)
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+func loadThirdParties() ([]thirdPartyData, error) {
+	var thirdParties []thirdPartyData
+
+	dec := json.NewDecoder(bytes.NewReader(dataJSON))
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(&thirdParties); err != nil {
+		return nil, fmt.Errorf("cannot decode embedded data.json: %w", err)
+	}
+
+	return thirdParties, nil
+}
+
+// SeededSlugs returns the slug of every curated catalog entry.
+//
+// A seeded slug is recreated by the next seed run, which makes it decisive
+// for cleanup: merging such a row away resurrects it on the following
+// deploy. Callers use this to prefer a seeded row as a merge winner and to
+// refuse deleting one.
+//
+// Derived from the same embedded dataset the seed writes, so the two cannot
+// disagree about which slugs are curated.
+func SeededSlugs() (map[string]struct{}, error) {
+	thirdParties, err := loadThirdParties()
+	if err != nil {
+		return nil, err
+	}
+
+	slugs := make(map[string]struct{}, len(thirdParties))
+
+	for _, tp := range thirdParties {
+		if s := slug.Make(tp.Name); s != "" {
+			slugs[s] = struct{}{}
+		}
+	}
+
+	return slugs, nil
+}
+
+func parseCategory(errOut io.Writer, tp thirdPartyData) coredata.ThirdPartyCategory {
+	if tp.Category == nil || *tp.Category == "" {
+		return coredata.ThirdPartyCategoryOther
+	}
+
+	var c coredata.ThirdPartyCategory
+	if err := c.UnmarshalText([]byte(*tp.Category)); err != nil {
+		_, _ = fmt.Fprintf(errOut, "warning: third party %q has unknown category %q, falling back to OTHER\n", tp.Name, *tp.Category)
+		return coredata.ThirdPartyCategoryOther
+	}
+
+	return c
+}

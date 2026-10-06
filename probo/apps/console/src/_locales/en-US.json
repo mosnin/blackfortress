@@ -1,0 +1,3340 @@
+{
+  "size": {
+    "B": "B",
+    "KB": "KB",
+    "MB": "MB",
+    "GB": "GB",
+    "TB": "TB"
+  },
+  "duration": {
+    "seconds_one": "second",
+    "seconds_other": "seconds",
+    "minutes_one": "minute",
+    "minutes_other": "minutes",
+    "hours_one": "hour",
+    "hours_other": "hours",
+    "days_one": "day",
+    "days_other": "days",
+    "weeks_one": "week",
+    "weeks_other": "weeks",
+    "months_one": "month",
+    "months_other": "months",
+    "years_one": "year",
+    "years_other": "years",
+    "session": "session",
+    "persistent": "persistent",
+    "sec_one": "{{count}} Second",
+    "sec_other": "{{count}} Seconds",
+    "min_one": "{{count}} Minute",
+    "min_other": "{{count}} Minutes",
+    "hour_one": "{{count}} Hour",
+    "hour_other": "{{count}} Hours"
+  },
+  "dataPage": {
+    "pageTitle": "Data",
+    "title": "Data",
+    "description": "Manage your organization's data assets and their classifications.",
+    "actions": {
+      "document": "Document",
+      "publish": "Publish",
+      "add": "Add data",
+      "delete": "Delete"
+    },
+    "columns": {
+      "name": "Name",
+      "classification": "Classification",
+      "owner": "Owner",
+      "thirdParties": "Third parties"
+    },
+    "unassigned": "Unassigned",
+    "none": "None"
+  },
+  "datumDetails": {
+    "fields": {
+      "name": "Name",
+      "classification": "Classification",
+      "owner": "Owner",
+      "thirdParties": "Third parties"
+    },
+    "classifications": {
+      "public": "Public",
+      "internal": "Internal",
+      "confidential": "Confidential",
+      "secret": "Secret"
+    },
+    "validation": {
+      "nameRequired": "Name is required",
+      "ownerRequired": "Owner is required"
+    },
+    "errors": { "missingId": "Data ID is missing." },
+    "actions": { "delete": "Delete", "updating": "Updating...", "update": "Update" }
+  },
+  "createDatumDialog": {
+    "breadcrumbs": { "data": "Data", "new": "New data" },
+    "fields": {
+      "name": "Name",
+      "classification": "Classification",
+      "owner": "Owner",
+      "thirdParties": "Third parties"
+    },
+    "classifications": {
+      "public": "Public",
+      "internal": "Internal",
+      "confidential": "Confidential",
+      "secret": "Secret"
+    },
+    "validation": {
+      "nameRequired": "Name is required",
+      "ownerRequired": "Owner is required"
+    },
+    "actions": { "create": "Create" }
+  },
+  "publishDataListDialog": {
+    "title": "Publish data list",
+    "errors": {
+      "publish": "Failed to publish data list"
+    },
+    "messages": {
+      "published": "Data list published successfully."
+    }
+  },
+  "documentLayout": {
+    "actions": { "publish": "Publish" },
+    "status": {
+      "generated": "Generated",
+      "published": "Published",
+      "pendingApproval": "Pending approval",
+      "draft": "Draft",
+      "rejected": "Rejected"
+    },
+    "tabs": {
+      "description": "Description",
+      "controls": "Controls",
+      "approvals": "Approvals",
+      "signatures": "Signatures"
+    }
+  },
+  "documentsPage": {
+    "pageTitle": "Documents",
+    "title": "Documents",
+    "description": "Manage your organization's documents",
+    "actions": { "new": "New document" },
+    "tabs": { "active": "Active", "archived": "Archived" }
+  },
+  "createDocumentDialog": {
+    "breadcrumbs": { "documents": "Documents", "new": "New document" },
+    "fields": {
+      "title": "Title",
+      "titlePlaceholder": "Document title",
+      "approversPlaceholder": "Add approvers..."
+    },
+    "properties": {
+      "title": "Properties",
+      "status": "Status",
+      "type": "Type",
+      "classification": "Classification",
+      "approvers": "Approvers"
+    },
+    "status": { "draft": "Draft" },
+    "validation": { "titleRequired": "Title is required" },
+    "messages": { "successTitle": "Success", "created": "Document created successfully." },
+    "errors": { "title": "Error", "create": "Failed to create document" },
+    "actions": { "create": "Create document" }
+  },
+  "deleteDocumentDialog": {
+    "title": { "single": "Delete document", "multiple": "Delete documents" },
+    "confirmation": {
+      "single": "Are you sure you want to delete the document \"{{title}}\"?",
+      "selected_one": "Are you sure you want to delete {{count}} selected document?",
+      "selected_other": "Are you sure you want to delete {{count}} selected documents?"
+    },
+    "irreversible": "This action cannot be undone.",
+    "actions": { "delete": "Delete" }
+  },
+  "documentActions": {
+    "messages": {
+      "successTitle": "Success",
+      "archived": "Document archived successfully.",
+      "unarchived": "Document unarchived successfully.",
+      "draftDeleted": "Draft deleted successfully."
+    },
+    "errors": {
+      "title": "Error",
+      "archive": "Failed to archive document",
+      "unarchive": "Failed to unarchive document",
+      "deleteDraft": "Failed to delete draft",
+      "generatePdf": "Failed to generate PDF"
+    },
+    "confirmations": {
+      "archive": "This will archive the document \"{{title}}\". It will no longer be editable.",
+      "deleteDraft": "This will delete the current draft and revert to the last published version."
+    },
+    "actions": {
+      "downloadPdf": "Download PDF",
+      "deleteDraft": "Delete draft",
+      "archive": "Archive",
+      "archiveDocument": "Archive document",
+      "unarchiveDocument": "Unarchive document",
+      "deleteDocument": "Delete document"
+    }
+  },
+  "documentDetails": {
+    "fields": {
+      "type": "Type",
+      "classification": "Classification",
+      "approvers": "Approvers",
+      "approversPlaceholder": "Add approvers...",
+      "version": "Version",
+      "lastModified": "Last modified",
+      "publishedDate": "Published date",
+      "archivedOn": "Archived on"
+    },
+    "documentTypes": {
+      "other": "Other",
+      "governance": "Governance",
+      "policy": "Policy",
+      "procedure": "Procedure",
+      "plan": "Plan",
+      "register": "Register",
+      "record": "Record",
+      "report": "Report",
+      "template": "Template",
+      "statement_of_applicability": "Statement of applicability"
+    },
+    "classifications": { "public": "Public", "internal": "Internal", "confidential": "Confidential", "secret": "Secret" },
+    "messages": {
+      "successTitle": "Success",
+      "typeUpdated": "Document type updated successfully",
+      "classificationUpdated": "Document classification updated successfully",
+      "approversUpdated": "Approvers updated successfully"
+    },
+    "errors": { "title": "Error", "updateType": "Failed to update document type", "updateClassification": "Failed to update document classification", "updateApprovers": "Failed to update approvers" },
+    "none": "None"
+  },
+  "documentList": {
+    "filters": { "searchPlaceholder": "Search documents by title...", "allSources": "All sources", "allTypes": "All types", "allClassifications": "All classifications" },
+    "writeModes": { "authored": "Authored", "generated": "Generated" },
+    "documentTypes": {
+      "other": "Other",
+      "governance": "Governance",
+      "policy": "Policy",
+      "procedure": "Procedure",
+      "plan": "Plan",
+      "register": "Register",
+      "record": "Record",
+      "report": "Report",
+      "template": "Template",
+      "statement_of_applicability": "Statement of applicability"
+    },
+    "classifications": { "public": "Public", "internal": "Internal", "confidential": "Confidential", "secret": "Secret" },
+    "columns": { "name": "Name", "status": "Status", "version": "Version", "type": "Type", "classification": "Classification", "approvers": "Approvers", "lastUpdate": "Last update", "signatures": "Signatures" },
+    "selected_one": "{{count}} document selected",
+    "selected_other": "{{count}} documents selected",
+    "messages": { "archived": "Documents archived successfully.", "unarchived": "Documents unarchived successfully." },
+    "errors": { "archive": "Failed to archive documents", "unarchive": "Failed to unarchive documents" },
+    "actions": { "clearSelection": "Clear selection", "unarchive": "Unarchive", "delete": "Delete", "publish": "Publish", "requestSignature": "Request signature", "export": "Export", "archive": "Archive" },
+    "empty": { "title": "No documents yet", "archivedTitle": "No archived documents", "description": "Create your first document to get started." }
+  },
+  "documentListItem": {
+    "status": { "draft": "Draft", "pendingApproval": "Pending approval", "published": "Published", "rejected": "Rejected" },
+    "documentTypes": { "other": "Other", "governance": "Governance", "policy": "Policy", "procedure": "Procedure", "plan": "Plan", "register": "Register", "record": "Record", "report": "Report", "template": "Template", "statement_of_applicability": "Statement of applicability" },
+    "classifications": { "public": "Public", "internal": "Internal", "confidential": "Confidential", "secret": "Secret" },
+    "messages": { "successTitle": "Success", "archived": "Document archived successfully.", "unarchived": "Document unarchived successfully." },
+    "errors": { "title": "Error", "archive": "Failed to archive document", "unarchive": "Failed to unarchive document" },
+    "confirmations": { "archive": "This will archive the document \"{{title}}\". It will no longer be editable." },
+    "actions": { "archive": "Archive", "unarchive": "Unarchive", "delete": "Delete" }
+  },
+  "documentTitleForm": {
+    "validation": { "titleRequired": "Title is required" },
+    "errors": { "title": "Error", "update": "Failed to update document" }
+  },
+  "documentVersionsDropdown": { "title": "Version history" },
+  "documentVersionsDropdownItem": {
+    "status": { "draft": "Draft", "pendingApproval": "Pending approval" }
+  },
+  "publishDialog": {
+    "title": "Publish document",
+    "validation": { "changelogRequired": "Changelog is required" },
+    "messages": { "successTitle": "Success", "approvalRequested": "Approval requested successfully.", "published": "Document published successfully." },
+    "errors": { "title": "Error", "publish": "Failed to publish document" },
+    "fields": { "changelog": "Changelog", "changelogPlaceholder": "Describe what changed in this version...", "approvers": "Approvers", "approversPlaceholder": "Add approvers..." },
+    "approversDescription": "Approvers will receive an email and the document will be published as a major version once all have approved. Remove all approvers to publish directly as major.",
+    "actions": { "publishMinor": "Publish as minor", "requestApproval": "Request approval", "publishMajor": "Publish as major" }
+  },
+  "publishDocumentsDialog": {
+    "title": "Publish documents",
+    "validation": { "changelogRequired": "Changelog is required" },
+    "messages": { "successTitle": "Success", "published_one": "{{count}} document published", "published_other": "{{count}} documents published" },
+    "errors": { "title": "Error", "publish": "Failed to publish documents" },
+    "warning": { "approval": "Publishing as major will request approval for documents that have default approvers configured. Approvers will receive an email notification.", "skipped": "Documents already published and pending approval will be skipped." },
+    "fields": { "changelog": "Changelog", "changelogPlaceholder": "Describe what changed in this version..." },
+    "actions": { "publishMinor": "Publish as minor", "publish_one": "Publish {{count}} document", "publish_other": "Publish {{count}} documents" }
+  },
+  "signatureDocumentsDialog": {
+    "breadcrumbs": { "documents": "Documents", "requests": "Signature requests" },
+    "messages": { "created_one": "{{count}} signature request created", "created_other": "{{count}} signature requests created" },
+    "errors": { "create": "Failed to create signature requests" },
+    "actions": { "request": "Request signatures", "showMore": "Show {{count}} more" }
+  },
+  "documentApprovalsPage": {
+    "previousRequests": "Previous approval requests",
+    "status": { "approved": "Approved", "rejected": "Rejected", "voided": "Voided", "pending": "Pending" }
+  },
+  "documentApprovalList": {
+    "confirmation": { "void": "This will void the current approval request and return the version to draft. This action cannot be undone." },
+    "status": { "pending": "Pending", "approved": "Approved", "rejected": "Rejected", "voided": "Voided" },
+    "actions": { "void": "Void approval", "cancel": "Cancel" },
+    "empty": "No approval decisions yet."
+  },
+  "documentApprovalListItem": {
+    "dates": { "requested": "Requested on {{date}}", "approved": "Approved on {{date}}", "rejected": "Rejected on {{date}}" },
+    "status": { "approved": "Approved", "rejected": "Rejected", "pending": "Pending", "voided": "Voided" },
+    "actions": { "review": "Review" }
+  },
+  "documentDescriptionPage": {
+    "messages": { "successTitle": "Success", "saved": "Content saved" },
+    "errors": { "title": "Error", "save": "Content not saved" }
+  },
+  "documentSignaturesPage": {
+    "filter": { "label": "Filter by state:" },
+    "states": { "requested": "Requested", "signed": "Signed" }
+  },
+  "documentSignatureListItem": {
+    "dates": { "signed": "Signed on {{date}}", "requested": "Requested on {{date}}" },
+    "messages": { "cancelled": "Request cancelled successfully" },
+    "errors": { "cancel": "Failed to cancel signature request" },
+    "status": { "signed": "Signed" },
+    "actions": { "cancel": "Cancel request" }
+  },
+  "documentSignaturePlaceholder": {
+    "messages": { "sent": "Signature request sent successfully" },
+    "errors": { "send": "Failed to send signature request" },
+    "actions": { "request": "Request signature" }
+  },
+  "findingDetails": {
+    "kinds": { "minor_nonconformity": "Minor nonconformity", "major_nonconformity": "Major nonconformity", "observation": "Observation", "exception": "Exception" },
+    "status": { "open": "Open", "in_progress": "In progress", "closed": "Closed", "risk_accepted": "Risk accepted", "mitigated": "Mitigated", "false_positive": "False positive" },
+    "priority": { "low": "Low", "medium": "Medium", "high": "High" },
+    "messages": { "successTitle": "Success", "deleted": "Finding deleted successfully", "updated": "Finding updated successfully" },
+    "errors": { "title": "Error", "delete": "Failed to delete finding", "update": "Failed to update finding", "linkAudit": "Failed to link audit", "unlinkAudit": "Failed to unlink audit" },
+    "deleteConfirmation": "This will permanently delete the finding {{referenceId}}. This action cannot be undone.",
+    "fields": { "description": "Description", "source": "Source", "owner": "Owner", "status": "Status", "priority": "Priority", "acceptedRisk": "Accepted risk", "dateIdentified": "Date identified", "dueDate": "Due date", "rootCause": "Root cause", "correctiveAction": "Corrective action", "effectivenessCheck": "Effectiveness check" },
+    "placeholders": { "description": "Enter description", "source": "Enter source", "rootCause": "Enter root cause", "correctiveAction": "Enter corrective action", "effectivenessCheck": "Enter effectiveness check details" },
+    "actions": { "delete": "Delete", "updating": "Updating...", "update": "Update" },
+    "audits": { "title": "Linked audits", "referenceId": "Audit reference", "link": "Link audit", "empty": "No audits linked", "loadMore": "Load more audits", "loading": "Loading..." }
+  },
+  "findingsPage": {
+    "pageTitle": "Findings",
+    "title": "Findings",
+    "description": "Manage your organization's findings.",
+    "filters": { "allKinds": "All kinds", "allStatuses": "All statuses", "allPriorities": "All priorities", "allOwners": "All owners", "allAudits": "All audits" },
+    "kinds": { "minor_nonconformity": "Minor nonconformity", "major_nonconformity": "Major nonconformity", "minorNonconformity": "Minor nonconformity", "majorNonconformity": "Major nonconformity", "observation": "Observation", "exception": "Exception" },
+    "status": { "open": "Open", "in_progress": "In progress", "closed": "Closed", "risk_accepted": "Risk accepted", "mitigated": "Mitigated", "false_positive": "False positive" },
+    "priority": { "low": "Low", "medium": "Medium", "high": "High" },
+    "columns": { "kind": "Kind", "referenceId": "Reference ID", "description": "Description", "status": "Status", "priority": "Priority", "owner": "Owner", "dueDate": "Due date", "actions": "Actions" },
+    "actions": { "document": "Document", "publish": "Publish", "add": "Add finding", "loadMore": "Load more", "delete": "Delete" },
+    "loading": "Loading...",
+    "noDescription": "No description",
+    "noDueDate": "No due date",
+    "empty": { "title": "No findings yet", "description": "Create your first finding to get started." },
+    "messages": { "successTitle": "Success", "deleted": "Finding deleted successfully" },
+    "errors": { "title": "Error", "delete": "Failed to delete finding" },
+    "deleteConfirmation": "This will permanently delete the finding {{referenceId}}. This action cannot be undone."
+  },
+  "createFindingDialog": {
+    "breadcrumbs": { "findings": "Findings", "create": "Create" },
+    "kinds": { "minorNonconformity": "Minor nonconformity", "majorNonconformity": "Major nonconformity", "observation": "Observation", "exception": "Exception" },
+    "status": { "open": "Open", "in_progress": "In progress", "closed": "Closed", "risk_accepted": "Risk accepted", "mitigated": "Mitigated", "false_positive": "False positive" },
+    "priority": { "low": "Low", "medium": "Medium", "high": "High" },
+    "messages": { "successTitle": "Success", "created": "Finding created successfully" },
+    "errors": { "title": "Error", "create": "Failed to create finding" },
+    "fields": { "kind": "Kind", "description": "Description", "source": "Source", "owner": "Owner", "status": "Status", "priority": "Priority", "acceptedRisk": "Accepted risk", "dateIdentified": "Date identified", "dueDate": "Due date", "rootCause": "Root cause", "correctiveAction": "Corrective action", "effectivenessCheck": "Effectiveness check" },
+    "placeholders": { "selectKind": "Select kind", "description": "Brief description of the finding...", "source": "Enter source", "selectStatus": "Select status", "rootCause": "Detailed analysis of the root cause...", "correctiveAction": "Proposed corrective actions...", "effectivenessCheck": "Assessment of corrective action effectiveness..." },
+    "actions": { "creating": "Creating...", "create": "Create finding" }
+  },
+  "publishFindingListDialog": {
+    "title": "Publish finding list",
+    "errors": {
+      "publish": "Failed to publish finding list"
+    },
+    "messages": {
+      "published": "Finding list published successfully."
+    }
+  },
+  "tasks": {
+    "title": "Tasks",
+    "description": "Track your assigned compliance tasks and keep progress on track.",
+    "actions": {
+      "create": "Add Task"
+    }
+  },
+  "pageError": {
+    "actions": {
+      "goHome": "Go home"
+    },
+    "notFound": {
+      "title": "Page not found",
+      "description": "The page you are looking for does not exist."
+    },
+    "forbidden": {
+      "title": "You do not have access to this page",
+      "description": "Your role does not allow you to view this page. Ask an organization admin if you need access."
+    },
+    "unexpected": {
+      "title": "Something went wrong",
+      "description": "We hit an unexpected error. Head back home to continue."
+    },
+    "technicalDetails": "Technical details"
+  },
+  "sortableTable": {
+    "actions": {
+      "showMore": "Show more"
+    }
+  },
+  "assetsTable": {
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "dataTypesStored": "Data Types stored",
+      "amount": "Amount",
+      "owner": "Owner",
+      "thirdParties": "Third parties"
+    },
+    "actions": {
+      "add": "Add a new asset",
+      "edit": "Edit",
+      "delete": "Delete"
+    },
+    "assetTypes": {
+      "physical": "Physical",
+      "virtual": "Virtual"
+    },
+    "delete": {
+      "missingIdOrName": "Failed to delete asset: missing id or name",
+      "confirmation": "This will permanently delete \"{{name}}\". This action cannot be undone."
+    }
+  },
+  "readOnlyAssetsTable": {
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "amount": "Amount",
+      "owner": "Owner",
+      "thirdParties": "Third parties"
+    },
+    "assetTypes": {
+      "physical": "Physical",
+      "virtual": "Virtual"
+    },
+    "unassigned": "Unassigned",
+    "none": "None"
+  },
+  "linkedAuditsCard": {
+    "title": "Audits",
+    "columns": {
+      "name": "Name",
+      "state": "State"
+    },
+    "empty": "No audits linked",
+    "actions": {
+      "link": "Link audit",
+      "unlink": "Unlink",
+      "showMore": "Show {{count}} more"
+    }
+  },
+  "linkedAuditsDialog": {
+    "title": "Link audits",
+    "searchPlaceholder": "Search audits...",
+    "referenceIdLabel": "Audit reference",
+    "referenceIdDescription": "Enter the reference used for this finding in the audit report.",
+    "referenceIdPlaceholder": "Enter the report reference",
+    "empty": "No audits match your search.",
+    "actions": {
+      "back": "Back",
+      "close": "Close",
+      "confirmLink": "Link audit",
+      "link": "Link",
+      "unlink": "Unlink"
+    }
+  },
+  "linkedControlsCard": {
+    "columns": {
+      "reference": "Reference",
+      "name": "Name"
+    },
+    "empty": "No controls linked",
+    "actions": {
+      "link": "Link control",
+      "unlink": "Unlink"
+    }
+  },
+  "linkedControlsDialog": {
+    "title": "Link controls",
+    "searchPlaceholder": "Search controls...",
+    "actions": {
+      "link": "Link",
+      "unlink": "Unlink"
+    }
+  },
+  "bulkExportDialog": {
+    "title": "Export {{count}} Documents",
+    "includeSignatures": {
+      "label": "Include signatures",
+      "description": "Show signature information and approval details in the PDFs"
+    },
+    "watermark": {
+      "label": "Add watermark",
+      "description": "Add a watermark with each document's classification, custom text, and a timestamp to all PDFs",
+      "textLabel": "Watermark text",
+      "textPlaceholder": "Enter watermark text"
+    },
+    "notice": "The documents will be exported as individual PDFs in a ZIP file. You will receive an email when the export is ready for download.",
+    "actions": {
+      "export": "Export Documents",
+      "exporting": "Exporting..."
+    }
+  },
+  "linkedDocumentsCard": {
+    "title": "Documents",
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "state": "State"
+    },
+    "empty": "No documents linked",
+    "actions": {
+      "link": "Link document",
+      "unlink": "Unlink",
+      "showMore": "Show {{count}} more"
+    }
+  },
+  "linkedDocumentsDialog": {
+    "title": "Link documents",
+    "searchPlaceholder": "Search documents...",
+    "actions": {
+      "close": "Close",
+      "link": "Link",
+      "unlink": "Unlink"
+    }
+  },
+  "pdfDownloadDialog": {
+    "title": "Download PDF Options",
+    "includeSignatures": {
+      "label": "Include signatures",
+      "description": "Show signature information and approval details in the PDF"
+    },
+    "watermark": {
+      "label": "Add watermark",
+      "description": "Add a watermark with the document classification, custom text, and a timestamp",
+      "textLabel": "Watermark text",
+      "textPlaceholder": "Enter watermark text"
+    },
+    "actions": {
+      "download": "Download PDF",
+      "downloading": "Downloading..."
+    }
+  },
+  "controlMaturityLevelOptions": {
+    "levels": {
+      "NONE": "0 - None",
+      "INITIAL": "1 - Initial",
+      "MANAGED": "2 - Managed",
+      "DEFINED": "3 - Defined",
+      "QUANTITATIVELY_MANAGED": "4 - Quantitatively Managed",
+      "OPTIMIZING": "5 - Optimizing"
+    }
+  },
+  "countriesField": {
+    "searchPlaceholder": "Search and add countries..."
+  },
+  "documentClassificationOptions": {
+    "classifications": {
+      "PUBLIC": "Public",
+      "INTERNAL": "Internal",
+      "CONFIDENTIAL": "Confidential",
+      "SECRET": "Secret"
+    }
+  },
+  "documentTypeOptions": {
+    "types": {
+      "OTHER": "Other",
+      "GOVERNANCE": "Governance",
+      "POLICY": "Policy",
+      "PROCEDURE": "Procedure",
+      "PLAN": "Plan",
+      "REGISTER": "Register",
+      "RECORD": "Record",
+      "REPORT": "Report",
+      "TEMPLATE": "Template",
+      "STATEMENT_OF_APPLICABILITY": "Statement of Applicability"
+    }
+  },
+  "emailsField": {
+    "additionalEmails": "Additional emails",
+    "actions": {
+      "add": "Add email"
+    }
+  },
+  "measureSelectField": {
+    "placeholder": "Select a measure",
+    "none": "None"
+  },
+  "peopleMultiSelectField": {
+    "addPlaceholder": "Add people...",
+    "empty": "No people available",
+    "remove": "Remove {{name}}"
+  },
+  "peopleSelectField": {
+    "placeholder": "Select an owner",
+    "none": "None"
+  },
+  "riskSelectField": {
+    "placeholder": "Select a risk",
+    "none": "None"
+  },
+  "processingActivityEnumOptions": {
+    "specialOrCriminalData": {
+      "yes": "Yes",
+      "no": "No",
+      "possible": "Possible"
+    },
+    "lawfulBasis": {
+      "consent": "Consent",
+      "contractualNecessity": "Contractual Necessity",
+      "legalObligation": "Legal Obligation",
+      "legitimateInterest": "Legitimate Interest",
+      "publicTask": "Public Task",
+      "vitalInterests": "Vital Interests"
+    },
+    "residualRisk": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    },
+    "transferSafeguards": {
+      "none": "None",
+      "standardContractualClauses": "Standard Contractual Clauses",
+      "bindingCorporateRules": "Binding Corporate Rules",
+      "adequacyDecision": "Adequacy Decision",
+      "derogations": "Derogations",
+      "codesOfConduct": "Codes of Conduct",
+      "certificationMechanisms": "Certification Mechanisms"
+    },
+    "dataProtectionImpactAssessment": {
+      "needed": "Needed",
+      "notNeeded": "Not Needed"
+    },
+    "transferImpactAssessment": {
+      "needed": "Needed",
+      "notNeeded": "Not Needed"
+    },
+    "roles": {
+      "controller": "Controller",
+      "processor": "Processor"
+    }
+  },
+  "thirdPartiesMultiSelectField": {
+    "addPlaceholder": "Add third parties...",
+    "empty": "No third parties available",
+    "remove": "Remove {{name}}"
+  },
+  "linkedMeasuresCard": {
+    "title": "Measures",
+    "columns": { "name": "Name", "state": "State" },
+    "empty": "No measures linked",
+    "actions": {
+      "link": "Link measure",
+      "unlink": "Unlink",
+      "showMore": "Show {{count}} more"
+    }
+  },
+  "linkedMeasuresDialog": {
+    "title": "Link measures",
+    "searchPlaceholder": "Search measures...",
+    "allCategories": "All categories",
+    "actions": { "close": "Close", "link": "Link", "unlink": "Unlink" }
+  },
+  "linkedObligationsCard": {
+    "title": "Obligations",
+    "columns": {
+      "area": "Area",
+      "source": "Source",
+      "status": "Status",
+      "owner": "Owner"
+    },
+    "empty": "No obligations linked",
+    "noArea": "No area specified",
+    "noSource": "No source specified",
+    "unassigned": "Unassigned",
+    "actions": {
+      "link": "Link obligation",
+      "unlink": "Unlink",
+      "showMore": "Show {{count}} more"
+    }
+  },
+  "linkedObligationsDialog": {
+    "title": "Link obligations",
+    "searchPlaceholder": "Search obligations...",
+    "noArea": "No area specified",
+    "noSource": "No source specified",
+    "unassigned": "Unassigned",
+    "actions": { "close": "Close", "link": "Link", "unlink": "Unlink" }
+  },
+  "linkedRisksCard": {
+    "columns": {
+      "referenceId": "Reference ID",
+      "name": "Name",
+      "initialRisk": "Initial Risk",
+      "residualRisk": "Residual Risk"
+    },
+    "empty": "No risks linked",
+    "actions": { "link": "Link risk", "unlink": "Unlink" }
+  },
+  "linkedRisksDialog": {
+    "title": "Link risks",
+    "searchPlaceholder": "Search risks...",
+    "allCategories": "All categories",
+    "actions": { "close": "Close", "link": "Link", "unlink": "Unlink" }
+  },
+  "controlSkeleton": {
+    "actions": { "edit": "Edit control" }
+  },
+  "risksPageSkeleton": {
+    "title": "Risks",
+    "actions": { "create": "New Risk" }
+  },
+  "graphQLCell": { "searchPlaceholder": "Search" },
+  "sortableDataTable": {
+    "actions": { "showMore": "Show more" }
+  },
+  "tasksCard": {
+    "states": { "all": "All", "backlog": "Backlog", "todo": "To do", "inProgress": "In progress", "done": "Done", "canceled": "Canceled", "duplicate": "Duplicate" },
+    "empty": "No tasks",
+    "noResults": "No tasks match your filters",
+    "searchPlaceholder": "Search tasks",
+    "filters": { "status": "Status", "allStatuses": "All statuses", "user": "User", "allUsers": "All users" },
+    "error": { "title": "Error", "reorder": "Failed to reorder task." },
+    "dragInstructions": {
+      "all": "Drag and drop to reorder tasks or move them between states",
+      "state": "Drag and drop to reorder tasks"
+    },
+    "deleteConfirmation": "Are you sure you want to delete this task?",
+    "actions": { "moveToTodo": "Move to To do", "moveToInProgress": "Move to In progress", "moveToDone": "Move to Done", "edit": "Edit", "delete": "Delete" },
+    "metadata": { "timeEstimate": "Time estimate", "deadline": "Deadline" },
+    "recurringBadge": {
+      "tooltip": "Repeats every {{interval}}"
+    }
+  },
+  "deleteTrustCenterReferenceDialog": {
+    "title": "Delete Reference",
+    "description": "Are you sure you want to delete the reference \"{{referenceName}}\"?",
+    "warning": "This action cannot be undone.",
+    "actions": { "delete": "Delete", "deleting": "Deleting..." }
+  },
+  "trustCenterReferenceDialog": {
+    "fields": {
+      "name": { "label": "Reference Name", "placeholder": "Company or organization name" },
+      "description": { "label": "Description", "placeholder": "Brief description of the reference" },
+      "websiteUrl": { "label": "Website URL", "placeholder": "https://example.com" },
+      "rank": { "label": "Rank", "placeholder": "Display order (1, 2, 3...)", "help": "Lower numbers appear first" },
+      "logo": {
+        "label": "Logo",
+        "description": "Upload logo image (PNG, JPG, WEBP, SVG up to 5MB)",
+        "selectedFile": "Selected file",
+        "keepCurrent": "Current logo will be kept if no new file is uploaded",
+        "required": "Logo is required for new references"
+      }
+    },
+    "actions": { "add": "Add Reference", "edit": "Edit Reference", "update": "Update Reference" }
+  },
+  "assetGraph": {
+    "deleteConfirmation": "This will permanently delete \"{{name}}\". This action cannot be undone.",
+    "errors": {
+      "deleteMissingIdOrName": "Failed to delete asset: missing id or name",
+      "createNameRequired": "Failed to create asset: name is required",
+      "createOwnerRequired": "Failed to create asset: owner is required",
+      "createOrganizationRequired": "Failed to create asset: organization is required",
+      "createDataTypesStoredRequired": "Failed to create asset: data types stored is required",
+      "updateIdRequired": "Failed to update asset: asset ID is required"
+    }
+  },
+  "auditGraph": {
+    "deleteConfirmation": "This will permanently delete the audit for {{frameworkName}}. This action cannot be undone.",
+    "messages": { "deleted": "Audit deleted successfully", "reportUploaded": "Audit report uploaded successfully", "reportDeleted": "Audit report deleted successfully" },
+    "errors": {
+      "delete": "Failed to delete audit",
+      "createOrganizationRequired": "Failed to create audit: organization is required",
+      "createFrameworkRequired": "Failed to create audit: framework is required",
+      "updateIdRequired": "Failed to update audit: audit ID is required",
+      "uploadReport": "Failed to upload audit report",
+      "uploadReportIdRequired": "Failed to upload report: audit ID is required",
+      "deleteReport": "Failed to delete audit report"
+    }
+  },
+  "datumGraph": {
+    "deleteConfirmation": "This will permanently delete \"{{name}}\". This action cannot be undone.",
+    "errors": {
+      "deleteMissingIdOrName": "Failed to delete data: missing id or name",
+      "createNameRequired": "Failed to create data: name is required",
+      "createOwnerRequired": "Failed to create data: owner is required",
+      "createOrganizationRequired": "Failed to create data: organization is required",
+      "updateMissingId": "Failed to update data: missing id"
+    }
+  },
+  "documentGraph": {
+    "messages": {
+      "deleted": "Document deleted successfully.",
+      "bulkDeleted": "Documents deleted successfully.",
+      "exportStarted": "Document export started successfully. You will receive an email when the export is ready."
+    },
+    "errors": { "delete": "Failed to delete document", "bulkDelete": "Failed to delete documents", "export": "Failed to start document export" }
+  },
+  "frameworkGraph": {
+    "deleteConfirmation": "This will permanently delete framework \"{{name}}\". This action cannot be undone.",
+    "messages": { "deleted": "Framework deleted successfully" },
+    "errors": { "delete": "Failed to delete framework" }
+  },
+  "measureGraph": {
+    "messages": {
+      "deleted": "Measure deleted successfully.",
+      "updated": "Measure updated successfully."
+    },
+    "errors": { "delete": "Failed to delete measure", "update": "Failed to update measure" }
+  },
+  "obligationGraph": {
+    "deleteConfirmation": "This will permanently delete this obligation. This action cannot be undone.",
+    "messages": { "deleted": "Obligation deleted successfully" },
+    "errors": {
+      "delete": "Failed to delete obligation",
+      "createOrganizationRequired": "Failed to create obligation: organization is required",
+      "createOwnerRequired": "Failed to create obligation: owner is required",
+      "updateIdRequired": "Failed to update obligation: ID is required"
+    }
+  },
+  "processingActivityGraph": {
+    "deleteConfirmation": "This will permanently delete the processing activity {{name}}. This action cannot be undone.",
+    "dpiaDeleteConfirmation": "This will permanently delete this Data Protection Impact Assessment. This action cannot be undone.",
+    "tiaDeleteConfirmation": "This will permanently delete this Transfer Impact Assessment. This action cannot be undone.",
+    "messages": {
+      "deleted": "Processing activity deleted successfully",
+      "dpiaDeleted": "DPIA deleted successfully",
+      "tiaDeleted": "TIA deleted successfully"
+    },
+    "errors": {
+      "delete": "Failed to delete processing activity",
+      "createOrganizationRequired": "Failed to create processing activity: organization is required",
+      "createNameRequired": "Failed to create processing activity: name is required",
+      "updateIdRequired": "Failed to update processing activity: ID is required",
+      "createDpiaProcessingActivityIdRequired": "Failed to create DPIA: Processing Activity ID is required",
+      "updateDpiaIdRequired": "Failed to update DPIA: ID is required",
+      "deleteDpia": "Failed to delete DPIA",
+      "createTiaProcessingActivityIdRequired": "Failed to create TIA: Processing Activity ID is required",
+      "updateTiaIdRequired": "Failed to update TIA: ID is required",
+      "deleteTia": "Failed to delete TIA"
+    }
+  },
+  "rightsRequestGraph": {
+    "deleteConfirmation": "This will permanently delete the rights request. This action cannot be undone.",
+    "messages": { "deleted": "Rights request deleted successfully" },
+    "errors": {
+      "delete": "Failed to delete rights request",
+      "createOrganizationRequired": "Failed to create rights request: organization is required",
+      "createRequestTypeRequired": "Failed to create rights request: request type is required",
+      "createRequestStateRequired": "Failed to create rights request: request state is required",
+      "updateIdRequired": "Failed to update rights request: ID is required"
+    }
+  },
+  "helpers": {
+    "common": { "unknown": "Unknown" },
+    "auditState": {
+      "toBook": "To book",
+      "auditBooked": "Audit booked",
+      "notStarted": "Not Started",
+      "inProgress": "In Progress",
+      "completed": "Completed",
+      "rejected": "Rejected",
+      "outdated": "Outdated"
+    },
+    "certificationCategory": {
+      "securityStandards": "Security Standards",
+      "regulatoryLegal": "Regulatory & Legal",
+      "industrySpecific": "Industry-Specific",
+      "internationalGovernment": "International & Government",
+      "custom": "Custom certifications"
+    },
+    "compliancePortalDocumentAccessStatus": {
+      "requested": "Requested",
+      "granted": "Granted",
+      "rejected": "Rejected",
+      "revoked": "Revoked"
+    },
+    "compliancePortalVisibility": {
+      "restricted": "Restricted",
+      "public": "Public"
+    },
+    "controlMaturityLevel": {
+      "none": "0 - None",
+      "initial": "1 - Initial",
+      "managed": "2 - Managed",
+      "defined": "3 - Defined",
+      "quantitativelyManaged": "4 - Quantitatively Managed",
+      "optimizing": "5 - Optimizing"
+    },
+    "customDomain": {
+      "status": {
+        "active": "Active",
+        "provisioning": "Provisioning",
+        "pending": "Pending",
+        "failed": "Failed",
+        "expired": "Expired"
+      },
+      "provisioningError": {
+        "dnsCname": "DNS is not configured correctly yet. Check the CNAME record.",
+        "dnsCaa": "DNS CAA records do not allow our certificate authority.",
+        "rateLimited": "Certificate authority is temporarily rate-limiting. We will retry automatically.",
+        "invalidOrder": "Domain ownership could not be verified. We will retry automatically.",
+        "temporary": "Certificate provisioning hit a temporary error. We will retry automatically.",
+        "failed": "Certificate provisioning failed. Contact support if this persists."
+      }
+    },
+    "documentType": {
+      "other": "Other",
+      "governance": "Governance",
+      "policy": "Policy",
+      "procedure": "Procedure",
+      "plan": "Plan",
+      "register": "Register",
+      "record": "Record",
+      "report": "Report",
+      "template": "Template",
+      "statementOfApplicability": "Statement of Applicability"
+    },
+    "documentWriteMode": { "authored": "Authored", "generated": "Generated" },
+    "documentClassification": {
+      "public": "Public",
+      "internal": "Internal",
+      "confidential": "Confidential",
+      "secret": "Secret"
+    },
+    "measureState": {
+      "implemented": "Implemented",
+      "inProgress": "In Progress",
+      "notApplicable": "Not Applicable",
+      "notStarted": "Not Started",
+      "notImplemented": "Not Implemented"
+    },
+    "obligationStatus": {
+      "nonCompliant": "Non-compliant",
+      "partiallyCompliant": "Partially compliant",
+      "compliant": "Compliant"
+    },
+    "obligationType": { "legal": "Legal", "contractual": "Contractual" },
+    "peopleRole": {
+      "employee": "Employee",
+      "contractor": "Contractor",
+      "serviceAccount": "Service account"
+    },
+    "membershipRole": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "viewer": "Viewer",
+      "auditor": "Auditor",
+      "employee": "Employee",
+      "compliancePortalManager": "Compliance Portal Manager",
+      "compliancePortalAccessManager": "Compliance Portal Access Manager"
+    },
+    "registryStatus": {
+      "open": "Open",
+      "inProgress": "In Progress",
+      "closed": "Closed",
+      "riskAccepted": "Risk Accepted",
+      "mitigated": "Mitigated",
+      "falsePositive": "False Positive"
+    },
+    "rightsRequestType": {
+      "access": "Access",
+      "deletion": "Deletion",
+      "rectification": "Rectification",
+      "portability": "Portability",
+      "objection": "Objection",
+      "complaint": "Complaint"
+    },
+    "rightsRequestState": {
+      "todo": "To Do",
+      "inProgress": "In Progress",
+      "done": "Done",
+      "rejected": "Rejected"
+    },
+    "riskImpact": {
+      "negligible": "Negligible",
+      "low": "Low",
+      "moderate": "Moderate",
+      "significant": "Significant",
+      "catastrophic": "Catastrophic"
+    },
+    "riskTreatment": {
+      "mitigate": "Mitigate",
+      "accept": "Accept",
+      "transfer": "Transfer",
+      "avoid": "Avoid"
+    },
+    "riskLikelihood": {
+      "improbable": "Improbable",
+      "remote": "Remote",
+      "occasional": "Occasional",
+      "probable": "Probable",
+      "frequent": "Frequent"
+    },
+    "riskScales": {
+      "impact": {
+        "2": { "1": "Low", "2": "High" },
+        "3": { "1": "Low", "2": "Medium", "3": "High" },
+        "4": { "1": "Low", "2": "Medium", "3": "High", "4": "Critical" }
+      },
+      "likelihood": {
+        "2": { "1": "Unlikely", "2": "Likely" },
+        "3": { "1": "Unlikely", "2": "Possible", "3": "Likely" },
+        "4": { "1": "Unlikely", "2": "Possible", "3": "Likely", "4": "Almost certain" }
+      }
+    },
+    "riskSeverity": { "critical": "Critical", "high": "High", "low": "Low" },
+    "trackerType": {
+      "cookie": "Cookie",
+      "localStorage": "localStorage",
+      "sessionStorage": "sessionStorage",
+      "indexedDb": "IndexedDB",
+      "cacheStorage": "Cache Storage"
+    },
+    "trackerSource": {
+      "script": "Script",
+      "preExisting": "Pre-existing",
+      "http": "HTTP",
+      "extension": "Extension"
+    }
+  },
+  "ui": {
+    "actions": { "cancel": "Cancel", "delete": "Delete", "search": "Search" },
+    "loading": "Loading",
+    "dropzone": {
+      "uploading": "Uploading file",
+      "browse": "Drag and drop or browse files",
+      "errors": {
+        "unsupported": "This file is not supported",
+        "tooLarge": "This file is too large",
+        "generic": "Something went wrong"
+      }
+    },
+    "documentClassification": {
+      "public": "Public",
+      "internal": "Internal",
+      "confidential": "Confidential",
+      "secret": "Secret"
+    },
+    "documentType": {
+      "other": "Other",
+      "governance": "Governance",
+      "policy": "Policy",
+      "procedure": "Procedure",
+      "plan": "Plan",
+      "register": "Register",
+      "record": "Record",
+      "report": "Report",
+      "template": "Template",
+      "statement_of_applicability": "Statement of Applicability"
+    },
+    "documentVersionBadge": {
+      "draft": "Draft",
+      "pendingApproval": "Pending approval",
+      "published": "Published"
+    },
+    "measureState": {
+      "implemented": "Implemented",
+      "in_progress": "In Progress",
+      "not_applicable": "Not Applicable",
+      "not_started": "Not Started",
+      "unknown": "Unknown",
+      "not_implemented": "Not Implemented"
+    },
+    "confirmDialog": { "defaultTitle": "Are you sure?" },
+    "durationPicker": {
+      "minutes": "Minutes",
+      "hours": "Hours",
+      "days": "Days",
+      "weeks": "Weeks"
+    },
+    "frameworkSelector": {
+      "new": "New framework",
+      "custom": { "title": "Custom framework", "description": "Start from scratch" }
+    },
+    "measureImplementation": { "title": "Measure implementation", "complete": "Complete" },
+    "impactOptions": {
+      "low": "Minimal impact on business",
+      "medium": "Moderate impact on business",
+      "high": "Significant business impact",
+      "critical": "Critical to business operations"
+    },
+    "sensitivityOptions": {
+      "none": "No sensitive data",
+      "low": "Public or non-sensitive data",
+      "medium": "Internal/restricted data",
+      "high": "Confidential data",
+      "critical": "Regulated/PII/financial data"
+    },
+    "risk": {
+      "initial": "Initial Risk",
+      "net": "Net Risk",
+      "residual": "Residual Risk",
+      "score": "Score",
+      "numberOfRisks": "Number of risks",
+      "linkedRisks": "Linked Risks",
+      "severity": {
+        "none": "None",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "critical": "Critical"
+      },
+      "impact": {
+        "label": "Impact"
+      },
+      "likelihood": {
+        "label": "Likelihood"
+      },
+      "cell": "{{count}} at likelihood {{likelihood}}, impact {{impact}}"
+    }
+  },
+  "common": {
+    "error": "Error",
+    "success": "Success",
+    "create": "Create",
+    "actions": { "back": "Back", "close": "Close", "continue": "Continue", "copy": "Copy", "tryAgain": "Try again" },
+    "messages": { "copied": "Copied", "copiedToClipboard": "Copied to clipboard" }
+  },
+  "mutation": {
+    "messages": { "completed": "Operation completed successfully" },
+    "errors": { "commit": "Failed to commit this operation" }
+  },
+  "activateAccountPage": {
+    "pageTitle": "Activate Account",
+    "title": "Account Activation",
+    "description": "Click continue to activate your account.",
+    "activating": "Activating your account…",
+    "messages": { "activated": "Account activated successfully." },
+    "errors": { "activationFailed": "Activation failed", "missingToken": "Please use the activation link from your email" },
+    "actions": { "continue": "Continue", "goBack": "Go back" }
+  },
+  "consentPage": {
+    "pageTitle": "Authorize Application",
+    "apiAccess": "API access ({{count}})",
+    "authorize": "Authorize",
+    "description": "This application is requesting access to your account with the following permissions:",
+    "authorizationComplete": "Authorization Complete",
+    "redirectingTo": "You will be redirected to",
+    "revokeNotice": "You can revoke access at any time from your account settings.",
+    "scopes": {
+      "openid": "Verify your identity",
+      "email": "View your email address",
+      "profile": "View your profile information",
+      "offlineAccess": "Stay signed in and access your data while you're away"
+    },
+    "errors": { "authorizationFailed": "Authorization failed", "generic": "Something went wrong. Please try again." },
+    "invalidRequest": { "title": "Invalid Request", "description": "This consent request is invalid or has expired." },
+    "deviceAuthorized": { "title": "Device Authorized", "description": "Your device has been successfully authorized. You can close this window and return to your device." },
+    "accessDenied": { "title": "Access Denied", "description": "You have denied the authorization request. You can close this window." },
+    "actions": { "deny": "Deny", "allow": "Allow" }
+  },
+  "oauthScopes": {
+    "api": {
+      "v1:access-review:read": "Read access reviews",
+      "v1:access-review": "Manage access reviews",
+      "v1:agent:read": "Read agents",
+      "v1:agent": "Manage agents",
+      "v1:ai-system:read": "Read AI systems",
+      "v1:ai-system": "Manage AI systems",
+      "v1:asset:read": "Read assets",
+      "v1:asset": "Manage assets",
+      "v1:audit:read": "Read audits",
+      "v1:audit": "Manage audits",
+      "v1:business-function:read": "Read business functions",
+      "v1:business-function": "Manage business functions",
+      "v1:common-third-party:read": "Read common third parties",
+      "v1:common-third-party": "Manage common third parties",
+      "v1:compliance-page:read": "Read compliance portals",
+      "v1:compliance-page": "Manage compliance portals",
+      "v1:connector:read": "Read connectors",
+      "v1:connector": "Manage connectors",
+      "v1:control:read": "Read controls",
+      "v1:control": "Manage controls",
+      "v1:datum:read": "Read data",
+      "v1:datum": "Manage data",
+      "v1:document:read": "Read documents",
+      "v1:document": "Manage documents",
+      "v1:iam:read": "Read IAM settings",
+      "v1:iam": "Manage IAM settings",
+      "v1:itam:read": "Read devices",
+      "v1:itam": "Manage devices",
+      "v1:org:read": "Read organization",
+      "v1:org": "Manage organization",
+      "v1:privacy:read": "Read privacy settings",
+      "v1:privacy": "Manage privacy settings",
+      "v1:resource-alias:read": "Read resource aliases",
+      "v1:resource-alias": "Manage resource aliases",
+      "v1:risk:read": "Read risks",
+      "v1:risk": "Manage risks",
+      "v1:slack-connection:read": "Read Slack connections",
+      "v1:slack-connection": "Manage Slack connections",
+      "v1:task:read": "Read tasks",
+      "v1:task": "Manage tasks",
+      "v1:third-party:read": "Read third parties",
+      "v1:third-party": "Manage third parties",
+      "v1:webhook:read": "Read webhooks",
+      "v1:webhook": "Manage webhooks"
+    }
+  },
+  "createPasswordPage": {
+    "pageTitle": "Create Password",
+    "title": "Create a password",
+    "description": "Set a password for your account, with at least 8 characters",
+    "alreadyHaveAccount": "Already have an account?",
+    "messages": { "created": "Account created successfully" },
+    "errors": { "creationFailed": "Password creation failed", "missingToken": "Please use the password setup link from your email" },
+    "fields": { "password": "Password" },
+    "actions": { "save": "Save", "logIn": "Log in here" }
+  },
+  "deviceActivationPage": {
+    "pageTitle": "Device Activation",
+    "title": "Device Activation",
+    "description": "Enter the code displayed on your device",
+    "codeCharacter": "Code character {{count}}",
+    "notice": "Make sure this code matches the one on your device.",
+    "authorized": { "title": "Device Authorized", "description": "Your device has been successfully authorized. You can close this window and return to your device." },
+    "errors": { "authorizationFailed": "Authorization failed", "invalidCode": "The code is invalid or has expired.", "generic": "Something went wrong. Please try again." },
+    "actions": { "authorizing": "Authorizing...", "continue": "Continue" }
+  },
+  "forgotPasswordPage": {
+    "pageTitle": "Forgot Password",
+    "title": "Forgot Password",
+    "description": "Enter your email address and we'll send you instructions to reset your password",
+    "rememberPassword": "Remember your password?",
+    "messages": { "instructionsSent": "Password reset instructions sent to your email" },
+    "errors": { "requestFailed": "Request failed", "sendInstructions": "Failed to send reset instructions" },
+    "fields": { "email": "Email", "emailPlaceholder": "name@example.com" },
+    "sent": { "title": "Check your email", "description": "We've sent password reset instructions to your email address", "didNotReceive": "Didn't receive the email?" },
+    "actions": { "tryAgain": "Try again", "backToLogin": "Back to login", "sendingInstructions": "Sending instructions...", "sendInstructions": "Send reset instructions" }
+  },
+  "resendVerificationEmailPage": {
+    "pageTitle": "Verify your email",
+    "title": "Verify your email",
+    "description": "Your email address has not been verified yet. Enter your email and we'll send you a new verification link",
+    "alreadyVerified": "Already verified?",
+    "messages": { "verificationSent": "Verification email sent" },
+    "errors": { "requestFailed": "Request failed", "sendVerification": "Failed to send verification email" },
+    "fields": { "email": "Email", "emailPlaceholder": "name@example.com" },
+    "sent": { "title": "Check your email", "description": "We've sent a verification link to your email address", "didNotReceive": "Didn't receive the email?" },
+    "actions": { "tryAgain": "Try again", "backToLogin": "Back to login", "sendingVerification": "Sending verification email...", "sendVerification": "Send verification email" }
+  },
+  "resetPasswordPage": {
+    "pageTitle": "Reset password",
+    "title": "Reset password",
+    "description": "Enter your new password to reset your account",
+    "rememberPassword": "Remember your password?",
+    "messages": { "reset": "Password reset successfully" },
+    "errors": { "resetFailed": "Reset failed", "invalidToken": "Please use the reset link from your email", "reset": "Password reset failed" },
+    "fields": { "newPassword": "New Password", "confirmPassword": "Confirm Password" },
+    "actions": { "resetting": "Resetting password...", "reset": "Reset password", "logIn": "Log in here" }
+  },
+  "signUpPage": {
+    "pageTitle": "Sign up",
+    "title": "Sign up",
+    "description": "Enter your information to create an account",
+    "alreadyHaveAccount": "Already have an account?",
+    "checkEmail": {
+      "title": "Check your email",
+      "description": "We sent a confirmation link to {{email}}.",
+      "resend": "Didn't receive the email?"
+    },
+    "messages": { "created": "Account created successfully" },
+    "errors": { "failed": "Sign up failed" },
+    "unavailable": { "title": "Registration unavailable", "description": "New account registration is currently disabled. Please contact your administrator or reach out to Black Fortress for assistance." },
+    "fields": { "fullName": "Full Name", "fullNamePlaceholder": "John Doe", "email": "Email", "emailPlaceholder": "name@example.com", "password": "Password" },
+    "actions": { "backToLogin": "Back to login", "creating": "Creating account...", "signUpWithEmail": "Sign up with email", "logIn": "Log in here", "resend": "Resend confirmation email" }
+  },
+  "verifyEmailPage": {
+    "pageTitle": "Confirm Email",
+    "title": "Email Confirmation",
+    "description": "Confirm your email address to complete registration",
+    "continueDescription": "Click continue to confirm your email and sign in.",
+    "messages": { "confirmed": "Your email has been confirmed successfully", "confirmedWithExclamation": "Your email has been confirmed successfully!" },
+    "errors": { "confirm": "Failed to confirm email", "tokenRequired": "Please enter your confirmation token" },
+    "fields": { "token": "Confirmation Token", "tokenPlaceholder": "Enter your confirmation token", "tokenHelp": "The token has been automatically filled from the URL if available" },
+    "actions": { "proceedToLogin": "Proceed to Login", "confirming": "Confirming...", "confirm": "Confirm Email", "continue": "Continue", "backToLogin": "Back to Login" }
+  },
+  "passwordSignInPage": {
+    "title": "Login with Email",
+    "description": "Enter your email and password",
+    "noAccount": "Don't have an account ?",
+    "forgotPassword": "Forgot password?",
+    "errors": { "login": "Failed to login" },
+    "fields": { "email": "Email", "password": "Password" },
+    "actions": { "back": "Back", "backToLogin": "Back to login", "loggingIn": "Logging in...", "login": "Login", "register": "Register", "resetPassword": "Reset password" }
+  },
+  "ssoSignInPage": {
+    "title": "Login with SSO",
+    "description": "Enter your work email to continue with SSO",
+    "noAccount": "Don't have an account ?",
+    "errors": { "unavailable": "SSO not available for this email domain" },
+    "fields": { "workEmail": "Work Email" },
+    "actions": { "back": "Back", "backToLogin": "Back to login", "checking": "Checking...", "continue": "Continue with SSO", "register": "Register" }
+  },
+  "signInPage": {
+    "title": "Sign in to your account",
+    "authorize": { "title": "Sign in to continue", "titleWithClient": "Sign in to {{name}}", "description": "Use your email or a connected account to continue" },
+    "or": "Or",
+    "newToProbo": "New to Black Fortress?",
+    "actions": { "usePassword": "Use a password", "createAccount": "Create account" }
+  },
+  "oidcButton": { "signInWith": "Sign in with {{provider}}" },
+  "topBar": { "tagline": "Console" },
+  "membershipsPage": {
+    "pageTitle": "Your organizations",
+    "title": "Your organizations",
+    "pendingInvitations": "Pending invitations",
+    "searchPlaceholder": "Search organizations",
+    "empty": "No organizations found",
+    "emptySearch": "No organizations match that search.",
+    "createOrganization": { "title": "Create an organization", "description": "Add a new organization to your account", "action": "Create organization" }
+  },
+  "noOrganizationAccess": {
+    "title": "No organization access",
+    "description": "Your account is not a member of any organization on this instance. Ask an administrator to invite you.",
+    "errors": { "requestFailed": "Request failed", "cannotSignOut": "Cannot sign out" },
+    "actions": { "signOut": "Sign out" }
+  },
+  "invitingOrganizationCard": { "checkEmail": "Check your email" },
+  "membershipCard": {
+    "status": { "authenticated": "Authenticated", "sessionExpired": "Session expired", "authenticationRequired": "Authentication required" },
+    "actions": { "open": "Open", "continue": "Continue" }
+  },
+  "viewerDropdown": {
+    "errors": { "requestFailed": "Request failed", "cannotSignOut": "Cannot sign out" },
+    "actions": { "oauthTokens": "OAuth tokens", "help": "Help", "logout": "Logout" }
+  },
+  "editAvatar": {
+    "title": "Profile photo",
+    "description": "Upload a public photo.",
+    "messages": { "updated": "Profile photo updated.", "removed": "Profile photo removed." },
+    "errors": { "update": "Failed to update profile photo", "remove": "Failed to remove profile photo", "invalidFile": "Use a JPEG or PNG under 5 MB." },
+    "actions": { "upload": "Upload photo", "replace": "Replace photo", "remove": "Remove photo", "close": "Close", "change": "Change profile photo" }
+  },
+  "newOAuthTokenPage": {
+    "pageTitle": "New OAuth token",
+    "breadcrumb": "New token",
+    "title": "New OAuth token",
+    "description": "Create a bearer token with scoped access to the Black Fortress API.",
+    "messages": { "created": "OAuth token created successfully." },
+    "errors": { "create": "Failed to create OAuth token" },
+    "fields": { "name": "Name", "expiration": "Expiration", "scopes": "Scopes" },
+    "expirations": { "month_one": "{{count}} month", "month_other": "{{count}} months", "year_one": "{{count}} year", "year_other": "{{count}} years" },
+    "actions": { "create": "Create token", "selectAll": "Select all", "deselectAll": "Deselect all", "cancel": "Cancel" }
+  },
+  "oauthTokensPage": {
+    "pageTitle": "OAuth tokens",
+    "title": "OAuth tokens",
+    "description": "Create bearer tokens with scoped API access for your account.",
+    "showing": "Showing {{shown}} of {{total}}",
+    "empty": { "title": "No OAuth tokens", "description": "Create a token to authenticate API requests on your behalf." },
+    "columns": { "name": "Name", "scopes": "Scopes", "created": "Created", "expires": "Expires" },
+    "actions": { "create": "Create token", "showMore": "Show more" }
+  },
+  "oauthTokenCredentialsDialog": {
+    "title": "Token",
+    "description": "Copy this bearer token now. You will not be able to see it again.",
+    "actions": { "copy": "Copy", "copied": "Copied", "done": "Done" }
+  },
+  "oauthTokenRow": {
+    "messages": { "revoked": "OAuth token revoked." },
+    "errors": { "revoke": "Failed to revoke OAuth token." },
+    "revoke": { "title": "Revoke OAuth token", "description": "This token will stop working immediately. This action cannot be undone." },
+    "actions": { "revoke": "Revoke", "revokeToken": "Revoke token" }
+  },
+  "assumePage": { "title": "Sign in Redirection", "description": "Redirecting you to your authentication URL…" },
+  "newOrganizationPage": {
+    "title": "Create Organization",
+    "description": "Create a new organization to manage your compliance and security needs.",
+    "details": "Organization Details",
+    "detailsDescription": "Enter the basic information about your organization.",
+    "messages": { "created": "Organization has been created successfully" },
+    "errors": { "nameRequired": "Name is required", "create": "Failed to create organization" },
+    "fields": { "name": "Organization name", "nameHelp": "The name of your organization as it will appear throughout the platform." },
+    "actions": { "back": "Back", "create": "Create Organization" }
+  },
+  "membershipsDropdown": { "searchPlaceholder": "Search organizations...", "loading": "Loading organizations...", "addOrganization": "Add organization" },
+  "membershipsDropdownInvitingItem": { "title": "Check your email to accept the invitation" },
+  "membershipsDropdownMenu": { "pendingInvitations": "Pending invitations" },
+  "organizationSwitcher": {
+    "empty": "No organizations found",
+    "sessionActive": "Signed in",
+    "sessionExpired": "Session expired",
+    "sessionLocked": "Not signed in"
+  },
+  "nav": {
+    "products": "Products",
+    "help": "Help",
+    "switchToDarkMode": "Switch to dark mode",
+    "switchToLightMode": "Switch to light mode",
+    "spotlight": {
+      "title": "Go to",
+      "placeholder": "Go to…",
+      "empty": "No matching pages"
+    },
+    "groups": {
+      "governance": "Governance",
+      "privacy": "Privacy",
+      "tprm": "TPRM",
+      "itam": "IT Asset Management",
+      "riskManagement": "Risk Management",
+      "registries": "Registries",
+      "compliancePortal": "Compliance Portal",
+      "accessReview": "Access Review",
+      "settings": "Settings"
+    },
+    "context": "Context",
+    "webhooks": "Webhooks",
+    "slackBot": "SlackBot",
+    "integrations": "INTEGRATIONS",
+    "tasks": "Tasks",
+    "measures": "Measures",
+    "risks": "Risks",
+    "allRisks": "All Risks",
+    "riskAnalyses": "Risk Analyses",
+    "frameworks": "Frameworks",
+    "iam": "IAM",
+    "users": "Users",
+    "authProvisioning": "Auth & Provisioning",
+    "samlSso": "SAML SSO",
+    "scim": "SCIM",
+    "auditLog": "Audit Log",
+    "allThirdParties": "All Third Parties",
+    "thirdParties": "Third parties",
+    "thirdPartyCompliance": "Compliance",
+    "thirdPartyRisk": "Risk",
+    "thirdPartyProfile": "Profile",
+    "thirdPartyStakeholders": "Stakeholders",
+    "thirdPartyAssurance": "Assurance",
+    "thirdPartyAgreements": "Agreements",
+    "thirdPartyServices": "Services",
+    "thirdPartySupplyChain": "Supply chain",
+    "thirdPartyRisks": "Risk assessments",
+    "thirdPartyMeasures": "Measures",
+    "documents": "Documents",
+    "assets": "Assets",
+    "devices": "Devices",
+    "data": "Data",
+    "audits": "Audits",
+    "findings": "Findings",
+    "businessFunctions": "Business Functions",
+    "aiSystems": "AI Systems",
+    "obligations": "Obligations",
+    "processingActivities": "Processing Activities",
+    "dataProtectionImpactAssessments": "DPIAs",
+    "transferImpactAssessments": "TIAs",
+    "statementsOfApplicability": "SoA",
+    "rightsRequests": "Rights Requests",
+    "campaigns": "Campaigns",
+    "connections": "Connections",
+    "compliancePortals": "Compliance Portals",
+    "compliancePortalsSettings": "Settings",
+    "compliancePortalsHosting": "Hosting",
+    "compliancePortalsVisitors": "Visitors",
+    "compliancePortalsIntegrations": "Integrations",
+    "compliancePortalsPages": "Pages",
+    "compliancePortalsLanding": "Landing",
+    "compliancePortalsDocuments": "Documents",
+    "compliancePortalsSubprocessors": "Subprocessors",
+    "compliancePortalsUpdates": "Updates",
+    "compliancePortalsRightRequests": "Right Requests",
+    "cookieBanners": "Cookie Banners",
+    "cookieBannersConfigure": "Configure",
+    "cookieBannersTrackers": "Trackers",
+    "cookieBannersResources": "Resources",
+    "cookieBannersTrail": "Trail",
+    "cookieBannersTCF": "TCF",
+    "workspaceSettings": "Workspace",
+    "cookieBannerSwitcher": {
+      "label": "Cookie banner",
+      "select": "Select Banner",
+      "new": "New Banner",
+      "create": "New cookie banner",
+      "empty": "No cookie banners",
+      "loading": "Loading…",
+      "showMore": "Show more"
+    },
+    "thirdPartySwitcher": {
+      "label": "Third party",
+      "select": "Select Third Party",
+      "create": "New Third Party",
+      "empty": "No third parties",
+      "loading": "Loading…"
+    },
+    "compliancePortalSwitcher": {
+      "label": "Compliance portal",
+      "new": "New Portal",
+      "create": "New Portal",
+      "empty": "No compliance portals",
+      "loading": "Loading…",
+      "open": "Open portal"
+    }
+  },
+  "viewerMembershipDropdown": {
+    "errors": { "requestFailed": "Request failed", "cannotSignOut": "Cannot sign out" },
+    "actions": { "oauthTokens": "OAuth tokens", "employeePortal": "Employee Portal", "switchToDarkMode": "Switch to dark mode", "switchToLightMode": "Switch to light mode", "help": "Help", "logout": "Logout" }
+  },
+  "usersPage": {
+    "empty": "No users",
+    "emptyFiltered": "No users match the current filters.",
+    "actions": { "add": "Add User", "cancel": "Cancel", "previous": "Prev", "next": "Next" }
+  },
+  "userPage": {
+    "back": "Users",
+    "empty": "—",
+    "deactivatedCallout": "This user is deactivated.",
+    "notFound": "User not found",
+    "details": {
+      "title": "Details",
+      "description": "Position, additional emails, and contract dates."
+    }
+  },
+  "newUserPage": {
+    "title": "Add User",
+    "description": "Invite someone to this organization.",
+    "notFound": "You cannot add users to this organization"
+  },
+  "usersList": {
+    "searchPlaceholder": "Search users...",
+    "contract": { "range": "{{start}} – {{end}}", "empty": "—" },
+    "created": "Created {{date}}",
+    "filters": { "allStatuses": "All statuses", "status": "Status", "pending": "Pending", "active": "Active", "deactivated": "Deactivated", "allRoles": "All roles", "allTypes": "All user types", "role": "Black Fortress role", "type": "User type" }
+  },
+  "userListItem": {
+    "messages": { "invitationSent": "Invitation sent successfully", "deactivated": "User deactivated successfully", "removed": "User removed successfully", "roleUpdated": "Role updated" },
+    "errors": { "sendInvitation": "Failed to send invitation", "deactivate": "Failed to deactivate user", "remove": "Failed to remove user", "updateRole": "Failed to update role" },
+    "confirmations": { "sendActivationEmail": "Send the activation email to {{name}}?", "deactivate": "Are you sure you want to deactivate {{name}}?", "remove": "Are you sure you want to remove {{name}}?" },
+    "dialogs": { "sendTitle": "Send activation email", "deactivateTitle": "Deactivate user", "removeTitle": "Remove user" },
+    "actions": { "more": "More actions", "send": "Send", "sendActivationMail": "Send activation mail", "resendActivationMail": "Resend activation mail", "deactivatePerson": "Deactivate user", "removePerson": "Remove user" }
+  },
+  "userForm": {
+    "messages": { "created": "User created successfully.", "updated": "User updated successfully." },
+    "errors": { "create": "Failed to create user", "update": "Failed to update user" },
+    "fields": {
+      "fullName": "Full name",
+      "emailAddress": "Email address",
+      "role": "Black Fortress role",
+      "type": "User type",
+      "position": "Position",
+      "positionPlaceholder": "e.g. CEO, CFO, etc.",
+      "additionalEmails": "Additional emails",
+      "additionalEmail": "Additional email {{index}}",
+      "additionalEmailPlaceholder": "name@example.com",
+      "contractStartDate": "Contract start date",
+      "contractEndDate": "Contract end date"
+    },
+    "roleDescriptions": { "owner": "Full access to everything", "admin": "Full access except organization setup and API keys", "viewer": "Read-only access", "auditor": "Read-only access without settings and tasks", "employee": "Access to employee page", "compliancePortalManager": "Can manage the compliance portal", "compliancePortalAccessManager": "Can manage compliance portal visitor access" },
+    "kinds": { "EMPLOYEE": "Employee", "CONTRACTOR": "Contractor", "SERVICE_ACCOUNT": "Service account" },
+    "actions": { "create": "Create", "addEmail": "Add email", "removeEmail": "Remove email" }
+  },
+  "auditLogPage": {
+    "title": "Audit Log",
+    "description": "A record of all actions performed in your organization. Entries are immutable and cannot be modified or deleted.",
+    "empty": "No audit log entries yet.",
+    "showing": "Showing {{shown}} of {{total}} entries",
+    "columns": { "date": "Date", "actor": "Actor", "action": "Action", "resource": "Resource" },
+    "actions": { "showMore": "Show more" },
+    "export": {
+      "title": "Export Audit Log",
+      "description": "Select a date range to export audit log entries as CSV. You will receive an email with a download link.",
+      "fields": { "from": "From", "to": "To" },
+      "actions": { "export": "Export", "exporting": "Exporting..." },
+      "messages": {
+        "successTitle": "Success",
+        "success": "Export started. You will receive an email with a download link when it is ready."
+      },
+      "errors": { "title": "Error", "request": "Failed to request audit log export" }
+    }
+  },
+  "samlSsoPage": {
+    "title": "SAML Single Sign-On",
+    "description": "Set up SAML 2.0 single sign-on for each email domain.",
+    "actions": { "add": "Add SAML SSO", "previous": "Prev", "next": "Next" }
+  },
+  "scimPage": {
+    "title": "SCIM",
+    "description": "Connect your identity provider to automatically sync users to your organization.",
+    "setup": {
+      "google": {
+        "title": "Google Workspace / Cloud Identity",
+        "description": "Connect Google Workspace or Google Cloud Identity to automatically sync users via SCIM.",
+        "action": "Connect"
+      },
+      "microsoft": {
+        "title": "Microsoft 365",
+        "description": "Connect Microsoft 365 to automatically sync users via SCIM.",
+        "action": "Connect"
+      },
+      "manual": {
+        "title": "Manual SCIM",
+        "description": "Configure SCIM manually if your identity provider is not listed.",
+        "action": "Configure"
+      }
+    },
+    "eventHistory": "Event History",
+    "connecting": "Connecting identity provider",
+    "export": {
+      "title": "Export SCIM Events",
+      "description": "Select a date range to export SCIM events as CSV. You will receive an email with a download link.",
+      "fields": { "from": "From", "to": "To" },
+      "actions": { "export": "Export", "cancel": "Cancel" },
+      "messages": {
+        "success": "Export started. You will receive an email with a download link when it is ready."
+      },
+      "errors": {
+        "request": "Failed to request SCIM event export",
+        "range": "Date range cannot exceed one year"
+      }
+    }
+  },
+  "authLayout": {
+    "title": "Auth & Provisioning",
+    "tabs": { "samlSso": "SAML SSO", "scim": "SCIM" }
+  },
+  "slackBotSettingsPage": {
+    "title": "SlackBot",
+    "connectionTitle": "Slack",
+    "emptyDescription": "Install the Black Fortress Slack app to receive notifications",
+    "installed": "The Black Fortress Slack app is installed",
+    "uninstallConfirmation": "Uninstall the Black Fortress Slack app? Black Fortress will stop receiving Slack events and sending notifications to this workspace.",
+    "messages": { "uninstalled": "The Black Fortress Slack app was uninstalled" },
+    "errors": { "uninstall": "Failed to uninstall the Black Fortress Slack app" },
+    "actions": { "install": "Install", "configure": "Configure", "uninstall": "Uninstall", "uninstalling": "Uninstalling..." }
+  },
+  "editSamlConfigurationForm": {
+    "messages": { "updated": "SAML configuration updated successfully." },
+    "errors": { "update": "Failed to update SAML configuration. Please try again." }
+  },
+  "googleWorkspaceConnector": {
+    "name": "Google Workspace / Cloud Identity",
+    "connectedOn": "Connected on {{date}}",
+    "status": { "disabled": "Disabled", "error": "Error", "syncing": "Syncing", "connected": "Connected" },
+    "messages": { "disconnected": "Google Workspace / Cloud Identity disconnected successfully", "excludedUsersUpdated": "Excluded user names updated successfully" },
+    "errors": { "bridgeSync": "The bridge is currently failing to sync. Check the event history for more details.", "bridgeDisabled": "Bridge is disabled", "bridgeFailed": "Bridge is in an error state", "update": "Failed to update excluded users", "disconnect": "Failed to disconnect Google Workspace / Cloud Identity" },
+    "actions": { "settings": "Settings", "add": "Add", "remove": "Remove", "disconnect": "Disconnect" },
+    "excludedCount_one": "{{count}} excluded user",
+    "excludedCount_other": "{{count}} excluded users",
+    "settings": { "title": "Google Workspace / Cloud Identity Settings", "excludedUserNames": "Excluded user names", "excludedUserNamesDescription": "Users with these user names will not be synced from Google Workspace / Cloud Identity.", "noExcludedUserNames": "No excluded user names. All Google Workspace / Cloud Identity users will be synced.", "invalidEmail": "Enter a valid email address" },
+    "disconnect": { "title": "Disconnect Google Workspace / Cloud Identity", "description": "This will disconnect your Google Workspace / Cloud Identity integration. Users will no longer be automatically synced via SCIM.", "warning": "This action cannot be undone." }
+  },
+  "microsoft365Connector": {
+    "name": "Microsoft 365",
+    "connectedOn": "Connected on {{date}}",
+    "status": { "disabled": "Disabled", "error": "Error", "syncing": "Syncing", "connected": "Connected" },
+    "messages": { "disconnected": "Microsoft 365 disconnected successfully", "excludedUsersUpdated": "Excluded user names updated successfully" },
+    "errors": { "bridgeSync": "The bridge is currently failing to sync. Check the event history for more details.", "bridgeDisabled": "Bridge is disabled", "bridgeFailed": "Bridge is in an error state", "update": "Failed to update excluded users", "disconnect": "Failed to disconnect Microsoft 365" },
+    "actions": { "settings": "Settings", "add": "Add", "remove": "Remove", "disconnect": "Disconnect" },
+    "excludedCount_one": "{{count}} excluded user",
+    "excludedCount_other": "{{count}} excluded users",
+    "settings": { "title": "Microsoft 365 Settings", "excludedUserNames": "Excluded user names", "excludedUserNamesDescription": "Users with these user names will not be synced from Microsoft 365.", "noExcludedUserNames": "No excluded user names. All Microsoft 365 users will be synced.", "invalidEmail": "Enter a valid email address" },
+    "disconnect": { "title": "Disconnect Microsoft 365", "description": "This will disconnect your Microsoft 365 integration. Users will no longer be automatically synced via SCIM.", "warning": "This action cannot be undone." }
+  },
+  "newSamlSsoPage": {
+    "title": "Add SAML SSO",
+    "description": "Set up SAML 2.0 single sign-on for an email domain.",
+    "back": "SAML SSO",
+    "notFound": "You cannot add SAML SSO to this organization"
+  },
+  "samlConfigurationPage": {
+    "title": "SAML SSO",
+    "back": "SAML SSO",
+    "notFound": "SAML configuration not found"
+  },
+  "newSamlConfigurationForm": {
+    "messages": { "created": "SAML configuration created successfully." },
+    "errors": { "create": "Failed to create SAML configuration" }
+  },
+  "samlConfigurationForm": {
+    "sections": { "identityProvider": "Identity Provider", "attributeMapping": "Attribute Mapping" },
+    "fields": { "emailDomain": "Email Domain", "emailDomainLocked": "Email domain cannot be changed after creation", "emailDomainHelp": "The email domain this SAML configuration applies to (e.g., example.com)", "enforcementPolicy": "Enforcement Policy", "idpEntityId": "IdP Entity ID", "idpSsoUrl": "IdP SSO URL", "idpCertificate": "IdP X.509 Certificate", "emailAttribute": "Email Attribute", "firstNameAttribute": "First Name Attribute", "lastNameAttribute": "Last Name Attribute", "roleAttribute": "Role Attribute", "autoSignupEnabled": "Enable automatic user signup via SAML" },
+    "enforcement": { "optional": "Optional", "required": "Required", "off": "Off" },
+    "enforcementDescriptions": { "off": "Your team members can't use single sign-on and must use their password", "required": "Your team members must use single sign-on to log in", "optional": "Your team members may use either single sign-on or their password to log in" },
+    "actions": { "update": "Update Configuration" }
+  },
+  "samlConfigurationList": {
+    "messages": { "deleted": "SAML configuration deleted successfully.", "copied": "Copied to clipboard" },
+    "errors": { "delete": "Failed to delete SAML configuration. Please try again.", "copy": "Failed to copy to clipboard" },
+    "delete": { "title": "Delete SAML Configuration", "description": "Are you sure you want to delete the SAML configuration for {{domain}}? This action cannot be undone." },
+    "empty": { "description": "Set up SAML 2.0 single sign-on for each email domain." },
+    "pending": { "description": "Add a DNS <type>TXT</type> record to verify you control this domain." },
+    "dns": {
+      "name": "Name",
+      "value": "Value",
+      "copyName": "Copy name",
+      "copyValue": "Copy value",
+      "note": "DNS changes may take up to 48 hours to propagate, but typically complete within a few minutes."
+    },
+    "enforcement": {
+      "optional": "SSO is <policy>optional</policy>. Members may use single sign-on or a password.",
+      "required": "SSO is <policy>required</policy>. Members must use single sign-on to log in.",
+      "off": "SSO is <policy>off</policy>. Members must use their password."
+    },
+    "signup": {
+      "enabled": "Signup through SAML is <policy>on</policy>. New users on this domain can join automatically.",
+      "disabled": "Signup through SAML is <policy>off</policy>. Only existing users can sign in."
+    },
+    "fields": { "ssoUrl": "SSO URL" },
+    "title": {
+      "pending": "Verify this domain",
+      "active": "SSO is active",
+      "off": "SSO is off"
+    },
+    "actions": { "delete": "Delete", "cancel": "Cancel", "copyUrl": "Copy URL", "open": "Open" }
+  },
+  "scimConfiguration": {
+    "errors": {
+      "create": "Manual SCIM configuration failed",
+      "copy": "Could not copy to clipboard",
+      "regenerate": "Failed to regenerate the bearer token",
+      "delete": "Failed to delete the SCIM configuration"
+    },
+    "messages": {
+      "copyToken": "Copy the bearer token now. It will not be shown again.",
+      "deleted": "All SCIM-provisioned memberships have been changed to manual source.",
+      "regenerated": "Copy the new bearer token now. It will not be shown again.",
+      "copied": "Copied to clipboard"
+    },
+    "configuredOn": "Configured on {{date}}",
+    "fields": { "endpointUrl": "SCIM Endpoint URL", "bearerToken": "Bearer Token" },
+    "tokenWarning": "This token will only be shown once. Copy it now.",
+    "actions": {
+      "regenerateToken": "Regenerate Token",
+      "deleteConfiguration": "Delete Configuration",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "copyEndpointUrl": "Copy SCIM endpoint URL",
+      "copyBearerToken": "Copy bearer token"
+    },
+    "delete": {
+      "title": "Delete Manual SCIM Configuration",
+      "description": "Are you sure you want to delete the manual SCIM configuration? This will:",
+      "effects": { "disable": "Disable manual SCIM provisioning", "changeMembershipSource": "Change all SCIM-provisioned memberships to manual source", "invalidateToken": "Invalidate the current bearer token" },
+      "note": "Existing users will not be removed, only their membership source will change."
+    }
+  },
+  "scimEventList": {
+    "details": {
+      "user": "User",
+      "ipAddress": "IP address",
+      "statusCode": "Status code",
+      "error": "Error"
+    },
+    "request": "Request",
+    "response": "Response",
+    "empty": "No SCIM events recorded yet.",
+    "copiedToClipboard": "Copied to clipboard",
+    "copy": "Copy",
+    "copyFailed": "Could not copy to clipboard",
+    "actions": { "previous": "Previous", "next": "Next" }
+  },
+  "accessReviewCampaignsPage": {
+    "title": "Campaigns",
+    "description": "Review and manage user access across your organization's systems and applications.",
+    "errors": { "delete": "Failed to delete campaign" },
+    "messages": { "error": "Error", "success": "Success", "deleted": "Campaign deleted successfully." },
+    "deleteConfirmation": "This will permanently delete \"{{name}}\". This action cannot be undone.",
+    "actions": { "new": "New campaign", "delete": "Delete", "loading": "Loading...", "loadMore": "Load more" },
+    "columns": { "name": "Name", "status": "Status", "createdAt": "Created at" },
+    "status": {
+      "draft": "Draft",
+      "in_progress": "In progress",
+      "pending_actions": "Pending actions",
+      "completed": "Completed",
+      "cancelled": "Cancelled"
+    },
+    "empty": "No access review campaigns yet. Create your first campaign to start reviewing access."
+  },
+  "createCsvAccessReviewSourcePage": {
+    "pageTitle": "Add CSV Access Source",
+    "title": "Add CSV access source",
+    "description": "Paste CSV content with a header row. This source will be saved and available in Access Reviews.",
+    "permissionDenied": "You do not have permission to create access sources.",
+    "errors": { "create": "Failed to create access source" },
+    "messages": { "error": "Error", "success": "Success", "created": "Access source created successfully." },
+    "fields": { "name": "Name", "csvData": "CSV Data", "csvPlaceholder": "email,full_name,role,job_title,is_admin,active,external_id" },
+    "supportedColumns": "Supported columns: email, full_name, role, job_title, is_admin, active, external_id.",
+    "actions": { "back": "Back", "create": "Create" }
+  },
+  "accessReviewSourceRow": {
+    "sources": { "csv": "CSV" },
+    "errors": { "delete": "Failed to delete access source", "configure": "Failed to configure source" },
+    "messages": { "error": "Error", "success": "Success", "organizationUpdated": "Organization updated." },
+    "deleteConfirmation": "This will permanently delete \"{{name}}\". This action cannot be undone.",
+    "actions": { "reconnect": "Reconnect", "delete": "Delete" },
+    "loading": "Loading...",
+    "selectOrganization": "Select organization",
+    "organizationSlugPlaceholder": "org-slug",
+    "organizations": {
+      "empty": {
+        "title": "{{provider}} returned no organizations",
+        "description": "The organization may not have approved Black Fortress's access yet, or the connected account may be a personal account rather than an organization. Entering a slug below only works once Black Fortress has access.",
+        "remediation": "Review Black Fortress's access",
+        "manualLabel": "Enter the organization slug manually"
+      },
+      "unavailable": {
+        "reconnectTitle": "{{provider}} is disconnected",
+        "credentialsTitle": "{{provider}} credentials are invalid",
+        "reconnectDescription": "Reconnect this source to restore access to organizations.",
+        "credentialsDescription": "Black Fortress cannot read this source with the current credentials. Check the credentials and the permissions they carry on {{provider}}.",
+        "notAuthorizedTitle": "{{provider}} refused this request",
+        "notAuthorizedDescription": "{{provider}} accepted the credential but refused the request Black Fortress made. Check the settings entered for this source, the permissions this credential has on {{provider}}, and whether your plan includes the API Black Fortress uses."
+      }
+    }
+  },
+  "entryDecisionActions": {
+    "errors": { "record": "Failed to record decision" },
+    "messages": { "error": "Error" },
+    "actions": { "approve": "Approve", "revoke": "Revoke", "modify": "Modify", "escalate": "Escalate", "confirm": "Confirm" },
+    "placeholder": "Decide...",
+    "note": { "title": "Decision note", "description": "Please provide a reason for this decision.", "label": "Note" }
+  },
+  "entryFlagSelect": {
+    "errors": { "update": "Failed to flag entry" },
+    "messages": { "error": "Error" },
+    "groups": { "account": "Account", "privileges": "Privileges", "anomaly": "Anomaly" },
+    "flags": {
+      "orphaned": "Orphan account",
+      "dormant": "Dormant",
+      "terminated_user": "Terminated user",
+      "contractor_expired": "Contractor expired",
+      "excessive": "Excessive privileges",
+      "sod_conflict": "SoD conflict",
+      "privileged_access": "Privileged access",
+      "role_creep": "Role creep",
+      "no_business_justification": "No justification",
+      "out_of_department": "Out of department",
+      "shared_account": "Shared account",
+      "inactive": "Inactive",
+      "role_mismatch": "Role mismatch",
+      "new": "New",
+      "none": "None"
+    }
+  },
+  "campaignDetailPage": {
+    "errors": { "start": "Failed to start campaign", "delete": "Failed to delete campaign", "complete": "Failed to complete campaign", "recordDecisions_one": "Failed to record decisions for {{count}} entry.", "recordDecisions_other": "Failed to record decisions for {{count}} entries.", "updateFlags_one": "Failed to update flags for {{count}} entry.", "updateFlags_other": "Failed to update flags for {{count}} entries." },
+    "messages": { "error": "Error", "success": "Success", "started": "Campaign started. Sources are being fetched.", "deleted": "Campaign deleted successfully.", "completed": "Campaign completed successfully.", "decisionsRecorded": "Decisions recorded successfully.", "flagsUpdated": "Flags updated for selected entries." },
+    "deleteConfirmation": "This will permanently delete \"{{name}}\". This action cannot be undone.",
+    "completeConfirmation": "Are you sure you want to complete this campaign? This action cannot be undone. All decisions will be finalized.",
+    "status": { "draft": "Draft", "in_progress": "In progress", "pending_actions": "Pending actions", "completed": "Completed", "cancelled": "Cancelled", "active": "Active", "disabled": "Disabled" },
+    "fetchStatus": { "success": "Success", "failed": "Failed", "fetching": "Fetching", "queued": "Queued" },
+    "mfaStatus": { "enabled": "Enabled", "disabled": "Disabled", "unknown": "Unknown" },
+    "accountStatus": { "active": "Active", "disabled": "Disabled", "unknown": "Unknown" },
+    "authMethod": { "sso": "SSO", "password": "Password", "api_key": "API key", "oauth2": "OAuth2", "ssh": "SSH", "service_account": "Service account", "unknown": "Unknown" },
+    "decisions": { "pending": "Pending", "approved": "Approved", "revoke": "Revoked", "defer": "Modified", "escalate": "Escalated" },
+    "flags": { "orphaned": "Orphan account", "dormant": "Dormant", "terminated_user": "Terminated user", "contractor_expired": "Contractor expired", "excessive": "Excessive privileges", "sod_conflict": "SoD conflict", "privileged_access": "Privileged access", "role_creep": "Role creep", "no_business_justification": "No justification", "out_of_department": "Out of department", "shared_account": "Shared account", "inactive": "Inactive", "role_mismatch": "Role mismatch", "new": "New", "none": "None" },
+    "actions": { "delete": "Delete", "complete": "Complete", "completing": "Completing...", "completeCampaign": "Complete campaign", "deleting": "Deleting...", "addSource": "Add source", "starting": "Starting...", "startCampaign": "Start campaign", "clearSelection": "Clear", "selectAll": "Select all", "selectAllLoaded": "Select all loaded ({{loaded}})", "approve": "Approve", "revoke": "Revoke", "modify": "Modify", "escalate": "Escalate", "noDecision": "No decision", "confirm": "Confirm", "submit": "Submit" },
+    "emptySources": "No sources configured for this campaign.",
+    "emptyFiltered": "No entries match the current filters.",
+    "fetchFailed": "Fetch failed",
+    "emptyEntries": "No entries found for this source.",
+    "filters": {
+      "searchEmail": "Search email...",
+      "allConnectors": "All connectors",
+      "allMfa": "All MFA",
+      "allAuthMethods": "All auth methods",
+      "allAdmin": "All admins",
+      "allAccountStatuses": "All statuses"
+    },
+    "columns": { "admin": "Admin", "mfa": "MFA", "authMethod": "Auth", "lastLogin": "Last login" },
+    "values": { "yes": "Yes", "no": "No", "unknown": "Unknown" },
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "selectionLoadedOnly": "Only the entries loaded so far can be selected. Scroll to load more.",
+    "decisionPlaceholder": "Set decision...",
+    "selectEntry": "Select {{name}}",
+    "showAdditionalRoles_one": "Show {{count}} additional role",
+    "showAdditionalRoles_other": "Show {{count}} additional roles",
+    "additionalRoles_one": "{{count}} additional role",
+    "additionalRoles_other": "{{count}} additional roles",
+    "flagsPlaceholder": "Set flags...",
+    "note": { "title": "Decision note", "description": "Please provide a reason for this decision.", "label": "Note" }
+  },
+  "addAccessReviewSourceDialog": {
+    "actions": { "connectWithOAuth": "OAuth", "connectWithGitHubApp": "GitHub App", "connectWithApiKey": "API Key", "connectWithClientCredentials": "Client Credentials", "connectWithWorkloadIdentity": "Workload Identity", "connectWithAppInstall": "App Install", "chooseAnotherMethod": "Choose another connection method", "open": "Open" },
+    "csv": { "title": "CSV", "description": "Upload CSV data directly as an access source." }
+  },
+  "addCampaignSourceDialog": {
+    "errors": { "add": "Failed to add source" },
+    "messages": { "error": "Error", "success": "Success", "added": "Source added to campaign." },
+    "breadcrumb": { "campaign": "Campaign", "addSource": "Add Source" },
+    "loading": "Loading...",
+    "actions": { "add": "Add" },
+    "allSourcesAdded": "All available sources are already added to this campaign.",
+    "selectSource": "Select a source"
+  },
+  "createAccessReviewCampaignDialog": {
+    "errors": { "create": "Failed to create campaign" },
+    "messages": { "error": "Error", "success": "Success", "created": "Campaign created successfully." },
+    "breadcrumb": { "accessReviews": "Campaigns", "newCampaign": "New Campaign" },
+    "fields": { "name": "Name", "description": "Description", "sources": "Sources" },
+    "loadingSources": "Loading sources...",
+    "actions": { "create": "Create" },
+    "emptySources": "No connections available. Add connections on the Connections page first."
+  },
+  "postHogDeploymentField": {
+    "deployment": { "label": "Deployment", "placeholder": "Select a deployment", "usCloud": "PostHog Cloud (US)", "euCloud": "PostHog Cloud (EU)", "selfHosted": "Self-hosted" },
+    "instanceUrl": "Instance URL"
+  },
+  "apiKeyConnectorDialog": {
+    "title": "Connect provider",
+    "titleWithProvider": "Connect {{provider}}",
+    "managedDescription": "Connect {{provider}} as an access source. Provide the details below to finish.",
+    "apiKeyDescription": "Enter the API key for {{provider}} to connect it as an access source.",
+    "apiKey": "API Key",
+    "messages": { "connectionFailed": "Connection failed" },
+    "errors": { "managedConnect": "Failed to connect provider. Please check your settings and try again.", "apiKeyConnect": "Failed to connect provider. Please check your API key and try again.", "apiKeyFormat": "This does not look like the expected key. Expected form: {{example}}", "rejected": { "better_stack_team_not_found": "Better Stack has no team with this name for this API token. Team names are case-sensitive: copy the exact name from Settings > Teams in Better Stack, or use a team-based API token.", "supabase_organization_not_found": "Supabase has no organization with this slug. Copy it from the organization URL in the Supabase dashboard (supabase.com/dashboard/org/<slug>).", "supabase_organization_not_accessible": "This access token cannot read the members of this organization. Create a token with Organization resource access that includes this organization, and Organization Members set to Read." } },
+    "actions": { "connect": "Connect", "connecting": "Connecting..." }
+  },
+  "clientCredentialsConnectorDialog": {
+    "title": "Connect provider",
+    "titleWithProvider": "Connect {{provider}}",
+    "description": "Enter the client credentials for {{provider}} to connect it as an access source.",
+    "messages": { "connectionFailed": "Connection failed" },
+    "errors": { "connect": "Failed to connect provider. Please check your credentials and try again." },
+    "fields": { "clientId": "Client ID", "clientSecret": "Client Secret", "tokenUrl": "Token URL", "scope": "Scope" },
+    "region": { "placeholder": "Select a region", "us": "United States (US)", "ca": "Canada (CA)", "eu": "Europe (EU)" },
+    "actions": { "connect": "Connect", "connecting": "Connecting..." }
+  },
+  "createAwsAccessReviewSourcePage": {
+    "pageTitle": "Connect AWS",
+    "title": "Connect AWS",
+    "description": "Deploy the audit role. Then enter its ARN.",
+    "permissionDenied": "You do not have permission to create access sources.",
+    "fields": {
+      "roleArn": "Role ARN",
+      "issuer": "Issuer",
+      "audience": "Audience",
+      "subject": "Subject",
+      "roleArnHelp": "e.g. arn:aws:iam::123456789012:role/ProboAudit"
+    },
+    "messages": {
+      "copyFailed": "Copy failed",
+      "copied": "Copied to clipboard",
+      "copiedIssuer": "Issuer copied.",
+      "copiedAudience": "Audience copied.",
+      "copiedSubject": "Subject copied.",
+      "copiedTerraform": "Terraform snippet copied.",
+      "error": "Error",
+      "success": "Success",
+      "created": "Access source created successfully."
+    },
+    "errors": {
+      "roleArn": "Enter a valid IAM role ARN.",
+      "create": "Could not create the connector. Check the role ARN and try again.",
+      "disconnected": "Black Fortress could not assume the audit role. Confirm the stack is deployed in this account and that the issuer and subject match the values shown during setup.",
+      "delete": "Could not delete the connector. Try again.",
+      "source": "Failed to create access source",
+      "copy": "Copy the value manually."
+    },
+    "actions": {
+      "copy": "Copy",
+      "connect": "Connect",
+      "back": "Back",
+      "installViaCloudFormation": "Install via CloudFormation",
+      "installViaTerraform": "Install via Terraform",
+      "chooseAnotherInstallMethod": "Choose another install method"
+    }
+  },
+  "oauthExtraDialog": {
+    "actions": { "continue": "Continue" },
+    "datadog": { "title": "Connect Datadog", "description": "Select your Datadog site, then continue to authorize access.", "siteLabel": "Datadog site", "sitePlaceholder": "Select a site" },
+    "zendesk": { "title": "Connect Zendesk", "description": "Enter your Zendesk subdomain, then continue to authorize access.", "subdomainLabel": "Zendesk subdomain", "subdomainPlaceholder": "acme", "subdomainHelp": "The <subdomain> part of <subdomain>.zendesk.com" }
+  },
+  "useCreateAccessReviewSource": {
+    "errors": { "create": "Failed to create access source" },
+    "messages": { "error": "Error", "success": "Success", "created": "Access source created successfully." }
+  },
+  "accessReviewConnectionsPage": {
+    "title": "Connections",
+    "description": "Connect the systems whose access you want to review.",
+    "errors": { "create": "Failed to create access source" },
+    "messages": { "error": "Error", "success": "Success", "created": "Access source created successfully." },
+    "actions": { "loading": "Loading...", "loadMore": "Load more", "retry": "Retry" },
+    "sections": { "connected": "Connected", "available": "Available" },
+    "searchPlaceholder": "Search sources and providers...",
+    "emptyConnected": "No access sources are connected yet.",
+    "emptyConnectedSearch": "No connected sources match your search.",
+    "searchLoadFailed": "Some sources could not be loaded, so the search is incomplete. Retry to search them all.",
+    "emptyAvailableSearch": "No available providers match your search.",
+    "comingSoon": "Coming soon"
+  },
+  "assetDetailsPage": {
+    "validation": { "nameRequired": "Name is required", "amountRequired": "Amount is required", "dataTypesStoredRequired": "Data types stored is required", "ownerRequired": "Owner is required" },
+    "assetTypes": { "physical": "Physical", "virtual": "Virtual" },
+    "fields": { "name": "Name", "amount": "Amount", "assetType": "Asset Type", "dataTypesStored": "Data Types Stored", "owner": "Owner", "thirdParties": "Third parties" },
+    "actions": { "delete": "Delete", "update": "Update", "updating": "Updating..." }
+  },
+  "assetsPage": {
+    "title": "Assets",
+    "description": "Manage your organization's assets and their classifications.",
+    "actions": { "document": "Document", "publish": "Publish", "addAsset": "Add asset" }
+  },
+  "assetsMultiSelectField": {
+    "addPlaceholder": "Add assets...",
+    "empty": "No assets available",
+    "remove": "Remove {{name}}"
+  },
+  "businessFunctionsPage": {
+    "title": "Business Functions",
+    "description": "Manage your organization's business functions register.",
+    "actions": { "document": "Document", "publish": "Publish", "add": "Add Business Function", "loadMore": "Load more", "loading": "Loading..." },
+    "filters": { "allClassifications": "All classifications" },
+    "classifications": { "critical": "Critical", "important": "Important", "secondary": "Secondary", "standard": "Standard" },
+    "columns": { "referenceId": "Reference ID", "name": "Name", "classification": "Classification", "mtd": "MTD", "rto": "RTO", "rpo": "RPO", "owner": "Owner", "assets": "Assets", "thirdParties": "Third parties", "actions": "Actions" },
+    "none": "None",
+    "empty": {
+      "title": "No Business Functions yet",
+      "description": "Create your first Business Function to get started.",
+      "filteredTitle": "No matching Business Functions",
+      "filteredDescription": "No Business Functions match the selected classification."
+    }
+  },
+  "businessFunctionListItem": {
+    "actions": { "delete": "Delete" },
+    "messages": { "success": "Success", "deleted": "Business Function deleted successfully" },
+    "errors": { "delete": "Failed to delete business function" },
+    "deleteConfirmation": "This will permanently delete the business function {{referenceId}}. This action cannot be undone."
+  },
+  "businessFunctionDetailsPage": {
+    "validation": { "nameRequired": "Name is required" },
+    "fields": { "name": "Name", "namePlaceholder": "Enter name", "classification": "Classification", "classificationPlaceholder": "Select classification", "mtd": "MTD (minutes)", "rto": "RTO (minutes)", "rpo": "RPO (minutes)", "durationHelper": "Common values: 1h = 60, 12h = 720, 24h = 1440, 3d = 4320 minutes", "impactTolerance": "Impact tolerance", "impactTolerancePlaceholder": "Describe acceptable impact during disruption", "notes": "Notes", "notesPlaceholder": "Dependencies and other notes", "owner": "Owner", "assets": "Assets", "thirdParties": "Third parties" },
+    "classifications": { "critical": "Critical", "important": "Important", "secondary": "Secondary", "standard": "Standard" },
+    "actions": { "delete": "Delete", "update": "Update", "updating": "Updating..." },
+    "messages": { "success": "Success", "updated": "Business Function updated successfully", "deleted": "Business Function deleted successfully" },
+    "errors": { "update": "Failed to update business function", "delete": "Failed to delete business function" },
+    "dependenciesTruncated": "This Business Function has more than 100 linked assets or third parties. Dependency editing is disabled so saving cannot silently remove relationships that were not loaded.",
+    "deleteConfirmation": "This will permanently delete the business function {{referenceId}}. This action cannot be undone."
+  },
+  "createBusinessFunctionDialog": {
+    "breadcrumb": { "businessFunctions": "Business Functions", "create": "Create" },
+    "validation": { "nameRequired": "Name is required" },
+    "fields": { "name": "Name", "namePlaceholder": "Enter name", "classification": "Classification", "classificationPlaceholder": "Select classification", "mtd": "MTD (minutes)", "rto": "RTO (minutes)", "rpo": "RPO (minutes)", "durationHelper": "Common values: 1h = 60, 12h = 720, 24h = 1440, 3d = 4320 minutes", "impactTolerance": "Impact tolerance", "impactTolerancePlaceholder": "Describe the impact tolerance", "notes": "Notes", "notesPlaceholder": "Dependencies and other notes", "owner": "Owner", "assets": "Assets", "thirdParties": "Third parties" },
+    "classifications": { "critical": "Critical", "important": "Important", "secondary": "Secondary", "standard": "Standard" },
+    "actions": { "create": "Create Business Function", "creating": "Creating..." },
+    "messages": { "success": "Success", "created": "Business Function created successfully" },
+    "errors": { "create": "Failed to create business function" }
+  },
+  "publishBusinessFunctionListDialog": {
+    "title": "Publish Business Function List",
+    "errors": {
+      "publish": "Failed to publish business function list"
+    },
+    "messages": {
+      "published": "Business Function list published successfully."
+    }
+  },
+  "aiSystemsPage": {
+    "pageTitle": "AI Systems",
+    "title": "AI Systems",
+    "description": "Track AI systems used across your organization, including roles, risk classification, and review schedule.",
+    "actions": { "document": "Document", "publish": "Publish", "add": "Add AI System", "loadMore": "Load more", "loading": "Loading..." },
+    "filters": { "allStatuses": "All statuses", "allRiskClassifications": "All risk classifications" },
+    "status": { "active": "Active", "inDevelopment": "In development", "decommissioned": "Decommissioned" },
+    "riskClassification": { "highRisk": "High-risk", "limited": "Limited", "minimal": "Minimal", "gpai": "GPAI" },
+    "companyRoles": { "provider": "Provider", "deployer": "Deployer", "user": "User", "developer": "Developer" },
+    "columns": { "name": "Name", "version": "Version", "status": "Status", "riskClassification": "Risk classification", "owner": "System owner", "nextReviewDate": "Next review date", "actions": "Actions" },
+    "empty": {
+      "title": "No AI systems yet",
+      "description": "Create your first AI system to get started.",
+      "filteredTitle": "No matching AI systems",
+      "filteredDescription": "No AI systems match the selected filters."
+    }
+  },
+  "aiSystemListItem": {
+    "actions": { "delete": "Delete" },
+    "messages": { "success": "Success", "deleted": "AI system deleted successfully" },
+    "errors": { "delete": "Failed to delete AI system" },
+    "deleteConfirmation": "This will permanently delete the AI system \"{{name}}\". This action cannot be undone."
+  },
+  "aiSystemDetailsPage": {
+    "validation": { "nameRequired": "Name is required" },
+    "fields": {
+      "name": "Name",
+      "namePlaceholder": "Enter system name",
+      "version": "Version",
+      "versionPlaceholder": "e.g. 1.0",
+      "companyRoles": "Company roles",
+      "status": "Status",
+      "owner": "System owner",
+      "source": "Source",
+      "sourcePlaceholder": "Who developed or provides the system",
+      "purpose": "Purpose / business goals",
+      "purposePlaceholder": "Why this system exists and what it aims to achieve",
+      "intendedUseCases": "Intended use cases",
+      "intendedUseCasesPlaceholder": "Specific ways the system is meant to be used",
+      "autonomyLevel": "Autonomy level",
+      "autonomyLevelPlaceholder": "Describe the level of autonomy",
+      "humanOversightMechanism": "Human oversight mechanism",
+      "humanOversightMechanismPlaceholder": "How humans oversee this system",
+      "riskClassification": "Risk classification",
+      "keyStakeholders": "Key stakeholders affected",
+      "keyStakeholdersPlaceholder": "Who might be impacted by this system",
+      "dataSourcesAndType": "Data sources and type",
+      "dataSourcesAndTypePlaceholder": "What data the system processes and its type",
+      "deploymentDate": "Deployment date",
+      "lastReviewDate": "Last review date",
+      "nextReviewDate": "Next review date",
+      "notes": "Notes / observations",
+      "notesPlaceholder": "Additional notes or observations",
+      "notSet": "Not set"
+    },
+    "status": { "active": "Active", "inDevelopment": "In development", "decommissioned": "Decommissioned" },
+    "riskClassification": { "highRisk": "High-risk", "limited": "Limited", "minimal": "Minimal", "gpai": "GPAI" },
+    "companyRoles": { "provider": "Provider", "deployer": "Deployer", "user": "User", "developer": "Developer" },
+    "actions": { "delete": "Delete", "update": "Update", "updating": "Updating..." },
+    "messages": { "success": "Success", "updated": "AI system updated successfully", "deleted": "AI system deleted successfully" },
+    "errors": { "update": "Failed to update AI system", "delete": "Failed to delete AI system" },
+    "deleteConfirmation": "This will permanently delete the AI system \"{{name}}\". This action cannot be undone."
+  },
+  "createAiSystemDialog": {
+    "breadcrumb": { "aiSystems": "AI Systems", "create": "Create" },
+    "validation": { "nameRequired": "Name is required" },
+    "fields": {
+      "name": "Name",
+      "namePlaceholder": "Enter system name",
+      "version": "Version",
+      "versionPlaceholder": "e.g. 1.0",
+      "companyRoles": "Company roles",
+      "status": "Status",
+      "owner": "System owner",
+      "source": "Source",
+      "sourcePlaceholder": "Who developed or provides the system",
+      "purpose": "Purpose / business goals",
+      "purposePlaceholder": "Why this system exists and what it aims to achieve",
+      "intendedUseCases": "Intended use cases",
+      "intendedUseCasesPlaceholder": "Specific ways the system is meant to be used",
+      "autonomyLevel": "Autonomy level",
+      "autonomyLevelPlaceholder": "Describe the level of autonomy",
+      "humanOversightMechanism": "Human oversight mechanism",
+      "humanOversightMechanismPlaceholder": "How humans oversee this system",
+      "riskClassification": "Risk classification",
+      "keyStakeholders": "Key stakeholders affected",
+      "keyStakeholdersPlaceholder": "Who might be impacted by this system",
+      "dataSourcesAndType": "Data sources and type",
+      "dataSourcesAndTypePlaceholder": "What data the system processes and its type",
+      "deploymentDate": "Deployment date",
+      "lastReviewDate": "Last review date",
+      "nextReviewDate": "Next review date",
+      "notes": "Notes / observations",
+      "notesPlaceholder": "Additional notes or observations",
+      "notSet": "Not set"
+    },
+    "status": { "active": "Active", "inDevelopment": "In development", "decommissioned": "Decommissioned" },
+    "riskClassification": { "highRisk": "High-risk", "limited": "Limited", "minimal": "Minimal", "gpai": "GPAI" },
+    "companyRoles": { "provider": "Provider", "deployer": "Deployer", "user": "User", "developer": "Developer" },
+    "actions": { "create": "Create AI System", "creating": "Creating..." },
+    "messages": { "success": "Success", "created": "AI system created successfully" },
+    "errors": { "create": "Failed to create AI system" }
+  },
+  "publishListDialog": {
+    "description": "Select approvers to request approval before publishing, or publish directly without approvers.",
+    "fields": {
+      "approvers": "Approvers",
+      "approversPlaceholder": "Add approvers..."
+    },
+    "actions": {
+      "publishMinor": "Publish as minor",
+      "requestApproval": "Request approval",
+      "publish": "Publish"
+    },
+    "messages": {
+      "success": "Success",
+      "error": "Error",
+      "approvalRequested": "Approval requested successfully."
+    }
+  },
+  "publishAiSystemListDialog": {
+    "title": "Publish AI Systems",
+    "errors": {
+      "publish": "Failed to publish AI systems list"
+    },
+    "messages": {
+      "published": "AI systems list published successfully."
+    }
+  },
+  "createAssetDialog": {
+    "breadcrumb": { "assets": "Assets", "newAsset": "New Asset" },
+    "validation": { "nameRequired": "Name is required", "amountRequired": "Amount is required", "ownerRequired": "Owner is required", "dataTypesStoredRequired": "Data types stored is required" },
+    "fields": { "name": "Name", "amount": "Amount", "assetType": "Asset Type", "dataTypesStored": "Data Types Stored", "owner": "Owner", "thirdParties": "Third parties" },
+    "assetTypes": { "physical": "Physical", "virtual": "Virtual" },
+    "actions": { "create": "Create" }
+  },
+  "publishAssetListDialog": {
+    "title": "Publish Asset List",
+    "errors": {
+      "publish": "Failed to publish asset list"
+    },
+    "messages": {
+      "published": "Asset list published successfully."
+    }
+  },
+  "auditDetailsPage": {
+    "errors": { "update": "Failed to update audit" },
+    "messages": { "success": "Success", "error": "Error", "updated": "Audit updated successfully" },
+    "deleteReportConfirmation": "This will permanently delete the audit report \"{{name}}\". This action cannot be undone.",
+    "states": { "to_book": "To book", "audit_booked": "Audit booked", "not_started": "Not Started", "in_progress": "In Progress", "completed": "Completed", "rejected": "Rejected", "outdated": "Outdated" },
+    "fields": { "name": "Name", "namePlaceholder": "Audit name", "firm": "Audit firm", "firmPlaceholder": "Audit firm", "state": "State", "validFrom": "Valid From", "validUntil": "Valid Until", "auditStartDate": "Audit Start Date", "auditEndDate": "Audit End Date" },
+    "actions": { "delete": "Delete", "update": "Update", "updating": "Updating...", "download": "Download" },
+    "report": { "title": "Audit Report", "uploaded": "Uploaded {{date}}", "uploadDescription": "Upload the final audit report document (PDF recommended)", "dropzoneDescription": "Only PDF up to 25MB are allowed" }
+  },
+  "auditsPage": {
+    "title": "Audits",
+    "description": "Manage your organization's compliance audits and their progress.",
+    "errors": {
+      "unsupportedFileType": { "title": "Unsupported file type", "description": "Only PDF files are supported." }
+    },
+    "dropzoneOverlay": "Drop a PDF to create an audit with a report",
+    "actions": { "addAudit": "Add audit", "delete": "Delete" },
+    "columns": { "name": "Name", "framework": "Framework", "state": "State", "auditPeriod": "Audit period", "validityPeriod": "Validity period", "report": "Report" },
+    "states": { "to_book": "To book", "audit_booked": "Audit booked", "not_started": "Not Started", "in_progress": "In Progress", "completed": "Completed", "rejected": "Rejected", "outdated": "Outdated" },
+    "row": {
+      "untitled": "Untitled",
+      "unknownFramework": "Unknown Framework",
+      "notSet": "Not set",
+      "uploaded": "Uploaded",
+      "notUploaded": "Not uploaded",
+      "period": {
+        "from": "From {{date}}",
+        "until": "Until {{date}}"
+      }
+    }
+  },
+  "createAuditDialog": {
+    "breadcrumb": { "audits": "Audits", "newAudit": "New Audit" },
+    "validation": { "frameworkRequired": "Framework is required" },
+    "messages": { "success": "Success", "error": "Error", "created": "Audit created successfully", "createdWithReport": "Audit created and report uploaded successfully" },
+    "errors": { "create": "Failed to create audit" },
+    "fileSize": "{{value}} MB",
+    "loading": "Loading...",
+    "fields": { "framework": "Framework", "frameworkPlaceholder": "Select a framework", "name": "Name", "namePlaceholder": "Audit name", "firm": "Audit firm", "firmPlaceholder": "Audit firm", "state": "State", "validFrom": "Valid From", "validUntil": "Valid Until", "auditStartDate": "Audit Start Date", "auditEndDate": "Audit End Date" },
+    "states": { "to_book": "To book", "audit_booked": "Audit booked", "not_started": "Not Started", "in_progress": "In Progress", "completed": "Completed", "rejected": "Rejected", "outdated": "Outdated" },
+    "actions": { "create": "Create" }
+  },
+  "context": {
+    "title": "Context",
+    "description": "Structured company information for AI assistants and compliance workflows.",
+    "sections": {
+      "product": { "title": "Product", "description": "Describe what your product does, its main features, and value proposition.", "placeholder": "Describe your product in markdown format..." },
+      "architecture": { "title": "Architecture", "description": "Describe your technical architecture, infrastructure, and key design decisions.", "placeholder": "Describe your architecture in markdown format..." },
+      "team": { "title": "Team", "description": "Describe your team structure, roles, and responsibilities.", "placeholder": "Describe your team in markdown format..." },
+      "processes": { "title": "Processes", "description": "Describe your key processes, workflows, and operational procedures.", "placeholder": "Describe your processes in markdown format..." },
+      "customers": { "title": "Customers", "description": "Describe your target market, customer segments, and use cases.", "placeholder": "Describe your customers in markdown format..." }
+    },
+    "messages": { "updated": "Context updated successfully" },
+    "errors": { "update": "Failed to update context" },
+    "actions": { "cancel": "Cancel", "save": "Save", "edit": "Edit" },
+    "empty": "No content yet. Click Edit to add one."
+  },
+  "frameworkControlPage": {
+    "messages": { "error": "Error" },
+    "deleteConfirmation": "Are you sure you want to delete this control?",
+    "actions": { "editControl": "Edit control", "delete": "Delete" },
+    "fields": { "bestPractice": "Best Practice", "maturityLevel": "Maturity level", "notImplementedJustification": "Justification for non-implementation" },
+    "answers": { "yes": "Yes", "no": "No" },
+    "maturityLevels": { "none": "0 - None", "initial": "1 - Initial", "managed": "2 - Managed", "defined": "3 - Defined", "quantitatively_managed": "4 - Quantitatively Managed", "optimizing": "5 - Optimizing" },
+    "errors": { "linkMeasure": "Failed to link measure", "unlinkMeasure": "Failed to unlink measure", "linkDocument": "Failed to link document", "unlinkDocument": "Failed to unlink document", "linkAudit": "Failed to link audit", "unlinkAudit": "Failed to unlink audit", "linkObligation": "Failed to link obligation", "unlinkObligation": "Failed to unlink obligation" }
+  },
+  "frameworkDetailPage": {
+    "errors": { "export": "Failed to export framework" },
+    "messages": { "exportStarted": "Framework export started successfully. You will receive an email when the export is ready." },
+    "actions": { "edit": "Edit", "export": "Export Framework", "delete": "Delete", "addControl": "Add new control" },
+    "requirementCategories": "Requirement categories"
+  },
+  "frameworksPage": {
+    "title": "Frameworks",
+    "description": "Manage your compliance frameworks",
+    "messages": { "imported": "Framework imported successfully" },
+    "errors": { "import": "Failed to import framework" },
+    "actions": { "import": "Import", "edit": "Edit", "delete": "Delete" }
+  },
+  "frameworkControlDialog": {
+    "breadcrumb": { "controls": "Controls", "editControl": "Edit Control", "newControl": "New Control" },
+    "messages": { "created": "Control created successfully.", "updated": "Control updated successfully." },
+    "errors": { "create": "Failed to create control", "update": "Failed to update control" },
+    "fields": { "sectionTitle": "Section title", "name": "Control name", "description": "Add description", "bestPractice": "Best Practice", "maturityLevel": "Maturity level", "notImplementedJustification": "Justification for non-implementation" },
+    "actions": { "create": "Create control", "update": "Update control" }
+  },
+  "frameworkFormDialog": {
+    "breadcrumb": { "framework": "Framework", "newFramework": "New Framework" },
+    "messages": { "created": "Framework created successfully", "updated": "Framework updated successfully" },
+    "errors": { "create": "Failed to create framework", "update": "Failed to update framework" },
+    "fields": { "title": "Framework title", "description": "Add description" },
+    "actions": { "create": "Create framework", "update": "Update framework" }
+  },
+  "measureDetailPage": {
+    "deleteConfirmation": "This will permanently delete the measure \"{{name}}\". This action cannot be undone.",
+    "fields": { "selectState": "Select state" },
+    "actions": { "edit": "Edit", "delete": "Delete" },
+    "states": { "implemented": "Implemented", "in_progress": "In Progress", "not_applicable": "Not Applicable", "not_started": "Not Started", "unknown": "Unknown", "not_implemented": "Not Implemented" },
+    "tabs": { "evidences": "Evidences", "tasks": "Tasks", "controls": "Controls", "risks": "Risks", "documents": "Documents", "thirdParties": "Third parties" }
+  },
+  "measuresPage": {
+    "title": "Measures",
+    "description": "Measures are actions taken to reduce the risk. Add them to track their implementation status.",
+    "messages": { "imported": "Measures imported successfully.", "error": "Error", "success": "Success", "deleted": "Measure deleted successfully" },
+    "errors": { "import": "Failed to import measures", "delete": "Failed to delete measure" },
+    "deleteConfirmation": "This will permanently delete the measure \"{{name}}\". This action cannot be undone.",
+    "actions": { "import": "Import", "newMeasure": "New measure", "loading": "Loading...", "loadMore": "Load more", "edit": "Edit", "delete": "Delete" },
+    "filters": { "searchPlaceholder": "Search measures...", "allStates": "All states", "allCategories": "All categories" },
+    "states": { "implemented": "Implemented", "in_progress": "In Progress", "not_applicable": "Not Applicable", "not_started": "Not Started" },
+    "columns": { "measure": "Measure", "category": "Category", "state": "State" },
+    "empty": { "title": "No measures yet", "description": "Create your first measure to get started." }
+  },
+  "linkedThirdPartiesCard": {
+    "columns": { "name": "Name", "category": "Category" },
+    "empty": "No third parties linked",
+    "actions": { "link": "Link third party", "unlink": "Unlink" }
+  },
+  "linkedThirdPartiesDialog": {
+    "title": "Link third parties",
+    "searchPlaceholder": "Search third parties...",
+    "actions": { "link": "Link", "unlink": "Unlink" }
+  },
+  "createEvidenceDialog": {
+    "breadcrumb": { "measureDetail": "Measures detail", "createEvidence": "Create Evidence" },
+    "tabs": { "upload": "Upload", "link": "Link" },
+    "messages": { "uploaded": "Evidence uploaded successfully", "created": "Evidence created successfully" },
+    "errors": { "create": "Failed to create evidence" },
+    "uploadDescription": "Documents, spreadsheets, presentations, images, and text files up to 20MB",
+    "fields": { "name": "Name", "namePlaceholder": "Evidence name", "url": "URL", "urlPlaceholder": "Evidence URL", "urlHelp": "This will create a .uri file with the URL inside" },
+    "actions": { "create": "Create" }
+  },
+  "evidenceDownloadDialog": {
+    "breadcrumb": { "evidences": "Evidences", "download": "Download" },
+    "generating": "Generating download link..."
+  },
+  "evidencePreviewDialog": {
+    "breadcrumb": { "evidences": "Evidences" },
+    "messages": { "error": "Error" },
+    "errors": { "extractUrl": "Failed to extract URL from URI file" },
+    "csv": {
+      "column": "Column",
+      "empty": "This CSV file is empty.",
+      "error": "Unable to load the CSV preview.",
+      "retry": "Retry",
+      "truncated": "Showing the first 100 data rows."
+    },
+    "text": {
+      "empty": "This text file is empty.",
+      "error": "Unable to load the text preview.",
+      "retry": "Retry",
+      "truncated": "Showing the first 512 KB."
+    },
+    "previewUnavailable": "Preview not available for this file type: {{mimeType}}",
+    "actions": { "download": "Download File" }
+  },
+  "measureFormDialog": {
+    "breadcrumb": { "measures": "Measures", "editMeasure": "Edit Measure", "newMeasure": "New Measure" },
+    "messages": { "created": "Measure created successfully." },
+    "errors": { "create": "Failed to create measure" },
+    "validation": { "nameRequired": "Name is required", "categoryRequired": "Category is required" },
+    "fields": { "name": "Measure name", "namePlaceholder": "Measure title", "description": "Description", "descriptionPlaceholder": "Add description", "category": "Category", "categoryPlaceholder": "Select category", "state": "State", "statePlaceholder": "Select state" },
+    "properties": "Properties",
+    "states": { "implemented": "Implemented", "in_progress": "In Progress", "not_applicable": "Not Applicable", "not_started": "Not Started", "unknown": "Unknown", "not_implemented": "Not Implemented" },
+    "actions": { "create": "Create measure", "update": "Update measure" }
+  },
+  "measureEvidencesTab": {
+    "pageTitle": "{{name}} - Evidences",
+    "columns": { "name": "Name", "description": "Description", "fileType": "File type", "fileSize": "File size", "createdAt": "Created at" },
+    "messages": { "deleted": "Evidence \"{{name}}\" has been deleted successfully" },
+    "errors": { "delete": "Failed to delete evidence" },
+    "deleteConfirmation": "This will permanently delete the evidence \"{{name}}\". This action cannot be undone.",
+    "linkEvidence": "Link evidence",
+    "actions": { "add": "Add evidence", "download": "Download", "delete": "Delete" }
+  },
+  "measureTasksTab": {
+    "actions": { "newTask": "New task" }
+  },
+  "obligationDetailsPage": {
+    "title": "Obligation",
+    "messages": { "success": "Success", "error": "Error", "updated": "Obligation updated successfully" },
+    "errors": { "update": "Failed to update obligation" },
+    "validation": { "ownerRequired": "Owner is required" },
+    "fields": { "area": "Area", "source": "Source", "status": "Status", "owner": "Owner", "regulator": "Regulator", "type": "Type", "lastReviewDate": "Last Review Date", "dueDate": "Due Date", "requirement": "Requirement", "actionsToBeImplemented": "Actions to be Implemented" },
+    "placeholders": { "area": "Enter area", "source": "Enter source", "status": "Select status", "regulator": "Enter regulator", "type": "Select type", "requirement": "Enter requirement", "actionsToBeImplemented": "Enter actions to be implemented" },
+    "statuses": { "non_compliant": "Non-compliant", "partially_compliant": "Partially compliant", "compliant": "Compliant" },
+    "types": { "legal": "Legal", "contractual": "Contractual" },
+    "actions": { "delete": "Delete", "saving": "Saving...", "save": "Save Changes" }
+  },
+  "obligationsPage": {
+    "title": "Obligations",
+    "description": "Manage your organization's obligations.",
+    "actions": { "document": "Document", "publish": "Publish", "add": "Add obligation", "loadMore": "Load more", "delete": "Delete" },
+    "empty": { "title": "No obligations yet", "description": "Create your first obligation to get started." },
+    "columns": { "area": "Area", "source": "Source", "status": "Status", "owner": "Owner", "dueDate": "Due Date", "actions": "Actions" },
+    "statuses": { "non_compliant": "Non-compliant", "partially_compliant": "Partially compliant", "compliant": "Compliant" },
+    "deleteConfirmation": "This will permanently delete this obligation. This action cannot be undone.",
+    "noDueDate": "No due date"
+  },
+  "createObligationDialog": {
+    "breadcrumb": { "obligations": "Obligations", "create": "Create Obligation" },
+    "messages": { "success": "Success", "error": "Error", "created": "Obligation created successfully" },
+    "errors": { "create": "Failed to create obligation" },
+    "validation": { "ownerRequired": "Owner is required" },
+    "fields": { "area": "Area", "source": "Source", "status": "Status", "owner": "Owner", "regulator": "Regulator", "type": "Type", "lastReviewDate": "Last Review Date", "dueDate": "Due Date", "requirement": "Requirement", "actionsToBeImplemented": "Actions to be Implemented" },
+    "placeholders": { "area": "Enter area", "source": "Enter source", "status": "Select status", "regulator": "Enter regulator", "type": "Select type", "requirement": "Enter requirement details...", "actionsToBeImplemented": "Enter actions to be implemented..." },
+    "statuses": { "non_compliant": "Non-compliant", "partially_compliant": "Partially compliant", "compliant": "Compliant" },
+    "types": { "legal": "Legal", "contractual": "Contractual" },
+    "actions": { "creating": "Creating...", "create": "Create Obligation" }
+  },
+  "publishObligationListDialog": {
+    "title": "Publish Obligation List",
+    "errors": {
+      "publish": "Failed to publish obligation list"
+    },
+    "messages": {
+      "published": "Obligation list published successfully."
+    }
+  },
+  "processingActivitiesPage": {
+    "title": "Processing Activities",
+    "description": "Manage your processing activities under GDPR",
+    "actions": { "add": "Add processing activity", "document": "Document", "publish": "Publish", "loading": "Loading...", "loadMore": "Load more", "delete": "Delete" },
+    "columns": { "name": "Name", "purpose": "Purpose", "dataSubject": "Data Subject", "lawfulBasis": "Lawful Basis", "location": "Location", "internationalTransfers": "International Transfers", "actions": "Actions" },
+    "empty": { "title": "No processing activities yet", "description": "Create your first processing activity to get started with GDPR compliance." },
+    "deleteConfirmation": "This will permanently delete the processing activity {{name}}. This action cannot be undone.",
+    "answers": { "yes": "Yes", "no": "No" }
+  },
+  "dataProtectionImpactAssessmentsPage": {
+    "description": "Review data protection impact assessments across your processing activities",
+    "actions": { "document": "Document", "publish": "Publish", "loading": "Loading...", "loadMore": "Load more" },
+    "columns": {
+      "processingActivity": "Processing Activity",
+      "description": "Description",
+      "potentialRisk": "Potential Risk",
+      "residualRisk": "Residual Risk"
+    },
+    "empty": {
+      "title": "No Data Protection Impact Assessments yet",
+      "description": "DPIAs are created from within individual processing activities."
+    }
+  },
+  "transferImpactAssessmentsPage": {
+    "description": "Review transfer impact assessments across your processing activities",
+    "actions": { "document": "Document", "publish": "Publish", "loading": "Loading...", "loadMore": "Load more" },
+    "columns": {
+      "processingActivity": "Processing Activity",
+      "dataSubjects": "Data Subjects",
+      "transfer": "Transfer",
+      "localLawRisk": "Local Law Risk"
+    },
+    "empty": {
+      "title": "No Transfer Impact Assessments yet",
+      "description": "TIAs are created from within individual processing activities."
+    }
+  },
+  "processingActivityDetailsPage": {
+    "tabs": { "overview": "Overview", "dpia": "Data Protection Impact Assessment", "tia": "Transfer Impact Assessment" },
+    "messages": { "success": "Success", "error": "Error", "activityUpdated": "Processing activity updated successfully", "dpiaUpdated": "DPIA updated successfully", "dpiaCreated": "DPIA created successfully", "tiaUpdated": "TIA updated successfully", "tiaCreated": "TIA created successfully" },
+    "errors": { "updateActivity": "Failed to update processing activity", "saveDpia": "Failed to save DPIA", "saveTia": "Failed to save TIA" },
+    "validation": { "nameRequired": "Name is required" },
+    "fields": { "name": "Name", "role": "Role", "purpose": "Purpose", "dataSubjectCategory": "Data Subject Category", "personalDataCategory": "Personal Data Category", "specialOrCriminalData": "Special or Criminal Data", "consentEvidenceLink": "Consent Evidence Link", "lawfulBasis": "Lawful Basis", "lastReviewDate": "Last Review Date", "nextReviewDate": "Next Review Date", "dataProtectionOfficer": "Data Protection Officer", "recipients": "Recipients", "location": "Location", "internationalTransfers": "International Transfers", "internationalTransfersDescription": "Data is transferred internationally", "transferSafeguards": "Transfer Safeguards", "retentionPeriod": "Retention Period", "securityMeasures": "Security Measures", "dpiaNeeded": "Data Protection Impact Assessment", "tiaNeeded": "Transfer Impact Assessment", "thirdParties": "Third parties", "dpiaDescription": "Description", "necessityAndProportionality": "Necessity and Proportionality", "potentialRisk": "Potential Risk", "mitigations": "Mitigations", "residualRisk": "Residual Risk", "dataSubjects": "Data Subjects", "legalMechanism": "Legal Mechanism", "transfer": "Transfer", "localLawRisk": "Local Law Risk", "supplementaryMeasures": "Supplementary Measures" },
+    "placeholders": { "role": "Select role", "purpose": "Describe the purpose of processing", "dataSubjectCategory": "e.g., employees, customers, prospects", "personalDataCategory": "e.g., contact details, financial data", "specialOrCriminalData": "Select special or criminal data status", "consentEvidenceLink": "Link to consent evidence if applicable", "lawfulBasis": "Select lawful basis for processing", "recipients": "Who receives the data", "location": "Where is the data processed", "transferSafeguards": "Select transfer safeguards", "retentionPeriod": "How long is data retained", "securityMeasures": "Technical and organizational measures", "dpiaNeeded": "Is DPIA needed?", "tiaNeeded": "Is TIA needed?", "dpiaDescription": "Describe the processing activity and its purpose", "necessityAndProportionality": "Explain why the processing is necessary and proportionate", "potentialRisk": "Describe the potential risks to data subjects", "mitigations": "Describe measures to mitigate the identified risks", "residualRisk": "Select residual risk level", "dataSubjects": "Describe the data subjects involved in the transfer", "legalMechanism": "Describe the legal mechanism for the transfer (e.g., SCCs, BCRs, adequacy decision)", "transfer": "Describe the nature and details of the data transfer", "localLawRisk": "Assess the risks related to the local laws of the destination country", "supplementaryMeasures": "Describe any supplementary measures taken to ensure adequate protection" },
+    "residualRisk": { "low": "Low", "medium": "Medium", "high": "High" },
+    "actions": { "delete": "Delete", "saving": "Saving...", "save": "Save Changes", "cancel": "Cancel", "createDpia": "Create DPIA", "updateDpia": "Update DPIA", "deleteDpia": "Delete DPIA", "createTia": "Create TIA", "updateTia": "Update TIA", "deleteTia": "Delete TIA" }
+  },
+  "createProcessingActivityDialog": {
+    "breadcrumb": { "activities": "Processing Activities", "create": "Create Processing Activity" },
+    "messages": { "success": "Success", "error": "Error", "created": "Processing activity created successfully" },
+    "errors": { "create": "Failed to create processing activity" },
+    "validation": { "nameRequired": "Name is required" },
+    "placeholders": { "name": "Processing activity name" },
+    "actions": { "creating": "Creating...", "create": "Create Processing Activity" }
+  },
+  "publishDpiaListDialog": {
+    "title": "Publish Data Protection Impact Assessments",
+    "errors": {
+      "publish": "Failed to publish Data Protection Impact Assessments"
+    },
+    "messages": {
+      "published": "Data Protection Impact Assessments published successfully."
+    }
+  },
+  "publishProcessingActivityListDialog": {
+    "title": "Publish Processing Activities",
+    "errors": {
+      "publish": "Failed to publish processing activities"
+    },
+    "messages": {
+      "published": "Processing activities published successfully."
+    }
+  },
+  "publishTiaListDialog": {
+    "title": "Publish Transfer Impact Assessments",
+    "errors": {
+      "publish": "Failed to publish Transfer Impact Assessments"
+    },
+    "messages": {
+      "published": "Transfer Impact Assessments published successfully."
+    }
+  },
+  "rightsRequestDetailsPage": {
+    "messages": { "success": "Success", "error": "Error", "updated": "Rights request updated successfully" },
+    "errors": { "update": "Failed to update rights request" },
+    "types": { "access": "Access", "deletion": "Deletion", "rectification": "Rectification", "portability": "Portability", "objection": "Objection", "complaint": "Complaint" },
+    "states": { "todo": "To Do", "in_progress": "In Progress", "done": "Done", "rejected": "Rejected" },
+    "fields": { "requestType": "Request Type", "state": "State", "dataSubject": "Data Subject", "contact": "Contact", "details": "Details", "deadline": "Deadline", "actionTaken": "Action Taken" },
+    "placeholders": { "details": "Enter request details", "actionTaken": "Enter action taken" },
+    "actions": { "delete": "Delete", "saving": "Saving...", "save": "Save Changes" }
+  },
+  "rightsRequestsPage": {
+    "title": "Rights Requests",
+    "description": "Manage data subject rights requests.",
+    "actions": { "add": "Add rights request", "loading": "Loading...", "loadMore": "Load more", "delete": "Delete" },
+    "columns": { "type": "Type", "state": "State", "dataSubject": "Data Subject", "contact": "Contact", "deadline": "Deadline", "actions": "Actions" },
+    "types": { "access": "Access", "deletion": "Deletion", "rectification": "Rectification", "portability": "Portability", "objection": "Objection", "complaint": "Complaint" },
+    "states": { "todo": "To Do", "in_progress": "In Progress", "done": "Done", "rejected": "Rejected" },
+    "empty": { "title": "No rights requests yet", "description": "Create your first rights request to get started." },
+    "deleteConfirmation": "This will permanently delete the rights request. This action cannot be undone.",
+    "noDeadline": "No deadline"
+  },
+  "createRightsRequestDialog": {
+    "breadcrumb": { "requests": "Rights Requests", "create": "Create Request" },
+    "messages": { "success": "Success", "error": "Error", "created": "Rights request created successfully" },
+    "errors": { "create": "Failed to create rights request" },
+    "placeholders": { "dataSubject": "Enter data subject name", "contact": "Enter contact information" },
+    "actions": { "creating": "Creating...", "create": "Create Request" }
+  },
+  "riskDetailLayout": {
+    "deleteConfirmation": "This will permanently delete the risk {{referenceId}} \"{{name}}\". This action cannot be undone.",
+    "deleteConfirmationWithHistory_one": "This will permanently delete the risk {{referenceId}} \"{{name}}\". This risk is still in the history of {{count}} analysis. Deleting it will remove that history.",
+    "deleteConfirmationWithHistory_other": "This will permanently delete the risk {{referenceId}} \"{{name}}\". This risk is still in the history of {{count}} analyses. Deleting it will remove that history.",
+    "actions": { "edit": "Edit", "delete": "Delete" },
+    "tabs": { "overview": "Overview", "measures": "Measures", "documents": "Documents", "controls": "Controls", "obligations": "Obligations", "scenarios": "Scenarios", "treatmentPlans": "Treatment Plans" }
+  },
+  "risksPage": {
+    "description": "Risks are potential threats to your organization. Manage them by identifying, assessing, and implementing mitigation measures.",
+    "actions": { "document": "Document", "publish": "Publish", "newRisk": "New Risk" },
+    "columns": { "referenceId": "Reference ID", "name": "Risk name", "category": "Category", "treatment": "Treatment", "initialRisk": "Initial Risk", "residualRisk": "Residual Risk", "owner": "Owner" }
+  },
+  "riskOverviewPage": {
+    "emptyScores": "Scores are set on a treatment plan in a risk analysis.",
+    "fields": { "owner": "Owner", "treatment": "Treatment", "initialRiskScore": "Initial score", "residualRiskScore": "Residual score", "note": "Note" },
+    "treatments": { "mitigated": "Mitigate", "accepted": "Accept", "transferred": "Transfer", "avoided": "Avoid", "unknown": "Unknown" }
+  },
+  "formRiskDialog": {
+    "breadcrumb": { "risks": "Risks", "edit": "Edit Risk", "new": "New Risk" },
+    "messages": { "success": "Success", "error": "Error", "updated": "Risk updated successfully.", "created": "Risk created successfully." },
+    "errors": { "update": "Failed to update risk", "create": "Failed to create risk" },
+    "fields": { "name": "Risk name", "description": "Description", "initialRisk": "Initial Risk", "residualRisk": "Residual Risk", "owner": "Owner", "treatment": "Treatment strategy", "note": "Note", "impact": "Impact", "likelihood": "Likelihood", "category": "Risk category" },
+    "properties": "Properties",
+    "placeholders": { "name": "Service Outage", "description": "Type your description here", "treatment": "Select a treatment strategy", "note": "Add any additional notes about this risk", "impact": "Select impact level", "likelihood": "Select likelihood level", "category": "Select a category", "template": "Select template" },
+    "treatments": { "avoided": "Avoid", "mitigated": "Mitigate", "transferred": "Transfer", "accepted": "Accept" },
+    "scoreOption": "{{value}} - {{label}}",
+    "impacts": { "1": "Negligible", "2": "Low", "3": "Moderate", "4": "Significant", "5": "Catastrophic" },
+    "likelihoods": { "1": "Improbable", "2": "Remote", "3": "Occasional", "4": "Probable", "5": "Frequent" },
+    "actions": { "create": "Create risk", "update": "Update risk" }
+  },
+  "linkScenarioDialog": {
+    "title": "Link scenarios",
+    "searchPlaceholder": "Search scenarios...",
+    "noDescription": "No description",
+    "actions": { "close": "Close", "link": "Link", "unlink": "Unlink" }
+  },
+  "publishRiskListDialog": {
+    "title": "Publish Risks",
+    "errors": {
+      "publish": "Failed to publish risks"
+    },
+    "messages": {
+      "published": "Risks published successfully."
+    }
+  },
+  "publishRiskAnalysisDialog": {
+    "title": "Publish Risk Analysis",
+    "description": "Select approvers to request approval before publishing, or publish directly without approvers.",
+    "fields": { "approvers": "Approvers" },
+    "placeholders": { "approvers": "Add approvers..." },
+    "messages": { "success": "Success", "error": "Error", "approvalRequested": "Approval requested successfully.", "published": "Risk analysis published successfully." },
+    "errors": { "publish": "Failed to publish risk analysis" },
+    "actions": { "publishMinor": "Publish as minor", "requestApproval": "Request approval", "publish": "Publish" }
+  },
+  "riskRow": {
+    "messages": { "error": "Error" },
+    "errors": { "delete": "Failed to delete risk" },
+    "deleteConfirmation": "This will permanently delete the risk {{referenceId}} \"{{name}}\". This action cannot be undone.",
+    "deleteConfirmationWithHistory_one": "This will permanently delete the risk {{referenceId}} \"{{name}}\". This risk is still in the history of {{count}} analysis. Deleting it will remove that history.",
+    "deleteConfirmationWithHistory_other": "This will permanently delete the risk {{referenceId}} \"{{name}}\". This risk is still in the history of {{count}} analyses. Deleting it will remove that history.",
+    "treatments": { "mitigated": "Mitigate", "accepted": "Accept", "transferred": "Transfer", "avoided": "Avoid", "unknown": "Unknown" },
+    "unassigned": "Unassigned",
+    "actions": { "edit": "Edit", "delete": "Delete" }
+  },
+  "riskControlsPage": {
+    "columns": { "reference": "Reference", "name": "Name" },
+    "empty": "No controls linked"
+  },
+  "riskAnalysisDetailPage": {
+    "title": "Risk Analysis",
+    "messages": { "error": "Error" },
+    "errors": { "delete": "Failed to delete risk analysis", "update": "Failed to update risk analysis", "content": "Could not display this description" },
+    "deleteConfirmation": "This will permanently delete this risk analysis and all its diagrams, nodes, processes, and threats. This action cannot be undone.",
+    "actions": { "fork": "Fork", "edit": "Edit", "delete": "Delete", "showMore": "Show more", "publish": "Publish", "document": "Document" },
+    "details": "Details",
+    "noDescription": "No description",
+    "fields": { "period": "Period", "matrixSize": "Matrix size", "createdAt": "Created at", "description": "Description" },
+    "diagrams": "Diagrams",
+    "treatmentPlans": "Risks and Treatment Plans",
+    "emptyDiagrams": "No diagrams yet. Create a diagram to start defining nodes, processes, and threats.",
+    "tabs": { "diagrams": "Diagrams", "treatmentPlans": "Risks and Treatment Plans" }
+  },
+  "riskAnalysesPage": {
+    "title": "Risk Analyses",
+    "description": "Manage risk analyses with diagrams, nodes, processes, threats, and scenarios.",
+    "columns": { "name": "Name", "description": "Description", "period": "Period", "matrixSize": "Matrix", "created": "Created" },
+    "empty": "No risk analyses yet.",
+    "actions": { "fork": "Fork" }
+  },
+  "riskAnalysisBoundaryActions": {
+    "breadcrumb": { "boundaries": "Boundaries" },
+    "deleteConfirmation": "Delete this boundary? Nodes and nested boundaries inside it will be moved to the top level.",
+    "fields": { "name": "Name", "parentBoundary": "Parent boundary" },
+    "validation": { "nameRequired": "This field is required" },
+    "noneTopLevel": "None (top level)",
+    "actions": { "edit": "Edit", "delete": "Delete", "save": "Save" }
+  },
+  "createRiskAnalysisBoundaryDialog": {
+    "breadcrumb": { "boundaries": "Boundaries", "addBoundary": "Add Boundary" },
+    "fields": { "name": "Name", "parentBoundary": "Parent boundary" },
+    "validation": { "nameRequired": "This field is required" },
+    "noneTopLevel": "None (top level)",
+    "actions": { "add": "Add" }
+  },
+  "createRiskAnalysisNodeDialog": {
+    "breadcrumb": { "nodes": "Nodes", "addNode": "Add Node" },
+    "fields": { "type": "Type", "name": "Name", "boundary": "Boundary" },
+    "types": { "entity": "Entity", "asset": "Asset", "data": "Data" },
+    "validation": { "nameRequired": "This field is required" },
+    "none": "None",
+    "actions": { "add": "Add" }
+  },
+  "createRiskAnalysisProcessDialog": {
+    "breadcrumb": { "processes": "Processes", "addProcess": "Add Process" },
+    "fields": { "source": "Source", "target": "Target", "name": "Name" },
+    "validation": { "required": "This field is required" },
+    "placeholders": { "sourceNode": "Select source node", "targetNode": "Select target node", "name": "e.g. User → API" },
+    "actions": { "add": "Add" }
+  },
+  "createRiskAnalysisDialog": {
+    "title": "New Risk Analysis",
+    "breadcrumb": { "riskAnalyses": "Risk Analyses" },
+    "fields": { "name": "Name", "description": "Description", "matrixSize": "Matrix size", "periodStart": "Period start", "periodEnd": "Period end" },
+    "matrixSizes": { "3x3": "3×3", "4x4": "4×4", "5x5": "5×5" },
+    "validation": {
+      "nameRequired": "This field is required",
+      "periodEndBeforeStart": "Period end must be on or after period start",
+      "matrixSizeRequired": "Matrix size is required"
+    },
+    "placeholders": { "name": "e.g. Platform Threat Model 2026", "description": "Describe the scope and purpose of this assessment..." },
+    "actions": { "create": "Create" }
+  },
+  "forkRiskAnalysisDialog": {
+    "title": "Fork Risk Analysis",
+    "breadcrumb": { "riskAnalyses": "Risk Analyses" },
+    "fields": { "name": "Name", "description": "Description", "matrixSize": "Matrix size", "periodStart": "Period start", "periodEnd": "Period end" },
+    "validation": {
+      "nameRequired": "This field is required",
+      "periodEndBeforeStart": "Period end must be on or after period start"
+    },
+    "placeholders": { "name": "e.g. Platform Threat Model 2026", "description": "Describe the scope and purpose of this assessment..." },
+    "actions": { "fork": "Fork" }
+  },
+  "updateRiskAnalysisDialog": {
+    "title": "Edit Risk Analysis",
+    "breadcrumb": { "riskAnalyses": "Risk Analyses" },
+    "fields": { "name": "Name", "description": "Description", "matrixSize": "Matrix size", "periodStart": "Period start", "periodEnd": "Period end" },
+    "matrixSizes": { "3x3": "3×3", "4x4": "4×4", "5x5": "5×5" },
+    "validation": {
+      "nameRequired": "This field is required",
+      "periodEndBeforeStart": "Period end must be on or after period start"
+    },
+    "placeholders": { "name": "e.g. Platform Threat Model 2026", "description": "Describe the scope and purpose of this assessment..." },
+    "actions": { "save": "Save" }
+  },
+  "createScenarioInDiagramDialog": {
+    "breadcrumb": { "scenarios": "Scenarios", "addScenario": "Add Scenario" },
+    "fields": { "name": "Name", "description": "Description", "threats": "Threats", "risks": "Risks" },
+    "validation": { "nameRequired": "This field is required" },
+    "placeholders": { "name": "e.g. Data breach via compromised API", "threatToLink": "Select a threat to link...", "riskToLink": "Select a risk to link..." },
+    "noMoreRisks": "No more risks available.",
+    "loadingRisks": "Loading risks...",
+    "actions": { "add": "Add" }
+  },
+  "createRiskAnalysisDiagramDialog": {
+    "breadcrumb": { "diagrams": "Diagrams", "newDiagram": "New Diagram" },
+    "fields": { "name": "Name" },
+    "validation": { "nameRequired": "This field is required" },
+    "placeholders": { "name": "e.g. API layer" },
+    "actions": { "addDiagram": "Add Diagram", "create": "Create" }
+  },
+  "createRiskAnalysisThreatDialog": {
+    "breadcrumb": { "threats": "Threats", "addThreat": "Add Threat" },
+    "fields": { "process": "Process", "name": "Name", "category": "Category" },
+    "validation": { "required": "This field is required" },
+    "placeholders": { "process": "Select process", "name": "e.g. SQL injection", "category": "e.g. Confidentiality" },
+    "actions": { "add": "Add" }
+  },
+  "createTreatmentPlanDialog": {
+    "breadcrumb": { "treatmentPlans": "Risks and Treatment Plans", "new": "New treatment plan" },
+    "fields": {
+      "risk": "Risk",
+      "treatment": "Treatment",
+      "owner": "Owner",
+      "inherentRisk": "Inherent risk",
+      "residualRisk": "Residual risk",
+      "inherentLikelihood": "Inherent likelihood",
+      "inherentImpact": "Inherent impact",
+      "residualLikelihood": "Residual likelihood",
+      "residualImpact": "Residual impact"
+    },
+    "placeholders": { "treatment": "Select a treatment", "risk": "Select a risk" },
+    "validation": { "riskRequired": "Select a risk", "ownerRequired": "Select an owner" },
+    "properties": "Properties",
+    "hint": "Only risks linked to a scenario on this analysis.",
+    "emptyEligible": "Link a risk to a scenario on a diagram first.",
+    "actions": { "add": "Add treatment plan", "create": "Create treatment plan" }
+  },
+  "updateTreatmentPlanDialog": {
+    "breadcrumb": { "treatmentPlans": "Risks and Treatment Plans", "edit": "Edit treatment plan" },
+    "fields": {
+      "risk": "Risk",
+      "treatment": "Treatment",
+      "owner": "Owner",
+      "inherentRisk": "Inherent risk",
+      "residualRisk": "Residual risk",
+      "inherentLikelihood": "Inherent likelihood",
+      "inherentImpact": "Inherent impact",
+      "residualLikelihood": "Residual likelihood",
+      "residualImpact": "Residual impact"
+    },
+    "placeholders": { "treatment": "Select a treatment" },
+    "validation": { "ownerRequired": "Select an owner" },
+    "properties": "Properties",
+    "actions": { "update": "Update treatment plan" }
+  },
+  "riskAnalysisTreatmentPlansPage": {
+    "columns": { "risk": "Risk", "category": "Category", "treatment": "Treatment", "owner": "Owner", "scores": "Inherent / Residual", "progress": "Progress" },
+    "empty": "No risks are linked to a scenario on this analysis yet.",
+    "emptyFilter": "No linked risks match this matrix cell.",
+    "unplannedWarning_one": "{{count}} linked risk has no treatment plan yet.",
+    "unplannedWarning_other": "{{count}} linked risks have no treatment plan yet.",
+    "filter": "{{state}} · L{{likelihood}} × I{{impact}}",
+    "asOf": "As of",
+    "search": "Search risks",
+    "states": { "inherent": "Inherent", "net": "Net", "residual": "Residual" },
+    "axes": { "likelihood": "Likelihood", "impact": "Impact" },
+    "legend": {
+      "impact": "Impact: {{levels}}",
+      "likelihood": "Likelihood: {{levels}}",
+      "level": "{{value}} {{label}}"
+    },
+    "cell": "{{count}} at likelihood {{likelihood}}, impact {{impact}}"
+  },
+  "linkedRiskListItem": {
+    "empty": "No treatment plan yet",
+    "actions": { "create": "Add plan" }
+  },
+  "treatmentPlanListItem": {
+    "deleteConfirmation": "This will permanently delete the treatment plan for \"{{name}}\". This action cannot be undone.",
+    "scoreProgress": "{{inherent}} → {{net}} → {{residual}}",
+    "progress": "{{done}}/{{total}}",
+    "progressEmpty": "No measures",
+    "actions": {
+      "tasks": "Tasks",
+      "edit": "Edit",
+      "delete": "Delete",
+      "expand": "Show measures",
+      "collapse": "Hide measures"
+    }
+  },
+  "riskTreatmentPlansPage": {
+    "columns": { "analysis": "Risk analysis", "treatment": "Treatment", "owner": "Owner", "scores": "Inherent / Residual" },
+    "empty": "This risk has no treatment plans yet."
+  },
+  "riskTreatmentPlanListItem": {
+    "deleteConfirmation": "This will permanently delete the treatment plan for \"{{name}}\". This action cannot be undone.",
+    "scoreProgress": "{{inherent}} → {{net}} → {{residual}}",
+    "actions": { "measures": "Measures", "edit": "Edit", "delete": "Delete" }
+  },
+  "treatmentPlanMeasureList": {
+    "title": "Measures",
+    "empty": "No measures linked yet.",
+    "deleted": "Deleted measure",
+    "acceptedEmpty": "Accepted risks cannot have linked measures.",
+    "actions": { "create": "New measure", "link": "Link measure", "unlink": "Unlink", "showMore": "Show more" }
+  },
+  "treatmentPlanMeasuresDialog": {
+    "title": "Treatment plan measures",
+    "loading": "Loading measures…",
+    "netScore": "Net {{score}} ({{likelihood}} × {{impact}})"
+  },
+  "riskAnalysisNodeActions": {
+    "breadcrumb": { "nodes": "Nodes" },
+    "deleteConfirmation": "Delete this node?",
+    "fields": { "type": "Type", "name": "Name", "boundary": "Boundary" },
+    "types": { "entity": "Entity", "asset": "Asset", "data": "Data" },
+    "validation": { "nameRequired": "This field is required" },
+    "none": "None",
+    "actions": { "edit": "Edit", "delete": "Delete", "save": "Save" }
+  },
+  "riskAnalysisProcessActions": {
+    "breadcrumb": { "processes": "Processes" },
+    "deleteConfirmation": "Delete this process?",
+    "fields": { "source": "Source", "target": "Target", "name": "Name" },
+    "validation": { "nameRequired": "This field is required" },
+    "placeholders": { "sourceNode": "Select source node", "targetNode": "Select target node" },
+    "actions": { "edit": "Edit", "delete": "Delete", "save": "Save" }
+  },
+  "riskAnalysisScenarioActions": {
+    "breadcrumb": { "scenarios": "Scenarios" },
+    "deleteConfirmation": "Delete this scenario?",
+    "fields": { "name": "Name", "description": "Description", "threats": "Threats", "risks": "Risks" },
+    "validation": { "nameRequired": "This field is required" },
+    "placeholders": { "threatToLink": "Select a threat to link...", "riskToLink": "Select a risk to link..." },
+    "noMoreRisks": "No more risks available.",
+    "loadingRisks": "Loading risks...",
+    "actions": { "edit": "Edit", "delete": "Delete", "save": "Save" }
+  },
+  "riskAnalysisDiagramActions": {
+    "breadcrumb": { "diagrams": "Diagrams", "editDiagram": "Edit Diagram" },
+    "deleteConfirmation": "Delete this diagram and all its nodes, processes, and threats?",
+    "fields": { "name": "Name" },
+    "validation": { "nameRequired": "This field is required" },
+    "actions": { "edit": "Edit", "delete": "Delete", "save": "Save" }
+  },
+  "diagramCard": {
+    "summary": "{{nodes}} nodes · {{processes}} processes · {{threats}} threats · {{scenarios}} scenarios",
+    "sectionTitle": {
+      "nodes_one": "Nodes ({{count}})",
+      "nodes_other": "Nodes ({{count}})",
+      "processes_one": "Processes ({{count}})",
+      "processes_other": "Processes ({{count}})",
+      "boundaries_one": "Boundaries ({{count}})",
+      "boundaries_other": "Boundaries ({{count}})",
+      "threats_one": "Threats ({{count}})",
+      "threats_other": "Threats ({{count}})",
+      "scenarios_one": "Scenarios ({{count}})",
+      "scenarios_other": "Scenarios ({{count}})"
+    },
+    "hints": {
+      "nodes": "Entities, boundaries, assets, and data involved in this diagram.",
+      "processes": "Data flows and interactions between nodes.",
+      "boundaries": "Groupings that contain nodes and can be nested inside other boundaries.",
+      "threats": "Potential threats targeting a process. Link threats to risks via scenarios.",
+      "scenarios": "Risk scenarios linking threats to risks."
+    },
+    "columns": { "name": "Name", "type": "Type", "boundary": "Boundary", "from": "From", "to": "To", "parent": "Parent", "threat": "Threat", "category": "Category", "process": "Process", "scenario": "Scenario", "risks": "Risks", "threats": "Threats" },
+    "empty": { "nodes": "No nodes", "processes": "No processes", "boundaries": "No boundaries", "threats": "No threats", "scenarios": "No scenarios" },
+    "schema": {
+      "title": "Diagram structure",
+      "hint": "Nodes, processes, boundaries, and threats used to update the diagram."
+    }
+  },
+  "diagramChart": {
+    "empty": "Add nodes and processes to see the diagram.",
+    "errorTitle": "Error",
+    "copyError": "Failed to copy to clipboard",
+    "copyMermaidSource": "Copy mermaid source",
+    "legend": { "entity": "Entity", "boundary": "Boundary", "asset": "Asset", "data": "Data", "threat": "Threat" }
+  },
+  "riskAnalysisThreatActions": {
+    "breadcrumb": { "threats": "Threats" },
+    "deleteConfirmation": "Delete this threat?",
+    "fields": { "name": "Name", "category": "Category" },
+    "validation": { "required": "This field is required" },
+    "placeholders": { "category": "e.g. Confidentiality" },
+    "actions": { "edit": "Edit", "delete": "Delete", "save": "Save" }
+  },
+  "riskScenariosPage": {
+    "columns": { "scenario": "Scenario", "description": "Description" },
+    "empty": "No scenarios linked to this risk yet.",
+    "actions": { "unlink": "Unlink", "linkScenario": "Link Scenario" }
+  },
+  "webhooksSettingsPage": {
+    "description": "Configure webhooks to receive notifications when events occur in your organization.",
+    "newDescription": "Enter the endpoint URL and choose which events should trigger this webhook.",
+    "fields": { "endpointUrl": "Endpoint URL", "signingSecret": "Signing Secret", "events": "Events" },
+    "validation": { "endpointUrlRequired": "Endpoint URL is required", "invalidUrl": "Please enter a valid URL", "httpsRequired": "URL must use https://", "eventRequired": "At least one event must be selected" },
+    "placeholders": { "endpointUrl": "https://example.com/webhook" },
+    "dialogs": { "addTitle": "Add Webhook Subscription", "deleteTitle": "Delete Webhook" },
+    "status": { "succeeded": "Succeeded", "pending": "Pending", "failed": "Failed" },
+    "errorTitle": "Error",
+    "errors": { "loadSigningSecret": "Failed to load signing secret.", "copySigningSecret": "Failed to copy signing secret.", "copyPayload": "Failed to copy payload.", "copyResponse": "Failed to copy response.", "create": "Failed to create webhook", "update": "Failed to update webhook", "delete": "Failed to delete webhook" },
+    "messages": { "created": "Webhook created successfully", "updated": "Webhook updated successfully", "deleted": "Webhook deleted successfully" },
+    "copiedToClipboard": "Copied to clipboard",
+    "deliveriesCount_one": "Delivery ({{count}})",
+    "deliveriesCount_other": "Deliveries ({{count}})",
+    "emptyDeliveries": "No deliveries recorded yet.",
+    "emptyDeliveriesFiltered": "No deliveries match this status.",
+    "filterStatus": "Delivery status",
+    "filterAll": "All",
+    "lastDeliveryEmpty": "No deliveries yet.",
+    "empty": "No webhook subscriptions yet. Add one to get started.",
+    "notFound": "This webhook subscription could not be found.",
+    "payload": "Payload",
+    "response": "Response",
+    "copySigningSecret": "Copy signing secret",
+    "copyPayload": "Copy payload",
+    "copyResponse": "Copy response",
+    "deleteWebhook": "Delete webhook",
+    "seeAll": "See all",
+    "subscribedCount_one": "Subscribed to {{count}} event",
+    "subscribedCount_other": "Subscribed to {{count}} events",
+    "searchEvents": "Search events",
+    "removeEvent": "Remove {{event}}",
+    "editEvents": "Edit subscribed events",
+    "emptySearch": "No events match that search.",
+    "deleteConfirmation": "Are you sure you want to delete this webhook subscription?",
+    "cannotUndo": "This action cannot be undone.",
+    "actions": { "create": "Create", "save": "Save", "add": "Add Webhook Subscription", "back": "Back", "hide": "Hide", "show": "Show", "delete": "Delete", "cancel": "Cancel", "previous": "Prev", "next": "Next" }
+  },
+  "statementOfApplicabilityDetailPage": {
+    "title": "Statement of Applicability",
+    "sections": { "details": "Details", "statements": "Statements" },
+    "fields": { "createdAt": "Created at", "updatedAt": "Updated at", "approvers": "Approvers" },
+    "placeholders": { "approvers": "Add approvers..." },
+    "validation": { "nameRequired": "Name is required" },
+    "messages": { "success": "Success", "error": "Error", "updated": "Statement of Applicability updated successfully.", "approversUpdated": "Approvers updated successfully." },
+    "errors": { "missingDeleteData": "Failed to delete statement of applicability: missing id or name", "delete": "Failed to delete statement of applicability", "update": "Failed to update Statement of Applicability", "updateApprovers": "Failed to update approvers" },
+    "deleteConfirmation": "This will permanently delete \"{{name}}\". This action cannot be undone.",
+    "none": "None",
+    "actions": { "document": "Document", "publish": "Publish", "delete": "Delete" }
+  },
+  "statementsOfApplicabilityPage": {
+    "description": "Manage statements of applicability for your organization's frameworks.",
+    "columns": { "name": "Name", "createdAt": "Created at", "controls": "Controls" },
+    "actions": { "add": "Add statement of applicability", "loading": "Loading...", "loadMore": "Load more" },
+    "empty": { "title": "No statements of applicability yet", "description": "Create your first statement of applicability to get started." }
+  },
+  "addApplicabilityStatementDialog": {
+    "breadcrumb": { "statementsOfApplicability": "Statements of Applicability", "addStatement": "Add Statement" },
+    "applicability": { "notLinked": "Not Linked", "applicable": "Applicable", "notApplicable": "Not Applicable" },
+    "placeholders": { "justification": "Reason for non-applicability", "search": "Search controls..." },
+    "messages": { "created": "Statement created successfully.", "removed": "Statement removed successfully.", "updated": "Statement updated successfully." },
+    "errors": { "create": "Failed to create statement", "remove": "Failed to remove statement", "update": "Failed to update statement" },
+    "empty": "No controls found",
+    "actions": { "save": "Save", "expand": "Expand", "collapse": "Collapse", "close": "Close" }
+  },
+  "createStatementOfApplicabilityDialog": {
+    "breadcrumb": { "statementsOfApplicability": "Statements of Applicability", "newStatement": "New Statement of Applicability" },
+    "fields": { "name": "Name" },
+    "messages": { "success": "Success", "error": "Error", "created": "Statement of applicability created successfully." },
+    "errors": { "create": "Failed to create statement of applicability" },
+    "actions": { "create": "Create" }
+  },
+  "editApplicabilityStatementDialog": {
+    "breadcrumb": { "statementsOfApplicability": "Statements of Applicability", "editStatement": "Edit Statement" },
+    "fields": { "applicability": "Applicability", "justification": "Justification" },
+    "options": { "yes": "Yes", "no": "No" },
+    "placeholders": { "justification": "Reason for non-applicability" },
+    "messages": { "updated": "Statement updated successfully." },
+    "errors": { "update": "Failed to update statement" },
+    "actions": { "save": "Save" }
+  },
+  "publishStatementOfApplicabilityDialog": {
+    "title": "Publish Statement of Applicability",
+    "description": "Select approvers to request approval before publishing, or publish directly without approvers.",
+    "fields": { "approvers": "Approvers" },
+    "placeholders": { "approvers": "Add approvers..." },
+    "messages": { "success": "Success", "error": "Error", "approvalRequested": "Approval requested successfully.", "published": "Statement of Applicability published successfully." },
+    "errors": { "publish": "Failed to publish Statement of Applicability" },
+    "actions": { "publishMinor": "Publish as minor", "requestApproval": "Request approval", "publish": "Publish" }
+  },
+  "statementOfApplicabilityControlsTab": {
+    "columns": { "framework": "Framework", "control": "Control", "applicability": "Applicability", "maturity": "Maturity", "regulatory": "Regulatory", "contractual": "Contractual", "bestPractice": "Best Practice", "riskAssessment": "Risk Assessment" },
+    "messages": { "removed": "Statement removed successfully." },
+    "errors": { "remove": "Failed to remove statement" },
+    "empty": "No controls linked",
+    "options": { "yes": "Yes", "no": "No" },
+    "maturity": { "none": "0 - None", "initial": "1 - Initial", "managed": "2 - Managed", "defined": "3 - Defined", "quantitatively_managed": "4 - Quantitatively Managed", "optimizing": "5 - Optimizing" },
+    "actions": { "createStatement": "Create Statement", "edit": "Edit", "remove": "Remove" }
+  },
+  "thirdPartiesPage": {
+    "description": "Third parties are external services and providers that your company uses. Add them to keep track of their risk and compliance status.",
+    "searchPlaceholder": "Search third parties...",
+    "actions": { "document": "Document", "publish": "Publish", "add": "Add third party" },
+    "columns": { "thirdParty": "Third party", "assessedAt": "Assessed At", "dataRisk": "Data Risk", "businessRisk": "Business Risk" }
+  },
+  "thirdPartyDetailLayout": {
+    "title": "Third party",
+    "messages": { "error": "Error" },
+    "errors": { "delete": "Failed to delete third party" },
+    "deleteConfirmation": "This will permanently delete the third party \"{{name}}\". This action cannot be undone.",
+    "vettingInProgress": "Vetting is in progress. Results will appear once the analysis is complete.",
+    "vettingFailed": "Vetting failed. You can start vetting again.",
+    "level": "Level {{level}}",
+    "from": "From:",
+    "actions": { "startVetting": "Start Vetting", "delete": "Delete" }
+  },
+  "addChildThirdPartyDialog": {
+    "title": "Add a third party",
+    "searchPlaceholder": "Type third party's name",
+    "createNew": "Create a new third party: {{name}}"
+  },
+  "createThirdPartyContactDialog": {
+    "breadcrumb": { "contacts": "Contacts", "newContact": "New Contact" },
+    "fields": { "name": "Name", "email": "Email", "phone": "Phone", "role": "Role" },
+    "placeholders": { "name": "Contact's full name", "email": "contact@example.com", "phone": "e.g., +1234567890", "role": "e.g., Account Manager, Technical Support" },
+    "help": { "phone": "Use international format starting with +" },
+    "validation": { "email": "Please enter a valid email address", "phone": "Phone number must be in international format (e.g., +1234567890)" },
+    "messages": { "success": "Success", "error": "Error", "created": "Contact created successfully." },
+    "errors": { "create": "Failed to create contact" },
+    "actions": { "create": "Create" }
+  },
+  "editThirdPartyContactDialog": {
+    "breadcrumb": { "contacts": "Contacts", "editContact": "Edit Contact" },
+    "messages": { "success": "Success", "error": "Error", "updated": "Contact updated successfully." },
+    "errors": { "update": "Failed to update contact" },
+    "actions": { "save": "Save" }
+  },
+  "createThirdPartyRiskAssessmentDialog": {
+    "breadcrumb": { "riskAssessments": "Risk Assessments", "newRiskAssessment": "New Risk Assessment" },
+    "fields": { "dataSensitivity": "Data Sensitivity", "businessImpact": "Business Impact", "notes": "Notes" },
+    "notesHelp": "Add any context or details about this risk assessment that might be helpful for future reference.",
+    "messages": { "success": "Success", "error": "Error", "created": "Risk Assessment created successfully." },
+    "errors": { "create": "Failed to create Risk Assessment" },
+    "actions": { "create": "Create" }
+  },
+  "createThirdPartyServiceDialog": {
+    "breadcrumb": { "services": "Services", "newService": "New Service" },
+    "fields": { "name": "Name", "description": "Description" },
+    "placeholders": { "name": "Service name", "description": "Brief description of the service" },
+    "validation": { "nameRequired": "Service name is required" },
+    "messages": { "success": "Success", "error": "Error", "created": "Service created successfully." },
+    "errors": { "create": "Failed to create service" },
+    "actions": { "create": "Create" }
+  },
+  "editThirdPartyServiceDialog": {
+    "breadcrumb": { "services": "Services", "editService": "Edit Service" },
+    "messages": { "success": "Success", "error": "Error", "updated": "Service updated successfully." },
+    "errors": { "update": "Failed to update service" },
+    "actions": { "save": "Save" }
+  },
+  "publishThirdPartyListDialog": {
+    "title": "Publish third parties",
+    "errors": {
+      "publish": "Failed to publish third parties"
+    },
+    "messages": {
+      "published": "Third parties published successfully."
+    }
+  },
+  "thirdPartyRow": {
+    "messages": { "error": "Error" },
+    "errors": { "delete": "Failed to delete third party" },
+    "deleteConfirmation": "This will permanently delete the third party \"{{name}}\". This action cannot be undone.",
+    "unnamed": "Unnamed third party",
+    "notAssessed": "Not assessed",
+    "actions": { "delete": "Delete" }
+  },
+  "createThirdPartyDialog": {
+    "title": "Add a third party",
+    "searchPlaceholder": "Type third party's name",
+    "createNew": "Create a new third party: {{name}}",
+    "messages": { "success": "Success", "error": "Error", "created": "Third party created successfully" },
+    "errors": { "create": "Failed to create third party" }
+  },
+  "deleteBusinessAssociateAgreementDialog": {
+    "title": "Delete Business Associate Agreement",
+    "confirmation": "Are you sure you want to delete the Business Associate Agreement \"{{fileName}}\"?",
+    "cannotUndo": "This action cannot be undone.",
+    "messages": { "success": "Success", "error": "Error", "deleted": "Business Associate Agreement deleted successfully" },
+    "errors": { "delete": "Failed to delete Business Associate Agreement" },
+    "actions": { "delete": "Delete" }
+  },
+  "deleteDataPrivacyAgreementDialog": {
+    "title": "Delete Data Privacy Agreement",
+    "confirmation": "Are you sure you want to delete the Data Privacy Agreement \"{{fileName}}\"?",
+    "cannotUndo": "This action cannot be undone.",
+    "messages": { "success": "Success", "error": "Error", "deleted": "Data Privacy Agreement deleted successfully" },
+    "errors": { "delete": "Failed to delete Data Privacy Agreement" },
+    "actions": { "delete": "Delete" }
+  },
+  "editBusinessAssociateAgreementDialog": {
+    "title": "Edit Business Associate Agreement",
+    "fields": { "validFrom": "Valid from", "validUntil": "Valid until" },
+    "messages": { "success": "Success", "error": "Error", "updated": "Business Associate Agreement updated successfully" },
+    "errors": { "update": "Failed to update Business Associate Agreement" },
+    "actions": { "update": "Update" }
+  },
+  "editDataPrivacyAgreementDialog": {
+    "title": "Edit Data Privacy Agreement",
+    "fields": { "validFrom": "Valid from", "validUntil": "Valid until" },
+    "messages": { "success": "Success", "error": "Error", "updated": "Data Privacy Agreement updated successfully" },
+    "errors": { "update": "Failed to update Data Privacy Agreement" },
+    "actions": { "update": "Update" }
+  },
+  "uploadBusinessAssociateAgreementDialog": {
+    "title": "Upload Business Associate Agreement",
+    "fileHelp": "Only PDF files up to 10MB are allowed",
+    "selectedFile": "Selected file:",
+    "fields": { "fileName": "File name", "validFrom": "Valid from", "validUntil": "Valid until" },
+    "placeholders": { "fileName": "Business Associate Agreement" },
+    "validation": { "fileNameRequired": "File name is required" },
+    "messages": { "success": "Success", "error": "Error", "uploaded": "Business Associate Agreement uploaded successfully" },
+    "errors": { "upload": "Failed to upload Business Associate Agreement" },
+    "actions": { "upload": "Upload" }
+  },
+  "uploadComplianceReportDialog": {
+    "title": "Upload Compliance Report",
+    "fileHelp": "Only PDF files up to 30MB are allowed",
+    "selectedFile": "Selected file:",
+    "fields": { "reportDate": "Report date", "validUntil": "Valid until" },
+    "validation": { "reportDateRequired": "Report date is required" },
+    "messages": { "success": "Success", "error": "Error", "uploaded": "Compliance report uploaded successfully" },
+    "errors": { "upload": "Failed to upload compliance report" },
+    "actions": { "upload": "Upload" }
+  },
+  "uploadDataPrivacyAgreementDialog": {
+    "title": "Upload Data Privacy Agreement",
+    "fileHelp": "Only PDF files up to 10MB are allowed",
+    "selectedFile": "Selected file:",
+    "fields": { "fileName": "File name", "validFrom": "Valid from", "validUntil": "Valid until" },
+    "placeholders": { "fileName": "Data Privacy Agreement" },
+    "validation": { "fileNameRequired": "File name is required" },
+    "messages": { "success": "Success", "error": "Error", "uploaded": "Data Privacy Agreement uploaded successfully" },
+    "errors": { "upload": "Failed to upload Data Privacy Agreement" },
+    "actions": { "upload": "Upload" }
+  },
+  "vettingDialog": {
+    "title": "Start Vetting",
+    "fields": { "websiteUrl": "Website URL" },
+    "validation": { "url": "Please enter a valid URL" },
+    "messages": { "success": "Success", "error": "Error", "started": "The third party is being vetted in the background." },
+    "errors": { "start": "Failed to start vetting." },
+    "actions": { "start": "Start Vetting" }
+  },
+  "thirdPartyProfilePage": {
+    "pageTitle": "{{name}} - Profile",
+    "title": "Profile",
+    "description": "Identity and operating locations for this third party.",
+    "sections": { "details": "Third party details", "countries": "Countries" },
+    "fields": {
+      "name": "Name",
+      "description": "Description",
+      "category": "Category",
+      "legalName": "Legal name",
+      "headquarterAddress": "Headquarter address",
+      "websiteUrl": "Website URL"
+    },
+    "placeholders": { "category": "Select a category" },
+    "categories": {
+      "analytics": "Analytics",
+      "cloudMonitoring": "Cloud Monitoring",
+      "cloudProvider": "Cloud Provider",
+      "collaboration": "Collaboration",
+      "customerSupport": "Customer Support",
+      "dataStorageAndProcessing": "Data Storage and Processing",
+      "documentManagement": "Document Management",
+      "employeeManagement": "Employee Management",
+      "engineering": "Engineering",
+      "finance": "Finance",
+      "identityProvider": "Identity Provider",
+      "it": "IT",
+      "marketing": "Marketing",
+      "officeOperations": "Office Operations",
+      "other": "Other",
+      "passwordManagement": "Password Management",
+      "productAndDesign": "Product and Design",
+      "professionalServices": "Professional Services",
+      "recruiting": "Recruiting",
+      "sales": "Sales",
+      "security": "Security",
+      "versionControl": "Version Control"
+    },
+    "actions": { "update": "Update third party" },
+    "messages": { "updated": "Third party updated successfully.", "updateError": "Failed to update third party" }
+  },
+  "thirdPartyStakeholdersPage": {
+    "pageTitle": "{{name}} - Stakeholders",
+    "title": "Stakeholders",
+    "description": "People accountable for this relationship — your administrators and their contacts.",
+    "sections": { "administrators": "Administrators", "contacts": "Contacts" },
+    "fields": { "administrators": "Administrators" },
+    "placeholders": { "administrators": "Add administrators..." },
+    "actions": { "addContact": "Add contact" },
+    "columns": { "name": "Name", "email": "Email", "phone": "Phone", "role": "Role", "actions": "Actions" }
+  },
+  "thirdPartyAssurancePage": {
+    "pageTitle": "{{name}} - Assurance",
+    "title": "Assurance",
+    "description": "Evidence of this third party's security and privacy posture.",
+    "sections": { "certifications": "Certifications", "links": "Links", "reports": "Compliance reports" },
+    "categories": {
+      "securityStandards": "Security Standards",
+      "regulatoryLegal": "Regulatory & Legal",
+      "industrySpecific": "Industry-Specific",
+      "internationalGov": "International & Government",
+      "custom": "Custom certifications"
+    },
+    "placeholders": { "add": "Add a new certification" },
+    "addCustom": "Add a custom certification: {{name}}",
+    "urlLabels": {
+      "statusPage": "Status page URL",
+      "termsOfService": "Terms of service URL",
+      "privacyPolicy": "Privacy document URL",
+      "serviceLevelAgreement": "Service level agreement URL",
+      "dataProcessingAgreement": "Data processing agreement URL",
+      "securityPage": "Security page URL",
+      "trustPage": "Trust page URL"
+    },
+    "actions": { "addReport": "Add report" },
+    "columns": {
+      "reportName": "Report name",
+      "reportDate": "Report date",
+      "validUntil": "Valid until",
+      "fileSize": "File size",
+      "actions": "Actions"
+    }
+  },
+  "thirdPartyAgreementsPage": {
+    "pageTitle": "{{name}} - Agreements",
+    "title": "Agreements",
+    "description": "Signed data-processing agreements with this third party.",
+    "agreements": {
+      "businessAssociate": "Business Associate Agreement",
+      "dataPrivacy": "Data Privacy Agreement",
+      "noBusinessAssociate": "No business associate agreement available",
+      "noDataPrivacy": "No data privacy agreement available",
+      "validity": {
+        "range": "Valid from {{from}} until {{until}}",
+        "from": "Valid from {{date}}",
+        "until": "Valid until {{date}}"
+      }
+    },
+    "actions": { "downloadPdf": "Download PDF", "upload": "Upload" }
+  },
+  "thirdPartyComplianceReportRow": {
+    "messages": { "error": "Error" },
+    "errors": { "delete": "Failed to delete report" },
+    "deleteConfirmation": "This will permanently delete the report \"{{name}}\". This action cannot be undone.",
+    "actions": { "download": "Download", "delete": "Delete" }
+  },
+  "thirdPartyRiskAssessmentPage": {
+    "pageTitle": "{{name}} - Risk Assessments",
+    "empty": "No risk assessments found",
+    "columns": { "createdAt": "Created At", "expires": "Expires", "dataSensitivity": "Data sensitivity", "businessImpact": "Business impact" },
+    "actions": { "add": "Add Risk Assessment" }
+  },
+  "thirdPartyServicesPage": {
+    "pageTitle": "{{name}} - Services",
+    "title": "Services",
+    "description": "Manage services provided by this third party.",
+    "actions": { "add": "Add service" },
+    "columns": { "name": "Name", "description": "Description", "actions": "Actions" }
+  },
+  "thirdPartyServiceRow": {
+    "messages": { "error": "Error" },
+    "errors": { "delete": "Failed to delete service" },
+    "deleteConfirmation": "This will permanently delete the service \"{{name}}\". This action cannot be undone.",
+    "emptyValue": "—",
+    "actions": { "edit": "Edit", "delete": "Delete" }
+  },
+  "thirdPartySupplyChainPage": {
+    "pageTitle": "{{name}} - Supply chain",
+    "title": "Supply chain",
+    "description": "Third parties this vendor relies on.",
+    "deleteConfirmation": "Delete \"{{name}}\"?",
+    "notAssessed": "Not assessed",
+    "actions": { "add": "Add third party" },
+    "columns": {
+      "thirdParty": "Third party",
+      "assessedAt": "Assessed At",
+      "dataRisk": "Data Risk",
+      "businessRisk": "Business Risk"
+    }
+  },
+  "thirdPartyContactRow": {
+    "messages": { "error": "Error" },
+    "errors": { "delete": "Failed to delete contact" },
+    "deleteConfirmation": "This will permanently delete the contact \"{{name}}\". This action cannot be undone.",
+    "unnamed": "Unnamed contact",
+    "emptyValue": "—",
+    "actions": { "edit": "Edit", "delete": "Delete" }
+  },
+  "magicLinkPage": {
+    "pageTitle": "Continue sign-in",
+    "title": "Continue sign-in",
+    "description": "Click continue to finish signing in.",
+    "errors": { "continue": "Cannot finish signing in" },
+    "actions": { "continue": "Continue" }
+  },
+  "magicLinkForm": {
+    "errors": { "send": "Cannot send magic link" },
+    "messages": { "sent": "Magic link sent!" },
+    "fields": { "email": "Email" },
+    "sentDescription": "Magic link sent! Check your email and use the link to continue.",
+    "actions": { "resend": "Resend Link", "resendIn": "Resend Link in {{count}}s", "send": "Continue" }
+  },
+  "auth": {
+    "actions": { "signIn": "Sign in" }
+  },
+  "authError": {
+    "enterpriseAccountRequired": { "title": "Enterprise account required", "description": "Personal Google and Microsoft accounts cannot be used to sign in. Please use your work or school account instead." },
+    "emailNotVerified": { "title": "Email not verified", "description": "Your email address is not verified with the identity provider. Please verify it, then try signing in again." },
+    "signInSessionExpired": { "title": "Sign-in session expired", "description": "This sign-in attempt is no longer valid. Please start again from the sign-in page." },
+    "magicLinkExpired": { "title": "Link Expired", "description": "This magic link has expired. Magic links are only valid for 15 minutes. Please request a new one." },
+    "magicLinkAlreadyUsed": { "title": "Link Already Used", "description": "This magic link has already been used. Please request a new one." },
+    "invalidLink": { "title": "Invalid link", "description": "This magic link is invalid. Please request a new one." },
+    "default": { "title": "Authentication failed", "description": "We could not complete your sign-in. Please try again." }
+  },
+  "accessReviewSource": {
+    "documentation": "Documentation",
+    "regions": { "label": "Region", "placeholder": "Select a region", "unitedStates": "United States", "europe": "Europe" }
+  },
+  "devices": {
+    "title": "Devices",
+    "description": "Manage computers enrolled with the Black Fortress posture agent.",
+    "empty": "No devices enrolled yet",
+    "actions": { "add": "Add device", "new": "New device", "reassign": "Re-assign", "revoke": "Revoke", "delete": "Delete" },
+    "fields": { "organization": "Organization", "hostname": "Hostname", "owner": "Owner", "state": "State", "platform": "Platform", "osVersion": "OS version", "hardwareUuid": "Hardware UUID", "serialNumber": "Serial number", "agentVersion": "Agent version", "enrolledAt": "Enrolled at", "lastSeen": "Last seen" },
+    "values": { "pending": "(pending)", "never": "Never", "unassigned": "Unassigned" },
+    "messages": { "ownerUpdated": "Device owner updated", "revoked": "Device revoked", "deleted": "Device deleted" },
+    "errors": { "create": "Failed to create device", "reassign": "Failed to re-assign device", "revoke": "Failed to revoke device", "delete": "Failed to delete device" },
+    "confirmations": { "revoke": "Revoke device \"{{hostname}}\"? The agent on the device will stop reporting and must be re-enrolled.", "delete": "Delete device \"{{hostname}}\"? This removes it from the inventory." },
+    "postures": {
+      "currentTitle": "Current postures",
+      "empty": "No posture checks recorded",
+      "values": { "on": "On", "off": "Off", "immediate": "Immediate", "seconds": "{{seconds}}s", "minPasswordLength": "Min length {{length}}", "configured": "Configured", "none": "None", "unknown": "Unknown" },
+      "checks": { "diskEncryption": "Disk encryption", "screenLock": "Screen lock", "firewallEnabled": "Firewall enabled", "timeSync": "Time sync", "osVersion": "OS version", "autoUpdate": "Auto update", "passwordPolicy": "Password policy", "remoteLogin": "Remote login", "malwareProtection": "Malware protection" }
+    },
+    "history": {
+      "title": "Report history",
+      "empty": "No posture reports yet",
+      "checkCount_one": "{{count}} check reported",
+      "checkCount_other": "{{count}} checks reported",
+      "columns": { "time": "Time", "checks": "Checks", "correlationId": "Correlation ID" },
+      "actions": { "copyCorrelationId": "Copy correlation ID", "correlationIdCopied": "Correlation ID copied" }
+    }
+  },
+  "deviceEnrollment": {
+    "token": { "title": "Enrollment token generated", "description": "Share this enrollment token only with the device owner through a secure channel. It can be used once and expires after seven days.", "manualInstall": "Manual install (CLI / MDM)", "releaseListHint": "Browse <link>probo-agent releases on GitHub</link> (tags probo-agent/v*), then pick the archive for your OS and architecture (for example probo-agent_Darwin_arm64.tar.gz, probo-agent_Linux_x86_64.tar.gz, or probo-agent_Windows_x86_64.zip). Replace vX.Y.Z, OS, and ARCH in the download command with the values from the asset you chose.", "installUnix": "Install on macOS or Linux (run from a shell with sudo access)", "installWindows": "Install on Windows (run from an elevated PowerShell session)", "downloadStep": "Download and place the binary", "enrollStep": "Configure the device and start the agent", "securityNotice": "The token is passed as a CLI flag (not via curl-piped-to-shell or sudo env vars). Once installed, the agent self-updates from GitHub Releases with cosign signature verification." },
+    "messages": { "created": "Device created. Copy the enrollment token now — it will not be shown again." },
+    "errors": { "copyToClipboard": "Failed to copy to clipboard" }
+  },
+  "thirdPartyRiskAssessmentRow": {
+    "expired": "Expired",
+    "notes": "Notes"
+  },
+  "reactivateSCIMBridge": {
+    "actions": { "reactivate": "Reactivate" },
+    "dialog": { "title": "Reactivate SCIM bridge", "description": "The next sync is scheduled for now. Consecutive errors are cleared, and a failed, disabled, or stuck bridge is set back to active." },
+    "messages": { "success": "SCIM bridge was reactivated. The next run is scheduled for now." },
+    "errors": { "reactivate": "Failed to reactivate the SCIM bridge" }
+  },
+  "country": { "GLOBAL": "Global", "AD": "Andorra", "AE": "United Arab Emirates", "AF": "Afghanistan", "AG": "Antigua and Barbuda", "AI": "Anguilla", "AL": "Albania", "AM": "Armenia", "AO": "Angola", "AQ": "Antarctica", "AR": "Argentina", "AS": "American Samoa", "AT": "Austria", "AU": "Australia", "AW": "Aruba", "AX": "Åland Islands", "AZ": "Azerbaijan", "BA": "Bosnia and Herzegovina", "BB": "Barbados", "BD": "Bangladesh", "BE": "Belgium", "BF": "Burkina Faso", "BG": "Bulgaria", "BH": "Bahrain", "BI": "Burundi", "BJ": "Benin", "BL": "Saint Barthélemy", "BM": "Bermuda", "BN": "Brunei", "BO": "Bolivia", "BQ": "Bonaire, Sint Eustatius and Saba", "BR": "Brazil", "BS": "Bahamas", "BT": "Bhutan", "BV": "Bouvet Island", "BW": "Botswana", "BY": "Belarus", "BZ": "Belize", "CA": "Canada", "CC": "Cocos (Keeling) Islands", "CD": "Congo (DRC)", "CF": "Central African Republic", "CG": "Congo (Republic)", "CH": "Switzerland", "CI": "Côte d'Ivoire", "CK": "Cook Islands", "CL": "Chile", "CM": "Cameroon", "CN": "China", "CO": "Colombia", "CR": "Costa Rica", "CU": "Cuba", "CV": "Cape Verde", "CW": "Curaçao", "CX": "Christmas Island", "CY": "Cyprus", "CZ": "Czechia", "DE": "Germany", "DJ": "Djibouti", "DK": "Denmark", "DM": "Dominica", "DO": "Dominican Republic", "DZ": "Algeria", "EC": "Ecuador", "EE": "Estonia", "EG": "Egypt", "EH": "Western Sahara", "ER": "Eritrea", "ES": "Spain", "ET": "Ethiopia", "EU": "EU", "FI": "Finland", "FJ": "Fiji", "FK": "Falkland Islands", "FM": "Micronesia", "FO": "Faroe Islands", "FR": "France", "GA": "Gabon", "GB": "United Kingdom", "GD": "Grenada", "GE": "Georgia", "GF": "French Guiana", "GG": "Guernsey", "GH": "Ghana", "GI": "Gibraltar", "GL": "Greenland", "GM": "Gambia", "GN": "Guinea", "GP": "Guadeloupe", "GQ": "Equatorial Guinea", "GR": "Greece", "GT": "Guatemala", "GU": "Guam", "GW": "Guinea-Bissau", "GY": "Guyana", "HK": "Hong Kong", "HM": "Heard Island and McDonald Islands", "HN": "Honduras", "HR": "Croatia", "HT": "Haiti", "HU": "Hungary", "ID": "Indonesia", "IE": "Ireland", "IL": "Israel", "IM": "Isle of Man", "IN": "India", "IO": "British Indian Ocean Territory", "IQ": "Iraq", "IR": "Iran", "IS": "Iceland", "IT": "Italy", "JE": "Jersey", "JM": "Jamaica", "JO": "Jordan", "JP": "Japan", "KE": "Kenya", "KG": "Kyrgyzstan", "KH": "Cambodia", "KI": "Kiribati", "KM": "Comoros", "KN": "Saint Kitts and Nevis", "KP": "North Korea", "KR": "South Korea", "KW": "Kuwait", "KY": "Cayman Islands", "KZ": "Kazakhstan", "LA": "Laos", "LB": "Lebanon", "LC": "Saint Lucia", "LI": "Liechtenstein", "LK": "Sri Lanka", "LR": "Liberia", "LS": "Lesotho", "LT": "Lithuania", "LU": "Luxembourg", "LV": "Latvia", "LY": "Libya", "MA": "Morocco", "MC": "Monaco", "MD": "Moldova", "ME": "Montenegro", "MF": "Saint Martin", "MG": "Madagascar", "MH": "Marshall Islands", "MK": "North Macedonia", "ML": "Mali", "MM": "Myanmar", "MN": "Mongolia", "MO": "Macau", "MP": "Northern Mariana Islands", "MQ": "Martinique", "MR": "Mauritania", "MS": "Montserrat", "MT": "Malta", "MU": "Mauritius", "MV": "Maldives", "MW": "Malawi", "MX": "Mexico", "MY": "Malaysia", "MZ": "Mozambique", "NA": "Namibia", "NC": "New Caledonia", "NE": "Niger", "NF": "Norfolk Island", "NG": "Nigeria", "NI": "Nicaragua", "NL": "Netherlands", "NO": "Norway", "NP": "Nepal", "NR": "Nauru", "NU": "Niue", "NZ": "New Zealand", "OM": "Oman", "PA": "Panama", "PE": "Peru", "PF": "French Polynesia", "PG": "Papua New Guinea", "PH": "Philippines", "PK": "Pakistan", "PL": "Poland", "PM": "Saint Pierre and Miquelon", "PN": "Pitcairn", "PR": "Puerto Rico", "PS": "Palestine", "PT": "Portugal", "PW": "Palau", "PY": "Paraguay", "QA": "Qatar", "RE": "Réunion", "RO": "Romania", "RS": "Serbia", "RU": "Russia", "RW": "Rwanda", "SA": "Saudi Arabia", "SB": "Solomon Islands", "SC": "Seychelles", "SD": "Sudan", "SE": "Sweden", "SG": "Singapore", "SH": "Saint Helena", "SI": "Slovenia", "SJ": "Svalbard and Jan Mayen", "SK": "Slovakia", "SL": "Sierra Leone", "SM": "San Marino", "SN": "Senegal", "SO": "Somalia", "SR": "Suriname", "SS": "South Sudan", "ST": "São Tomé and Príncipe", "SV": "El Salvador", "SX": "Sint Maarten", "SY": "Syria", "SZ": "Eswatini", "TC": "Turks and Caicos Islands", "TD": "Chad", "TF": "French Southern Territories", "TG": "Togo", "TH": "Thailand", "TJ": "Tajikistan", "TK": "Tokelau", "TL": "Timor-Leste", "TM": "Turkmenistan", "TN": "Tunisia", "TO": "Tonga", "TR": "Turkey", "TT": "Trinidad and Tobago", "TV": "Tuvalu", "TW": "Taiwan", "TZ": "Tanzania", "UA": "Ukraine", "UG": "Uganda", "UM": "United States Minor Outlying Islands", "US": "USA", "UY": "Uruguay", "UZ": "Uzbekistan", "VA": "Vatican City", "VC": "Saint Vincent and the Grenadines", "VE": "Venezuela", "VG": "Virgin Islands (British)", "VI": "Virgin Islands (U.S.)", "VN": "Vietnam", "VU": "Vanuatu", "WF": "Wallis and Futuna", "WS": "Samoa", "YE": "Yemen", "YT": "Mayotte", "ZA": "South Africa", "ZM": "Zambia", "ZW": "Zimbabwe" }
+}

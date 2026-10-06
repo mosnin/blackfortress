@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "合规门户",
+    "getAccess": "申请访问",
+    "openMenu": "打开菜单",
+    "closeMenu": "关闭菜单",
+    "menuTitle": "菜单",
+    "nav": {
+      "documents": "文档",
+      "subprocessors": "分包处理方",
+      "updates": "更新",
+      "requests": "请求"
+    }
+  },
+  "userMenu": {
+    "subscribe": "订阅更新",
+    "subscribed": "已订阅更新",
+    "signOut": "退出登录",
+    "signOutFailed": "无法退出登录",
+    "switchToDarkMode": "切换到深色模式",
+    "switchToLightMode": "切换到浅色模式"
+  },
+  "common": {
+    "error": "出现问题",
+    "previousPage": "上一页",
+    "nextPage": "下一页",
+    "pageOf": "第 {{current}} 页，共 {{total}} 页",
+    "zoomOut": "缩小",
+    "zoomIn": "放大"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "已提交访问请求"
+    },
+    "fullName": {
+      "title": "添加您的姓名",
+      "label": "姓名",
+      "placeholder": "张三",
+      "required": "请填写姓名",
+      "tooShort": "姓名过短",
+      "submit": "继续"
+    },
+    "errors": {
+      "fullNameFailed": "姓名保存失败，请重试。",
+      "requestFailed": "访问请求提交失败，请重试。"
+    }
+  },
+  "home": {
+    "heroTitle": "{{name}}的合规。",
+    "heroDescription": "欢迎访问我们的合规门户。您可以在此查看我们的安全文档和认证。",
+    "sections": {
+      "compliance": "合规",
+      "securityCommitments": "安全承诺",
+      "trustedBy": "深受信赖",
+      "recentUpdates": "最新动态"
+    },
+    "recentUpdates": {
+      "viewAll": "查看全部"
+    }
+  },
+  "notFound": {
+    "title": "页面未找到",
+    "description": "您要查找的页面不存在或已被移动。",
+    "backHome": "返回首页"
+  },
+  "errors": {
+    "notFound": {
+      "title": "页面未找到",
+      "description": "您要查找的页面不存在或可能已被移动。"
+    },
+    "forbidden": {
+      "title": "访问被拒绝",
+      "description": "您无权查看此页面。"
+    },
+    "serverError": {
+      "title": "出现问题",
+      "description": "我们遇到了一个意外错误，请稍后重试。"
+    },
+    "generic": {
+      "title": "出现问题",
+      "description": "我们遇到了一个意外错误，请稍后重试。"
+    },
+    "actions": {
+      "backToCompliancePortal": "返回合规门户",
+      "tryAgain": "重试",
+      "contactSupport": "联系支持",
+      "requestAccess": "申请访问"
+    },
+    "inline": {
+      "message": "无法加载内容",
+      "retry": "重试"
+    }
+  },
+  "footer": {
+    "poweredBy": "技术支持"
+  },
+  "pagination": {
+    "previous": "上一页",
+    "next": "下一页"
+  },
+  "locale": {
+    "label": "语言",
+    "updateFailed": "无法更新语言",
+    "mismatch": {
+      "message": "您正在以{{language}}查看此页面。",
+      "switchToMine": "切换到{{language}}",
+      "useThis": "将{{language}}设为我的语言",
+      "dismiss": "关闭"
+    }
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "签署保密协议以访问私有文档。",
+      "sign": "查看并签署",
+      "dismiss": "关闭"
+    }
+  }
+}

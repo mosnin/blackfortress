@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "Portail de conformité",
+    "getAccess": "Demander l'accès",
+    "openMenu": "Ouvrir le menu",
+    "closeMenu": "Fermer le menu",
+    "menuTitle": "Menu",
+    "nav": {
+      "documents": "Documents",
+      "subprocessors": "Sous-traitants",
+      "updates": "Actualités",
+      "requests": "Demandes"
+    }
+  },
+  "userMenu": {
+    "subscribe": "S'abonner aux mises à jour",
+    "subscribed": "Abonné aux mises à jour",
+    "signOut": "Se déconnecter",
+    "signOutFailed": "Impossible de se déconnecter",
+    "switchToDarkMode": "Passer en mode sombre",
+    "switchToLightMode": "Passer en mode clair"
+  },
+  "common": {
+    "error": "Une erreur est survenue",
+    "previousPage": "Page précédente",
+    "nextPage": "Page suivante",
+    "pageOf": "Page {{current}} sur {{total}}",
+    "zoomOut": "Zoom arrière",
+    "zoomIn": "Zoom avant"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "Accès demandé"
+    },
+    "fullName": {
+      "title": "Ajoutez votre nom",
+      "label": "Nom complet",
+      "placeholder": "Jean Dupont",
+      "required": "Le nom complet est requis",
+      "tooShort": "Le nom complet est trop court",
+      "submit": "Continuer"
+    },
+    "errors": {
+      "fullNameFailed": "Impossible d'enregistrer votre nom. Veuillez réessayer.",
+      "requestFailed": "Impossible de finaliser votre demande d'accès. Veuillez réessayer."
+    }
+  },
+  "home": {
+    "heroTitle": "La conformité chez {{name}}.",
+    "heroDescription": "Bienvenue dans notre Portail de conformité. Retrouvez ici notre documentation et nos certifications de sécurité.",
+    "sections": {
+      "compliance": "Conformité",
+      "securityCommitments": "Engagements de sécurité",
+      "trustedBy": "Ils nous font confiance",
+      "recentUpdates": "Mises à jour récentes"
+    },
+    "recentUpdates": {
+      "viewAll": "Voir tout"
+    }
+  },
+  "notFound": {
+    "title": "Page introuvable",
+    "description": "La page que vous recherchez n'existe pas ou a été déplacée.",
+    "backHome": "Retour à l'accueil"
+  },
+  "errors": {
+    "notFound": {
+      "title": "Page introuvable",
+      "description": "La page que vous recherchez n'existe pas ou a été déplacée."
+    },
+    "forbidden": {
+      "title": "Accès refusé",
+      "description": "Vous n'avez pas l'autorisation de consulter cette page."
+    },
+    "serverError": {
+      "title": "Une erreur est survenue",
+      "description": "Une erreur inattendue s'est produite. Veuillez réessayer dans un instant."
+    },
+    "generic": {
+      "title": "Une erreur est survenue",
+      "description": "Une erreur inattendue s'est produite. Veuillez réessayer dans un instant."
+    },
+    "actions": {
+      "backToCompliancePortal": "Retour au portail de conformité",
+      "tryAgain": "Réessayer",
+      "contactSupport": "Contacter le support",
+      "requestAccess": "Demander l'accès"
+    },
+    "inline": {
+      "message": "Impossible de charger le contenu",
+      "retry": "Réessayer"
+    }
+  },
+  "footer": {
+    "poweredBy": "Propulsé par"
+  },
+  "pagination": {
+    "previous": "Page précédente",
+    "next": "Page suivante"
+  },
+  "locale": {
+    "label": "Langue",
+    "updateFailed": "Impossible de mettre à jour la langue",
+    "mismatch": {
+      "message": "Vous consultez cette page en {{language}}.",
+      "switchToMine": "Passer en {{language}}",
+      "useThis": "Utiliser {{language}} comme ma langue",
+      "dismiss": "Ignorer"
+    }
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "Signez l'accord de confidentialité pour accéder aux documents privés.",
+      "sign": "Lire et signer",
+      "dismiss": "Fermer"
+    }
+  }
+}

@@ -1,0 +1,286 @@
+name: Black Fortress
+
+on:
+  pull_request:
+    paths:
+      - 'fortress/**'
+      - 'probo/**'
+      - 'packages/integration-platform/**'
+      - '.github/workflows/fortress.yml'
+  push:
+    branches: [main]
+    # Path filters do not apply to tags: a fortress-v* tag always builds and
+    # publishes a release.
+    tags: ['fortress-v*']
+    paths:
+      - 'fortress/**'
+      - 'probo/**'
+      - 'packages/integration-platform/**'
+      - '.github/workflows/fortress.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fortress-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source without retaining credentials
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: probo/go.mod
+          cache-dependency-path: fortress/bfd/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: probo/.nvmrc
+
+      - name: Setup pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.4'
+
+      - name: bfd vet and tests
+        working-directory: fortress/bfd
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          go test ./...
+
+      - name: Framework library is up to date with Comp's seed data
+        working-directory: fortress/library
+        run: |
+          node scripts/convert-comp.mjs
+          git diff --exit-code -- frameworks crosswalk.json processes manifest.json
+
+      - name: bf-checks tests and typecheck
+        working-directory: fortress/checks
+        run: |
+          bun install --frozen-lockfile
+          bun test
+          bun run typecheck
+
+  smoke:
+    name: runtime smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs: unit
+    steps:
+      - name: Checkout source without retaining credentials
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: probo/go.mod
+          cache-dependency-path: |
+            probo/go.sum
+            fortress/bfd/go.sum
+            fortress/library/validate/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: probo/.nvmrc
+
+      - name: Setup pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.4'
+
+      - name: Ensure PostgreSQL 16 binaries
+        run: |
+          if [ ! -x /usr/lib/postgresql/16/bin/initdb ]; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-16
+          fi
+
+      - name: Build runtime for linux and macOS (probod, bfd, bf, bf-checks, library)
+        run: fortress/scripts/build-runtime.sh linux-amd64 darwin-arm64
+
+      # Probo's packages embed the built frontends and email templates, so
+      # this runs after the runtime build has produced them.
+      - name: Framework library validates against Probo's importer
+        working-directory: fortress/library/validate
+        run: go test ./...
+
+      - name: Smoke test a fresh install
+        run: fortress/scripts/smoke-test.sh fortress/bfd/dist/linux-amd64
+
+      - name: Package the Linux release (runtime, library, bundled PostgreSQL)
+        run: fortress/scripts/package-linux.sh amd64
+
+      - name: Install the release as root and smoke test it with the bundled PostgreSQL
+        run: |
+          rel="$(mktemp -d)"
+          tar -xzf fortress/bfd/dist/blackfortress-linux-amd64.tar.gz -C "$rel"
+          sudo "$rel/blackfortress-linux-amd64/install.sh"
+          sudo env "PATH=$PATH" fortress/scripts/smoke-test.sh /opt/blackfortress/bin
+          id blackfortress
+
+      - name: Container image runs the release as root
+        run: |
+          rel="$(mktemp -d)"
+          tar -xzf fortress/bfd/dist/blackfortress-linux-amd64.tar.gz -C "$rel"
+          docker build -t blackfortress:ci -f fortress/linux/Dockerfile "$rel/blackfortress-linux-amd64"
+          docker run --rm blackfortress:ci sh -c 'bf up --timeout 4m || { tail -40 /var/lib/blackfortress/logs/bfd.log; exit 1; }
+            bf report --fail-on fail && bf down'
+
+      - name: Upload the Linux release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: blackfortress-linux-amd64
+          path: |
+            fortress/bfd/dist/blackfortress-linux-amd64.tar.gz
+            fortress/bfd/dist/blackfortress-linux-amd64.tar.gz.sha256
+          retention-days: 14
+
+      - name: Hand the macOS runtime to the app job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runtime-darwin-arm64
+          path: fortress/bfd/dist/darwin-arm64
+          retention-days: 3
+
+  macos-app:
+    name: macOS app build and smoke test
+    runs-on: macos-15
+    timeout-minutes: 40
+    needs: smoke
+    steps:
+      - name: Checkout source without retaining credentials
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Fetch the macOS runtime built on linux
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: runtime-darwin-arm64
+          path: fortress/bfd/dist/darwin-arm64
+
+      - name: Restore executable bits
+        run: chmod +x fortress/bfd/dist/darwin-arm64/{bfd,bf,bf-checks,probod,probod-bootstrap}
+
+      - name: Build BlackFortress.app (runtime, library and PostgreSQL bundled)
+        working-directory: fortress/macos
+        env:
+          STRICT: '1'
+        run: scripts/build-app.sh
+
+      - name: Bundled binaries still run after code signing
+        run: |
+          bin=fortress/macos/build/BlackFortress.app/Contents/Resources/bin
+          codesign --verify --verbose=2 fortress/macos/build/BlackFortress.app || true
+          "$bin/bfd" version
+          "$bin/bf-checks" list | python3 -c 'import json,sys; print(len(json.load(sys.stdin)), "check providers")'
+
+      - name: Smoke test the bundled runtime on macOS
+        run: |
+          app=fortress/macos/build/BlackFortress.app
+          BF_PG_DIR="$PWD/$app/Contents/Resources/postgres" \
+            fortress/scripts/smoke-test.sh "$app/Contents/Resources/bin"
+
+      - name: Launch the app, check it runs the runtime, quit cleanly
+        run: |
+          app="$PWD/fortress/macos/build/BlackFortress.app"
+          export BF_HOME="$(mktemp -d)"
+          shots="$RUNNER_TEMP/screenshots"
+          mkdir -p "$shots"
+
+          "$app/Contents/MacOS/BlackFortress" > "$RUNNER_TEMP/app.log" 2>&1 &
+          app_pid=$!
+
+          state=""
+          for _ in $(seq 1 120); do
+            state="$(curl -s http://localhost:7811/v1/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' 2>/dev/null || true)"
+            [ "$state" = running ] && break
+            sleep 1
+          done
+          echo "runtime state via the app: ${state:-none}"
+          sleep 15  # let posture and the SSE stream populate the window
+          screencapture -x "$shots/black-fortress-window.png" || echo "screencapture unavailable"
+
+          kill -TERM "$app_pid"
+          for _ in $(seq 1 60); do kill -0 "$app_pid" 2>/dev/null || break; sleep 1; done
+
+          leftovers="$(pgrep -fl "bfd run|postgres -D $BF_HOME|probod -cfg-file" || true)"
+          echo "--- app output"; cat "$RUNNER_TEMP/app.log"
+          test "$state" = running
+          if kill -0 "$app_pid" 2>/dev/null; then
+            echo "app did not quit"
+            ps -o pid,ppid,stat,command -p "$app_pid" || true
+            echo "--- bfd-macos.log"; tail -40 "$BF_HOME/logs/bfd-macos.log" 2>/dev/null || true
+            exit 1
+          fi
+          if [ -n "$leftovers" ]; then echo "runtime left running after quit:"; echo "$leftovers"; exit 1; fi
+
+      - name: Upload app screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-app-screenshots
+          path: ${{ runner.temp }}/screenshots
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Package the app
+        working-directory: fortress/macos/build
+        run: ditto -c -k --keepParent BlackFortress.app BlackFortress-macos-arm64.zip
+
+      - name: Upload BlackFortress.app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: BlackFortress-macos-arm64
+          path: fortress/macos/build/BlackFortress-macos-arm64.zip
+          retention-days: 14
+
+  release:
+    name: publish release
+    if: startsWith(github.ref, 'refs/tags/fortress-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [smoke, macos-app]
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch the Linux release
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: blackfortress-linux-amd64
+          path: release
+
+      - name: Fetch the macOS app
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: BlackFortress-macos-arm64
+          path: release
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Black Fortress ${TAG#fortress-}" \
+            --notes "Linux: extract blackfortress-linux-amd64.tar.gz, run install.sh, then bf up (see fortress/linux/README.md). macOS: unzip BlackFortress-macos-arm64.zip."

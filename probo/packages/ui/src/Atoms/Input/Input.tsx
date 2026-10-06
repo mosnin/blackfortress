@@ -1,0 +1,102 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { type FC, type InputHTMLAttributes, useState } from "react";
+import { tv } from "tailwind-variants";
+
+import type { IconProps } from "../Icons/type";
+
+type Props = {
+  invalid?: boolean;
+  disabled?: boolean;
+  icon?: FC<IconProps>;
+  onValueChange?: (value: string) => void;
+  variant?: "bordered" | "ghost" | "title";
+} & InputHTMLAttributes<HTMLInputElement>;
+
+export const input = tv({
+  base: "w-full disabled:bg-transparent",
+  variants: {
+    invalid: {
+      true: "border-border-danger hover:border-border-danger",
+      false: "border-border-mid hover:border-border-strong",
+    },
+    variant: {
+      bordered:
+                "py-[6px] bg-secondary border  rounded-[10px]  text-sm px-3 text-txt-primary",
+      ghost: "text-base text-txt-secondary outline-none",
+      title: "text-2xl font-semibold text-txt-primary outline-none",
+    },
+  },
+  defaultVariants: {
+    variant: "bordered",
+  },
+});
+
+export function Input({
+  invalid,
+  icon: IconComponent,
+  onValueChange,
+  ...props
+}: Props) {
+  const [focus, setFocus] = useState(false);
+
+  if (IconComponent) {
+    return (
+      <div
+        className={input({
+          className: "flex items-center gap-2",
+          invalid,
+        })}
+        data-focus={focus}
+      >
+        <IconComponent size={16} className="text-txt-secondary" />
+        <input
+          {...props}
+          onFocus={(e) => {
+            setFocus(true);
+            props.onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setFocus(false);
+            props.onBlur?.(e);
+          }}
+          aria-invalid={invalid}
+          className="w-full outline-none"
+          onChange={(e) => {
+            onValueChange?.(e.currentTarget.value);
+            props.onChange?.(e);
+          }}
+        />
+      </div>
+    );
+  }
+  return (
+    <input
+      {...props}
+      aria-invalid={invalid}
+      className={input({ invalid, ...props })}
+      onChange={(e) => {
+        onValueChange?.(e.currentTarget.value);
+        props.onChange?.(e);
+      }}
+    />
+  );
+}

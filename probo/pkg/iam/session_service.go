@@ -1,0 +1,736 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package iam
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"time"
+
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+)
+
+type (
+	SessionService struct {
+		*Service
+	}
+)
+
+func NewSessionService(svc *Service) *SessionService {
+	return &SessionService{Service: svc}
+}
+
+func (s SessionService) GetSession(ctx context.Context, sessionID gid.GID) (*coredata.Session, error) {
+	var (
+		session = &coredata.Session{}
+		now     = time.Now()
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := session.LoadByID(ctx, tx, sessionID); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+			}
+
+			if session.ExpireReason != nil {
+				return NewSessionExpiredError(sessionID)
+			}
+
+			if now.After(session.ExpiredAt) {
+				session.ExpireReason = new(coredata.ExpireReasonIdleTimeout)
+				session.ExpiredAt = now
+
+				session.UpdatedAt = now
+				if err := session.Update(ctx, tx); err != nil {
+					return fmt.Errorf("cannot update session: %w", err)
+				}
+
+				return NewSessionExpiredError(sessionID)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return session, nil
+}
+
+func (s SessionService) CloseSession(ctx context.Context, sessionID gid.GID) error {
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, conn pg.Tx) error {
+			session := &coredata.Session{}
+			if err := session.LoadByID(ctx, conn, sessionID); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			if session.ExpireReason != nil {
+				return NewSessionExpiredError(sessionID)
+			}
+
+			session.ExpireReason = new(coredata.ExpireReasonClosed)
+			session.ExpiredAt = time.Now()
+
+			session.UpdatedAt = time.Now()
+			if err := session.Update(ctx, conn); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot update session: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s SessionService) RevokeSession(ctx context.Context, identityID gid.GID, sessionID gid.GID) error {
+	now := time.Now()
+
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			identity := &coredata.Identity{}
+
+			err := identity.LoadByID(ctx, tx, identityID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewIdentityNotFoundError(identityID)
+				}
+
+				return fmt.Errorf("cannot load identity: %w", err)
+			}
+
+			session := &coredata.Session{}
+
+			err = session.LoadByID(ctx, tx, sessionID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			// TODO: move to dedicated query instead of LoadByID
+			if session.IdentityID != identityID {
+				return NewSessionNotFoundError(sessionID)
+			}
+
+			if session.ExpireReason != nil {
+				return NewSessionExpiredError(sessionID)
+			}
+
+			session.ExpireReason = new(coredata.ExpireReasonRevoked)
+			session.ExpiredAt = now
+
+			session.UpdatedAt = now
+			if err := session.Update(ctx, tx); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot update session: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s SessionService) RevokeAllSessions(ctx context.Context, currentSessionID gid.GID) (int64, error) {
+	var count int64
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			session := coredata.Session{}
+
+			err := session.LoadByID(ctx, tx, currentSessionID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(currentSessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			sessions := coredata.Sessions{}
+
+			count, err = sessions.ExpireAllForIdentityExceptOneSession(ctx, tx, session.IdentityID, session.ID)
+			if err != nil {
+				return fmt.Errorf("cannot expire all sessions: %w", err)
+			}
+
+			return nil
+		},
+	)
+
+	return count, err
+}
+
+func (s SessionService) UpdateSessionInfo(ctx context.Context, sessionID gid.GID, userAgent string, ipAddress net.IP) error {
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			session := &coredata.Session{}
+
+			err := session.LoadByID(ctx, tx, sessionID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			session.UserAgent = userAgent
+			session.IPAddress = ipAddress
+			session.UpdatedAt = time.Now()
+
+			if err := session.Update(ctx, tx); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot update session: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s SessionService) UpdateSessionData(ctx context.Context, sessionID gid.GID, data coredata.SessionData) error {
+	return s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			session := &coredata.Session{}
+
+			err := session.LoadByID(ctx, tx, sessionID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			session.Data = data
+			session.UpdatedAt = time.Now()
+
+			if err := session.Update(ctx, tx); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot update session: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s SessionService) GetActiveSessionForMembership(ctx context.Context, rootSessionID gid.GID, membershipID gid.GID) (*coredata.Session, error) {
+	childSession := &coredata.Session{}
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			rootSession := &coredata.Session{}
+
+			err := rootSession.LoadByID(ctx, tx, rootSessionID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(rootSessionID)
+				}
+
+				return fmt.Errorf("cannot load root session: %w", err)
+			}
+
+			if !rootSession.IsRootSession() {
+				return fmt.Errorf("session %q is not a root session", rootSessionID)
+			}
+
+			if rootSession.ExpireReason != nil || time.Now().After(rootSession.ExpiredAt) {
+				return NewSessionExpiredError(rootSessionID)
+			}
+
+			membership := &coredata.Membership{}
+
+			err = membership.LoadByID(ctx, tx, coredata.NewScopeFromObjectID(membershipID), membershipID)
+			if err != nil {
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			err = childSession.LoadByRootSessionIDAndMembershipID(ctx, tx, rootSessionID, membership.ID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(rootSessionID)
+				}
+
+				return fmt.Errorf("cannot load child session: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return childSession, nil
+}
+
+func (s SessionService) OpenPasswordChildSessionForOrganization(
+	ctx context.Context,
+	rootSessionID gid.GID,
+	organizationID gid.GID,
+) (*coredata.Session, *coredata.Membership, error) {
+	var (
+		now          = time.Now()
+		rootSession  = &coredata.Session{}
+		identity     = &coredata.Identity{}
+		profile      = &coredata.MembershipProfile{}
+		membership   = &coredata.Membership{}
+		childSession = &coredata.Session{}
+		scope        = coredata.NewScopeFromObjectID(organizationID)
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := rootSession.LoadByID(ctx, tx, rootSessionID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(rootSessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			if !rootSession.IsRootSession() {
+				return fmt.Errorf("session %q is not a root session", rootSessionID)
+			}
+
+			if rootSession.ExpireReason != nil || now.After(rootSession.ExpiredAt) {
+				return NewSessionExpiredError(rootSessionID)
+			}
+
+			err = identity.LoadByID(ctx, tx, rootSession.IdentityID)
+			if err != nil {
+				return fmt.Errorf("cannot load identity: %w", err)
+			}
+
+			err = profile.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, rootSession.IdentityID, organizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewProfileNotFoundError(gid.Nil)
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.State == coredata.ProfileStateDeactivated {
+				return NewUserInactiveError(profile.ID)
+			}
+
+			err = membership.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, rootSession.IdentityID, organizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewMembershipNotFoundError(organizationID)
+				}
+
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			tenantID := scope.GetTenantID()
+			childSession = &coredata.Session{
+				ID:              gid.New(tenantID, coredata.SessionEntityType),
+				IdentityID:      rootSession.IdentityID,
+				TenantID:        &tenantID,
+				MembershipID:    &membership.ID,
+				ParentSessionID: &rootSession.ID,
+				AuthMethod:      coredata.AuthMethodPassword,
+				AuthenticatedAt: now,
+				ExpiredAt:       rootSession.ExpiredAt,
+				CreatedAt:       now,
+				UpdatedAt:       now,
+			}
+
+			err = childSession.Insert(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("cannot insert child session: %w", err)
+			}
+
+			// Change root session auth method to password
+			rootSession.UpdatedAt = now
+			rootSession.AuthMethod = coredata.AuthMethodPassword
+
+			if err := rootSession.Update(ctx, tx); err != nil {
+				return fmt.Errorf("cannot update root session: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return childSession, membership, nil
+}
+
+// OpenSAMLChildSessionForOrganization creates a SAML-authenticated child session for the given
+// organization under the provided root session.
+//
+// This is intended to be used after a successful SAML assertion ("step-up auth") when the user
+// might have an existing PASSWORD root session, but we still want a SAML child session for a
+// SAML-enabled organization.
+func (s SessionService) OpenSAMLChildSessionForOrganization(
+	ctx context.Context,
+	rootSessionID gid.GID,
+	organizationID gid.GID,
+) (*coredata.Session, *coredata.Membership, error) {
+	var (
+		now          = time.Now()
+		rootSession  = &coredata.Session{}
+		identity     = &coredata.Identity{}
+		profile      = &coredata.MembershipProfile{}
+		membership   = &coredata.Membership{}
+		childSession = &coredata.Session{}
+		scope        = coredata.NewScopeFromObjectID(organizationID)
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := rootSession.LoadByID(ctx, tx, rootSessionID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(rootSessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			if !rootSession.IsRootSession() {
+				return fmt.Errorf("session %q is not a root session", rootSessionID)
+			}
+
+			if rootSession.ExpireReason != nil || now.After(rootSession.ExpiredAt) {
+				return NewSessionExpiredError(rootSessionID)
+			}
+
+			err = identity.LoadByID(ctx, tx, rootSession.IdentityID)
+			if err != nil {
+				return fmt.Errorf("cannot load identity: %w", err)
+			}
+
+			err = profile.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, rootSession.IdentityID, organizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewProfileNotFoundError(gid.Nil)
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.State == coredata.ProfileStateDeactivated {
+				return NewUserInactiveError(profile.ID)
+			}
+
+			err = membership.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, rootSession.IdentityID, organizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewMembershipNotFoundError(organizationID)
+				}
+
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			tenantID := scope.GetTenantID()
+			childSession = &coredata.Session{
+				ID:              gid.New(tenantID, coredata.SessionEntityType),
+				IdentityID:      rootSession.IdentityID,
+				TenantID:        &tenantID,
+				MembershipID:    &membership.ID,
+				ParentSessionID: &rootSession.ID,
+				AuthMethod:      coredata.AuthMethodSAML,
+				AuthenticatedAt: now,
+				ExpiredAt:       rootSession.ExpiredAt,
+				CreatedAt:       now,
+				UpdatedAt:       now,
+			}
+
+			err = childSession.Insert(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("cannot insert child session: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return childSession, membership, nil
+}
+
+// OpenOIDCChildSessionForOrganization creates an OIDC-authenticated child session for the
+// given organization under the provided root session.
+func (s SessionService) OpenOIDCChildSessionForOrganization(
+	ctx context.Context,
+	rootSessionID gid.GID,
+	organizationID gid.GID,
+) (*coredata.Session, *coredata.Membership, error) {
+	var (
+		now          = time.Now()
+		rootSession  = &coredata.Session{}
+		identity     = &coredata.Identity{}
+		profile      = &coredata.MembershipProfile{}
+		membership   = &coredata.Membership{}
+		childSession = &coredata.Session{}
+		scope        = coredata.NewScopeFromObjectID(organizationID)
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := rootSession.LoadByID(ctx, tx, rootSessionID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(rootSessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			if !rootSession.IsRootSession() {
+				return fmt.Errorf("session %q is not a root session", rootSessionID)
+			}
+
+			if rootSession.ExpireReason != nil || now.After(rootSession.ExpiredAt) {
+				return NewSessionExpiredError(rootSessionID)
+			}
+
+			err = identity.LoadByID(ctx, tx, rootSession.IdentityID)
+			if err != nil {
+				return fmt.Errorf("cannot load identity: %w", err)
+			}
+
+			err = profile.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, rootSession.IdentityID, organizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewProfileNotFoundError(gid.Nil)
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.State == coredata.ProfileStateDeactivated {
+				return NewUserInactiveError(profile.ID)
+			}
+
+			err = membership.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, rootSession.IdentityID, organizationID)
+			if err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewMembershipNotFoundError(organizationID)
+				}
+
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			tenantID := scope.GetTenantID()
+			childSession = &coredata.Session{
+				ID:              gid.New(tenantID, coredata.SessionEntityType),
+				IdentityID:      rootSession.IdentityID,
+				TenantID:        &tenantID,
+				MembershipID:    &membership.ID,
+				ParentSessionID: &rootSession.ID,
+				AuthMethod:      coredata.AuthMethodOIDC,
+				AuthenticatedAt: now,
+				ExpiredAt:       rootSession.ExpiredAt,
+				CreatedAt:       now,
+				UpdatedAt:       now,
+			}
+
+			err = childSession.Insert(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("cannot insert child session: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return childSession, membership, nil
+}
+
+func (s SessionService) AssumeOrganizationSession(
+	ctx context.Context,
+	sessionID gid.GID,
+	organizationID gid.GID,
+	continueURL string,
+) (*coredata.Session, *coredata.Membership, error) {
+	var (
+		now          = time.Now()
+		rootSession  = &coredata.Session{}
+		identity     = &coredata.Identity{}
+		profile      = &coredata.MembershipProfile{}
+		membership   = &coredata.Membership{}
+		childSession = &coredata.Session{}
+		scope        = coredata.NewScopeFromObjectID(organizationID)
+	)
+
+	err := s.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			if err := rootSession.LoadByID(ctx, tx, sessionID); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewSessionNotFoundError(sessionID)
+				}
+
+				return fmt.Errorf("cannot load session: %w", err)
+			}
+
+			if !rootSession.IsRootSession() {
+				return fmt.Errorf("session %q is not a root session", sessionID)
+			}
+
+			if rootSession.ExpireReason != nil || now.After(rootSession.ExpiredAt) {
+				return NewSessionExpiredError(sessionID)
+			}
+
+			if err := identity.LoadByID(ctx, tx, rootSession.IdentityID); err != nil {
+				return fmt.Errorf("cannot load identity: %w", err)
+			}
+
+			if err := profile.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, rootSession.IdentityID, organizationID); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewProfileNotFoundError(gid.Nil)
+				}
+
+				return fmt.Errorf("cannot load profile: %w", err)
+			}
+
+			if profile.State == coredata.ProfileStateDeactivated {
+				return NewUserInactiveError(profile.ID)
+			}
+
+			if err := membership.LoadByIdentityIDAndOrganizationID(ctx, tx, scope, rootSession.IdentityID, organizationID); err != nil {
+				if err == coredata.ErrResourceNotFound {
+					return NewMembershipNotFoundError(organizationID)
+				}
+
+				return fmt.Errorf("cannot load membership: %w", err)
+			}
+
+			samlConfig := &coredata.SAMLConfiguration{}
+
+			err := samlConfig.LoadByOrganizationIDAndEmailDomain(
+				ctx,
+				tx,
+				scope,
+				organizationID,
+				identity.EmailAddress.Domain(),
+			)
+			if err != nil && err != coredata.ErrResourceNotFound {
+				return fmt.Errorf("cannot load SAML configuration: %w", err)
+			}
+
+			if err == nil && samlConfig.SSOEnabled() {
+				switch samlConfig.EnforcementPolicy {
+				case coredata.SAMLEnforcementPolicyRequired:
+					if rootSession.AuthMethod != coredata.AuthMethodSAML {
+						return NewSAMLAuthenticationRequiredError("policy_requirement")
+					}
+				case coredata.SAMLEnforcementPolicyOptional:
+					// SAML is optional: any password-equivalent (PASSWORD, OIDC,
+					// MAGIC_LINK) or SAML root session is allowed.
+				}
+			} else {
+				switch rootSession.AuthMethod {
+				case coredata.AuthMethodPassword,
+					coredata.AuthMethodOIDC,
+					coredata.AuthMethodMagicLink:
+					// No SAML configuration for this org+domain: any
+					// password-equivalent root session is allowed. OIDC
+					// (Google / Microsoft) and magic-link logins are treated
+					// as password logins because the user has authenticated
+					// against the platform itself rather than a third-party
+					// IdP federated with this organization.
+				case coredata.AuthMethodSAML:
+					// SAML root sessions are bound to a different organization's
+					// IdP, so they cannot be used to access an organization that
+					// does not federate with that IdP. Force re-authentication
+					// with a password-equivalent method.
+					return NewPasswordAuthenticationRequiredError("password_authentication_required")
+				}
+			}
+
+			tenantID := scope.GetTenantID()
+			childSession = &coredata.Session{
+				ID:              gid.New(tenantID, coredata.SessionEntityType),
+				IdentityID:      rootSession.IdentityID,
+				TenantID:        &tenantID,
+				MembershipID:    &membership.ID,
+				ParentSessionID: &rootSession.ID,
+				AuthMethod:      rootSession.AuthMethod,
+				AuthenticatedAt: now,
+				ExpiredAt:       rootSession.ExpiredAt,
+				CreatedAt:       now,
+				UpdatedAt:       now,
+			}
+
+			err = childSession.Insert(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("cannot insert child session: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return childSession, membership, nil
+}

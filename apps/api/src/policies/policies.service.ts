@@ -1,0 +1,1996 @@
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { db, Frequency, PolicyStatus, Prisma } from '@db';
+import { HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { PolicyPdfRendererService } from '../trust-portal/policy-pdf-renderer.service';
+import { filterComplianceMembers } from '../utils/compliance-filters';
+import { isMemberOrgParticipant } from '../utils/org-participation';
+import { BUCKET_NAME, getSignedUrl, s3Client } from '../app/s3';
+import type { CreatePolicyDto } from './dto/create-policy.dto';
+import type { UpdatePolicyDto } from './dto/update-policy.dto';
+import type {
+  ConfirmPolicyPdfUploadedDto,
+  PolicyPdfUploadUrlResponseDto,
+  RequestPolicyPdfUploadUrlDto,
+} from './dto/policy-pdf-upload-url.dto';
+import type {
+  CreateVersionDto,
+  PublishVersionDto,
+  SubmitForApprovalDto,
+  UpdateVersionContentDto,
+} from './dto/version.dto';
+import { checkAutoCompletePhases } from '../frameworks/frameworks-timeline.helper';
+import { TimelinesService } from '../timelines/timelines.service';
+
+// Fields returned by updateById in both the standard and auto-publish paths.
+const POLICY_UPDATE_SELECT = {
+  id: true,
+  name: true,
+  description: true,
+  status: true,
+  content: true,
+  frequency: true,
+  department: true,
+  isRequiredToSign: true,
+  signedBy: true,
+  reviewDate: true,
+  isArchived: true,
+  archivedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  lastArchivedAt: true,
+  lastPublishedAt: true,
+  organizationId: true,
+  assigneeId: true,
+  approverId: true,
+  policyTemplateId: true,
+  currentVersionId: true,
+} as const;
+
+function computeNextReviewDate(frequency: Frequency | null | undefined): Date {
+  const now = new Date();
+  switch (frequency) {
+    case Frequency.monthly:
+      return new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    case Frequency.quarterly:
+      return new Date(now.getFullYear(), now.getMonth() + 3, now.getDate());
+    case Frequency.yearly:
+      return new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+    default:
+      return new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+  }
+}
+
+@Injectable()
+export class PoliciesService {
+  private readonly logger = new Logger(PoliciesService.name);
+  private readonly versionCreateRetries = 3;
+
+  constructor(
+    private readonly attachmentsService: AttachmentsService,
+    private readonly pdfRendererService: PolicyPdfRendererService,
+    private readonly timelinesService: TimelinesService,
+  ) {}
+
+  async findAll({
+    organizationId,
+    excludeContent,
+    includeArchived,
+  }: {
+    organizationId: string;
+    excludeContent?: boolean;
+    includeArchived?: boolean;
+  }) {
+    try {
+      const policies = await db.policy.findMany({
+        where: includeArchived
+          ? { organizationId }
+          : { organizationId, isArchived: false, archivedAt: null },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          ...(excludeContent ? {} : { content: true, draftContent: true }),
+          frequency: true,
+          department: true,
+          isRequiredToSign: true,
+          signedBy: true,
+          reviewDate: true,
+          isArchived: true,
+          archivedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          lastArchivedAt: true,
+          lastPublishedAt: true,
+          organizationId: true,
+          assigneeId: true,
+          approverId: true,
+          policyTemplateId: true,
+          currentVersionId: true,
+          pendingVersionId: true,
+          displayFormat: true,
+          pdfUrl: true,
+          assignee: {
+            select: {
+              id: true,
+              user: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      this.logger.log(
+        `Retrieved ${policies.length} policies for organization ${organizationId}` +
+          (excludeContent ? ' (content excluded)' : '') +
+          (includeArchived ? ' (archived included)' : ''),
+      );
+      return policies;
+    } catch (error) {
+      this.logger.error(
+        `Failed to retrieve policies for organization ${organizationId}:`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  async publishAll(organizationId: string, userId?: string, memberId?: string) {
+    const draftPolicies = await db.policy.findMany({
+      where: { organizationId, status: 'draft', isArchived: false },
+      select: { id: true, name: true, frequency: true },
+    });
+
+    if (draftPolicies.length === 0) {
+      return { success: true, publishedCount: 0, members: [] };
+    }
+
+    const now = new Date();
+
+    await db.$transaction(
+      draftPolicies.map((p) =>
+        db.policy.update({
+          where: { id: p.id },
+          data: {
+            status: 'published',
+            lastPublishedAt: now,
+            reviewDate: computeNextReviewDate(p.frequency),
+            // Clear signatures — employees must re-acknowledge new content
+            signedBy: [],
+          },
+        }),
+      ),
+    );
+
+    if (userId) {
+      await db.auditLog.createMany({
+        data: draftPolicies.map((p) => ({
+          organizationId,
+          userId,
+          memberId: memberId ?? null,
+          entityType: 'policy' as const,
+          entityId: p.id,
+          description: `Published policy via bulk publish`,
+          data: {
+            action: 'Published policy',
+            method: 'POST',
+            path: '/v1/policies/publish-all',
+            resource: 'policy',
+            permission: 'update',
+          },
+        })),
+      });
+    }
+
+    const allMembers = await db.member.findMany({
+      where: { organizationId, deactivated: false },
+      include: {
+        user: { select: { email: true, name: true, role: true } },
+        organization: { select: { name: true, id: true } },
+      },
+    });
+
+    const complianceMembers = await filterComplianceMembers(
+      allMembers,
+      organizationId,
+    );
+
+    // Check timeline auto-completion after bulk publish
+    checkAutoCompletePhases({
+      organizationId,
+      timelinesService: this.timelinesService,
+    }).catch((err) => {
+      this.logger.warn(
+        'timeline auto-complete check failed after publish-all',
+        err,
+      );
+    });
+
+    return {
+      success: true,
+      publishedCount: draftPolicies.length,
+      members: complianceMembers.map((m) => ({
+        email: m.user.email,
+        userName: m.user.name || '',
+        organizationName: m.organization.name || '',
+        organizationId: m.organization.id,
+      })),
+    };
+  }
+
+  async findById(id: string, organizationId: string) {
+    try {
+      const policy = await db.policy.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          content: true,
+          draftContent: true,
+          frequency: true,
+          department: true,
+          isRequiredToSign: true,
+          signedBy: true,
+          reviewDate: true,
+          isArchived: true,
+          archivedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          lastArchivedAt: true,
+          lastPublishedAt: true,
+          organizationId: true,
+          assigneeId: true,
+          approverId: true,
+          policyTemplateId: true,
+          currentVersionId: true,
+          pendingVersionId: true,
+          displayFormat: true,
+          pdfUrl: true,
+          approver: {
+            include: {
+              user: true,
+            },
+          },
+          currentVersion: {
+            select: {
+              id: true,
+              content: true,
+              pdfUrl: true,
+              version: true,
+            },
+          },
+        },
+      });
+
+      if (!policy) {
+        throw new NotFoundException(`Policy with ID ${id} not found`);
+      }
+
+      this.logger.log(`Retrieved policy: ${policy.name} (${id})`);
+      return policy;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to retrieve policy ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async create(organizationId: string, createData: CreatePolicyDto) {
+    try {
+      if (createData.assigneeId) {
+        const assignee = await db.member.findFirst({
+          where: { id: createData.assigneeId, organizationId },
+          include: { user: { select: { role: true } } },
+        });
+        if (!assignee) {
+          throw new BadRequestException(
+            'Assignee is not a member of this organization',
+          );
+        }
+        if (!(await isMemberOrgParticipant(assignee.user.role, organizationId))) {
+          throw new BadRequestException(
+            'Cannot assign a platform admin as assignee',
+          );
+        }
+      }
+      const contentValue = createData.content as Prisma.InputJsonValue[];
+
+      // Create policy with version 1 in a transaction
+      const policy = await db.$transaction(async (tx) => {
+        // Create the policy first (without currentVersionId)
+        const newPolicy = await tx.policy.create({
+          data: {
+            ...createData,
+            // Ensure JSON[] type compatibility for Prisma
+            content: contentValue,
+            organizationId,
+            status: createData.status || 'draft',
+            isRequiredToSign: createData.isRequiredToSign ?? true,
+          },
+        });
+
+        // Create version 1 as a draft
+        const version = await tx.policyVersion.create({
+          data: {
+            policyId: newPolicy.id,
+            version: 1,
+            content: contentValue,
+            changelog: 'Initial version',
+          },
+        });
+
+        // Update policy to set currentVersionId
+        const updatedPolicy = await tx.policy.update({
+          where: { id: newPolicy.id },
+          data: { currentVersionId: version.id },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            status: true,
+            content: true,
+            frequency: true,
+            department: true,
+            isRequiredToSign: true,
+            signedBy: true,
+            reviewDate: true,
+            isArchived: true,
+            archivedAt: true,
+            createdAt: true,
+            updatedAt: true,
+            lastArchivedAt: true,
+            lastPublishedAt: true,
+            organizationId: true,
+            assigneeId: true,
+            approverId: true,
+            policyTemplateId: true,
+            currentVersionId: true,
+          },
+        });
+
+        return updatedPolicy;
+      });
+
+      this.logger.log(`Created policy: ${policy.name} (${policy.id})`);
+
+      // Check timeline auto-completion after policy creation
+      checkAutoCompletePhases({
+        organizationId,
+        timelinesService: this.timelinesService,
+      }).catch((err) => {
+        this.logger.warn('timeline auto-complete check failed', err);
+      });
+
+      return policy;
+    } catch (error) {
+      this.logger.error(
+        `Failed to create policy for organization ${organizationId}:`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  async updateById(
+    id: string,
+    organizationId: string,
+    updateData: UpdatePolicyDto,
+  ) {
+    try {
+      // Prepare update data with special handling for status changes
+      const updatePayload: Record<string, unknown> = { ...updateData };
+
+      // If isArchived is being set to true, update lastArchivedAt
+      if (updateData.isArchived === true) {
+        updatePayload.lastArchivedAt = new Date();
+      }
+
+      // Coerce content to Prisma JSON[] input if provided
+      const contentValue = Array.isArray(updateData.content)
+        ? (updateData.content as Prisma.InputJsonValue[])
+        : null;
+
+      if (contentValue) {
+        updatePayload.content = contentValue;
+        // Keep the working draft in lockstep with the live content. Callers of
+        // this endpoint (MCP, API consumers) send a single content payload —
+        // leaving draftContent on the previous text both shows a phantom
+        // "unpublished changes" banner and makes the next publish
+        // (POST :id/versions/publish with no versionId, which snapshots
+        // draftContent) revert the content that was just written. An empty
+        // array carries no text, so it must never wipe the stored draft.
+        if (contentValue.length > 0) {
+          updatePayload.draftContent = contentValue;
+        }
+      }
+
+      // All reads and writes in one transaction to prevent concurrent publish bypass
+      const updatedPolicy = await db.$transaction(async (tx) => {
+        // Check existence and status inside the transaction
+        const existingPolicy = await tx.policy.findFirst({
+          where: { id, organizationId },
+          select: {
+            id: true,
+            status: true,
+            pendingVersionId: true,
+            approverId: true,
+            frequency: true,
+            pdfUrl: true,
+          },
+        });
+
+        if (!existingPolicy) {
+          throw new NotFoundException(`Policy with ID ${id} not found`);
+        }
+
+        // Auto-route content updates on non-draft policies through the
+        // version workflow. Callers (UI, MCP, API consumers) get a single
+        // simple operation — "update the policy" — and the API handles the
+        // create-version + publish mechanics internally. The explicit
+        // version endpoints remain available for advanced flows.
+        //
+        // We only auto-route when:
+        //   - content is being changed, AND
+        //   - the policy is currently non-draft (published or needs_review), AND
+        //   - the caller isn't explicitly changing status to anything other
+        //     than 'published' in the same call (status=undefined or 'published').
+        const isContentUpdateOnNonDraft =
+          contentValue !== null && existingPolicy.status !== 'draft';
+        const shouldAutoPublishNewVersion =
+          isContentUpdateOnNonDraft &&
+          (updateData.status === undefined ||
+            updateData.status === 'published');
+
+        // Mixed intent (e.g., demote-to-draft while changing content) is
+        // ambiguous and historically blocked — keep blocking it.
+        if (isContentUpdateOnNonDraft && !shouldAutoPublishNewVersion) {
+          throw new BadRequestException(
+            'Cannot update content of a published policy when also changing its status. Either keep status as published, or update status without content.',
+          );
+        }
+
+        if (shouldAutoPublishNewVersion) {
+          if (existingPolicy.pendingVersionId && existingPolicy.approverId) {
+            throw new BadRequestException(
+              'Cannot update content directly while an approval is pending. Either accept or reject the pending changes first.',
+            );
+          }
+
+          const latestVersion = await tx.policyVersion.findFirst({
+            where: { policyId: id },
+            orderBy: { version: 'desc' },
+            select: { version: true },
+          });
+          const nextVersion = (latestVersion?.version ?? 0) + 1;
+
+          const newVersion = await tx.policyVersion.create({
+            data: {
+              policyId: id,
+              version: nextVersion,
+              content: contentValue,
+              pdfUrl: existingPolicy.pdfUrl,
+            },
+          });
+
+          // Sync Policy state to the newly-published version. Override any
+          // conflicting values the caller passed (status, currentVersionId).
+          return tx.policy.update({
+            where: { id },
+            data: {
+              ...updatePayload,
+              content: contentValue,
+              draftContent: contentValue,
+              currentVersionId: newVersion.id,
+              status: 'published',
+              lastPublishedAt: new Date(),
+              reviewDate: computeNextReviewDate(existingPolicy.frequency),
+              pendingVersionId: null,
+              approverId: null,
+              // Clear signatures — employees must re-acknowledge new content
+              signedBy: [],
+            },
+            select: POLICY_UPDATE_SELECT,
+          });
+        }
+
+        // Existing path: drafts, or non-content updates on any status.
+        // The original throw for content-on-non-draft is now unreachable
+        // because the auto-route branch above covers that case.
+
+        // Only clear signatures when actually transitioning to published.
+        // Re-sending the full object for an already-published policy must not wipe acknowledgments.
+        if (
+          updateData.status === 'published' &&
+          existingPolicy.status !== 'published'
+        ) {
+          updatePayload.lastPublishedAt = new Date();
+
+          // A policy flagged for *periodic* review by the policy-schedule cron
+          // reaches `needs_review` with no pending version — the content nobody
+          // edited is unchanged. Re-publishing it is a re-affirmation, not new
+          // content going live, so existing acknowledgments must be preserved.
+          // We also advance the review date to the next cycle; otherwise the
+          // cron immediately re-flags the policy as needs_review again.
+          const isPeriodicReviewRepublish =
+            existingPolicy.status === 'needs_review' &&
+            !existingPolicy.pendingVersionId;
+
+          if (isPeriodicReviewRepublish) {
+            updatePayload.reviewDate = computeNextReviewDate(
+              existingPolicy.frequency,
+            );
+          } else {
+            updatePayload.signedBy = [];
+          }
+        }
+
+        const policy = await tx.policy.update({
+          where: { id },
+          data: updatePayload,
+          select: POLICY_UPDATE_SELECT,
+        });
+
+        // Keep current version content in sync with policy content
+        if (contentValue && policy.currentVersionId) {
+          await tx.policyVersion.update({
+            where: { id: policy.currentVersionId },
+            data: { content: contentValue },
+          });
+        }
+
+        return policy;
+      });
+
+      this.logger.log(`Updated policy: ${updatedPolicy.name} (${id})`);
+
+      // Check timeline auto-completion after policy update (status may have changed)
+      checkAutoCompletePhases({
+        organizationId,
+        timelinesService: this.timelinesService,
+      }).catch((err) => {
+        this.logger.warn('timeline auto-complete check failed', err);
+      });
+
+      return updatedPolicy;
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to update policy ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteById(id: string, organizationId: string) {
+    try {
+      // First check if the policy exists and belongs to the organization
+      // Include versions to clean up their PDFs from S3
+      const policy = await db.policy.findFirst({
+        where: {
+          id,
+          organizationId,
+        },
+        select: {
+          id: true,
+          name: true,
+          pdfUrl: true,
+          versions: {
+            select: { pdfUrl: true },
+          },
+        },
+      });
+
+      if (!policy) {
+        throw new NotFoundException(`Policy with ID ${id} not found`);
+      }
+
+      // Clean up S3 files before cascade delete
+      const pdfUrlsToDelete: string[] = [];
+
+      // Add policy-level PDF if exists
+      if (policy.pdfUrl) {
+        pdfUrlsToDelete.push(policy.pdfUrl);
+      }
+
+      // Add all version PDFs
+      for (const version of policy.versions) {
+        if (version.pdfUrl) {
+          pdfUrlsToDelete.push(version.pdfUrl);
+        }
+      }
+
+      // Delete all PDFs from S3 (don't fail if S3 delete fails)
+      if (pdfUrlsToDelete.length > 0) {
+        await Promise.allSettled(
+          pdfUrlsToDelete.map((pdfUrl) =>
+            this.attachmentsService
+              .deletePolicyVersionPdf(pdfUrl)
+              .catch((err) => {
+                this.logger.warn(
+                  `Failed to delete PDF from S3: ${pdfUrl}`,
+                  err,
+                );
+              }),
+          ),
+        );
+      }
+
+      // Delete the policy (versions are cascade deleted)
+      await db.policy.delete({
+        where: { id },
+      });
+
+      this.logger.log(`Deleted policy: ${policy.name} (${id})`);
+
+      // Check timeline auto-completion after policy deletion
+      checkAutoCompletePhases({
+        organizationId,
+        timelinesService: this.timelinesService,
+      }).catch((err) => {
+        this.logger.warn('timeline auto-complete check failed', err);
+      });
+
+      return { success: true, deletedPolicy: policy };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to delete policy ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async getVersionById(
+    policyId: string,
+    versionId: string,
+    organizationId: string,
+  ) {
+    const policy = await db.policy.findFirst({
+      where: { id: policyId, organizationId },
+      select: { id: true, currentVersionId: true, pendingVersionId: true },
+    });
+
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID ${policyId} not found`);
+    }
+
+    const version = await db.policyVersion.findUnique({
+      where: { id: versionId },
+      include: {
+        publishedBy: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                image: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!version || version.policyId !== policyId) {
+      throw new NotFoundException('Version not found');
+    }
+
+    return {
+      version,
+      currentVersionId: policy.currentVersionId,
+      pendingVersionId: policy.pendingVersionId,
+    };
+  }
+
+  async getVersions(policyId: string, organizationId: string) {
+    const policy = await db.policy.findFirst({
+      where: { id: policyId, organizationId },
+      select: { id: true, currentVersionId: true, pendingVersionId: true },
+    });
+
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID ${policyId} not found`);
+    }
+
+    const versions = await db.policyVersion.findMany({
+      where: { policyId },
+      orderBy: { version: 'desc' },
+      include: {
+        publishedBy: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                image: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      versions,
+      currentVersionId: policy.currentVersionId,
+      pendingVersionId: policy.pendingVersionId,
+    };
+  }
+
+  async createVersion(
+    policyId: string,
+    organizationId: string,
+    dto: CreateVersionDto,
+    userId?: string,
+  ) {
+    const memberId = await this.getMemberId(organizationId, userId);
+
+    const policy = await db.policy.findUnique({
+      where: { id: policyId, organizationId },
+      include: {
+        currentVersion: true,
+        versions: {
+          orderBy: { version: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID ${policyId} not found`);
+    }
+
+    let sourceVersion = policy.currentVersion;
+    if (dto.sourceVersionId) {
+      const requestedVersion = await db.policyVersion.findUnique({
+        where: { id: dto.sourceVersionId },
+      });
+
+      if (!requestedVersion || requestedVersion.policyId !== policyId) {
+        throw new NotFoundException('Source version not found');
+      }
+
+      sourceVersion = requestedVersion;
+    }
+
+    const contentForVersion =
+      (sourceVersion
+        ? (sourceVersion.content as Prisma.InputJsonValue[])
+        : (policy.content as Prisma.InputJsonValue[])) ?? [];
+    const sourcePdfUrl = sourceVersion?.pdfUrl ?? policy.pdfUrl;
+
+    // S3 copy is done AFTER the transaction to prevent orphaned files on retry
+    let createdVersion: { versionId: string; version: number } | null = null;
+
+    for (let attempt = 1; attempt <= this.versionCreateRetries; attempt += 1) {
+      try {
+        createdVersion = await db.$transaction(async (tx) => {
+          const latestVersion = await tx.policyVersion.findFirst({
+            where: { policyId },
+            orderBy: { version: 'desc' },
+            select: { version: true },
+          });
+          const nextVersion = (latestVersion?.version ?? 0) + 1;
+
+          // Create version WITHOUT PDF first (S3 copy happens after transaction)
+          const newVersion = await tx.policyVersion.create({
+            data: {
+              policyId,
+              version: nextVersion,
+              content: contentForVersion,
+              pdfUrl: null, // Will be updated after S3 copy
+              publishedById: memberId,
+              changelog: dto.changelog ?? null,
+            },
+          });
+
+          return {
+            versionId: newVersion.id,
+            version: nextVersion,
+          };
+        });
+
+        // Transaction succeeded, break out of retry loop
+        break;
+      } catch (error) {
+        if (
+          this.isUniqueConstraintError(error) &&
+          attempt < this.versionCreateRetries
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!createdVersion) {
+      throw new Error('Failed to create policy version after retries');
+    }
+
+    // Now copy S3 file OUTSIDE the transaction (no orphaned files on retry)
+    if (sourcePdfUrl) {
+      try {
+        const newS3Key = `${organizationId}/policies/${policyId}/v${createdVersion.version}-${Date.now()}.pdf`;
+        const newPdfUrl = await this.attachmentsService.copyPolicyVersionPdf(
+          sourcePdfUrl,
+          newS3Key,
+        );
+
+        if (newPdfUrl) {
+          // Update the version with the PDF URL
+          await db.policyVersion.update({
+            where: { id: createdVersion.versionId },
+            data: { pdfUrl: newPdfUrl },
+          });
+        }
+      } catch (error) {
+        // Log but don't fail - version was created successfully, just without PDF
+        this.logger.warn(
+          `Failed to copy PDF for new version ${createdVersion.versionId}:`,
+          error,
+        );
+      }
+    }
+
+    return createdVersion;
+  }
+
+  async updateVersionContent(
+    policyId: string,
+    versionId: string,
+    organizationId: string,
+    dto: UpdateVersionContentDto,
+  ) {
+    const processedContent = JSON.parse(
+      JSON.stringify(dto.content ?? []),
+    ) as Prisma.InputJsonValue[];
+
+    await db.$transaction(async (tx) => {
+      // Lock the policy row, then read its state inside the transaction. Both
+      // the guards and the writes below key off status / currentVersionId, so a
+      // publish or promotion committing in between would let this edit land on
+      // a version that has since become the live one.
+      await tx.$executeRaw`SELECT id FROM "Policy" WHERE id = ${policyId} AND "organizationId" = ${organizationId} FOR UPDATE`;
+
+      const version = await tx.policyVersion.findUnique({
+        where: { id: versionId },
+        include: {
+          policy: {
+            select: {
+              id: true,
+              organizationId: true,
+              status: true,
+              currentVersionId: true,
+              pendingVersionId: true,
+            },
+          },
+        },
+      });
+
+      if (
+        !version ||
+        version.policy.id !== policyId ||
+        version.policy.organizationId !== organizationId
+      ) {
+        throw new NotFoundException('Version not found');
+      }
+
+      // Cannot edit the current version unless the policy is in draft status
+      // This covers both 'published' and 'needs_review' states
+      if (
+        version.id === version.policy.currentVersionId &&
+        version.policy.status !== 'draft'
+      ) {
+        throw new BadRequestException(
+          'Cannot edit the published version. Create a new version to make changes.',
+        );
+      }
+
+      if (version.id === version.policy.pendingVersionId) {
+        throw new BadRequestException(
+          'Cannot edit a version that is pending approval.',
+        );
+      }
+
+      await tx.policyVersion.update({
+        where: { id: versionId },
+        data: { content: processedContent },
+      });
+
+      // Mirror the edit onto the Policy row. draftContent is the working draft
+      // everywhere else — the "unpublished changes" banner compares it against
+      // content, and publishing without a versionId snapshots it — so leaving
+      // it on the previous text makes the next publish revert this edit.
+      // Policy.content only moves when the edited version IS the live one,
+      // which the guard above allows only while the policy is a draft. An empty
+      // payload carries no text, so it must never wipe the stored draft.
+      if (processedContent.length > 0) {
+        await tx.policy.update({
+          where: { id: policyId },
+          data: {
+            draftContent: processedContent,
+            ...(version.id === version.policy.currentVersionId && {
+              content: processedContent,
+            }),
+          },
+        });
+      }
+    });
+
+    return { versionId };
+  }
+
+  async deleteVersion(
+    policyId: string,
+    versionId: string,
+    organizationId: string,
+  ) {
+    const policy = await db.policy.findUnique({
+      where: { id: policyId, organizationId },
+      select: {
+        id: true,
+        currentVersionId: true,
+        pendingVersionId: true,
+      },
+    });
+
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID ${policyId} not found`);
+    }
+
+    const version = await db.policyVersion.findUnique({
+      where: { id: versionId },
+      select: {
+        id: true,
+        policyId: true,
+        pdfUrl: true,
+        version: true,
+      },
+    });
+
+    if (!version || version.policyId !== policyId) {
+      throw new NotFoundException('Version not found');
+    }
+
+    if (version.id === policy.currentVersionId) {
+      throw new BadRequestException('Cannot delete the published version');
+    }
+
+    if (version.id === policy.pendingVersionId) {
+      throw new BadRequestException('Cannot delete a version pending approval');
+    }
+
+    if (version.pdfUrl) {
+      try {
+        await this.attachmentsService.deletePolicyVersionPdf(version.pdfUrl);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to delete version PDF for version ${version.id}`,
+          error,
+        );
+      }
+    }
+
+    await db.policyVersion.delete({
+      where: { id: versionId },
+    });
+
+    return { deletedVersion: version.version };
+  }
+
+  async publishVersion(
+    policyId: string,
+    organizationId: string,
+    dto: PublishVersionDto,
+    userId?: string,
+  ) {
+    const memberId = await this.getMemberId(organizationId, userId);
+
+    const policy = await db.policy.findUnique({
+      where: { id: policyId, organizationId },
+      include: {
+        versions: {
+          orderBy: { version: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID ${policyId} not found`);
+    }
+
+    // Prevent direct publishing when approval workflow is active
+    if (policy.pendingVersionId && policy.approverId) {
+      throw new BadRequestException(
+        'Cannot publish directly while an approval is pending. Either accept or reject the pending changes first.',
+      );
+    }
+
+    // When a specific versionId is provided, publish THAT existing version in place —
+    // set it as the current/active version without creating a duplicate. This mirrors
+    // the UI's accept-changes / set-active behavior (which the UI uses to publish a
+    // specific version) and is the correct flow for API/MCP consumers that explicitly
+    // created a draft via create-policy-version and edited it / attached a PDF.
+    if (dto.versionId) {
+      const sourceVersion = await db.policyVersion.findUnique({
+        where: { id: dto.versionId },
+        select: {
+          id: true,
+          policyId: true,
+          content: true,
+          version: true,
+          pdfUrl: true,
+        },
+      });
+
+      if (!sourceVersion || sourceVersion.policyId !== policyId) {
+        throw new NotFoundException(
+          `Version ${dto.versionId} not found for policy ${policyId}`,
+        );
+      }
+
+      const content = sourceVersion.content as Prisma.InputJsonValue[];
+      if (!content || content.length === 0) {
+        throw new BadRequestException('No content to publish');
+      }
+
+      await db.$transaction(async (tx) => {
+        // Policy row first, then the version row. Every path that writes both
+        // (updateById, updateVersionContent, acceptChanges) takes the locks in
+        // this order; taking them the other way round here deadlocks against a
+        // concurrent edit that already holds the policy lock.
+        await tx.policy.update({
+          where: { id: policyId },
+          data: {
+            // Activate the existing version — no new version is created.
+            currentVersionId: sourceVersion.id,
+            content,
+            draftContent: content,
+            // Propagate the version's PDF so the published policy shows the
+            // document attached to the version being published.
+            pdfUrl: sourceVersion.pdfUrl,
+            displayFormat: sourceVersion.pdfUrl ? 'PDF' : 'EDITOR',
+            status: 'published',
+            lastPublishedAt: new Date(),
+            reviewDate: computeNextReviewDate(policy.frequency),
+            pendingVersionId: null,
+            approverId: null,
+            // Clear signatures — employees must re-acknowledge new content
+            signedBy: [],
+          },
+        });
+
+        await tx.policyVersion.update({
+          where: { id: sourceVersion.id },
+          data: { publishedById: memberId },
+        });
+      });
+
+      checkAutoCompletePhases({
+        organizationId,
+        timelinesService: this.timelinesService,
+      }).catch((err) => {
+        this.logger.warn('timeline auto-complete check failed', err);
+      });
+
+      return {
+        versionId: sourceVersion.id,
+        version: sourceVersion.version,
+      };
+    }
+
+    // No versionId: snapshot whatever is staged in draftContent into a NEW version.
+    // (falling back to content if no draft is staged). This is the working-draft
+    // publish path for callers that edited Policy.draftContent directly.
+    const contentToPublish = (
+      policy.draftContent && policy.draftContent.length > 0
+        ? policy.draftContent
+        : policy.content
+    ) as Prisma.InputJsonValue[];
+
+    if (!contentToPublish || contentToPublish.length === 0) {
+      throw new BadRequestException('No content to publish');
+    }
+
+    for (let attempt = 1; attempt <= this.versionCreateRetries; attempt += 1) {
+      try {
+        const result = await db.$transaction(async (tx) => {
+          const latestVersion = await tx.policyVersion.findFirst({
+            where: { policyId },
+            orderBy: { version: 'desc' },
+            select: { version: true },
+          });
+          const nextVersion = (latestVersion?.version ?? 0) + 1;
+
+          const newVersion = await tx.policyVersion.create({
+            data: {
+              policyId,
+              version: nextVersion,
+              content: contentToPublish,
+              pdfUrl: policy.pdfUrl,
+              publishedById: memberId,
+              changelog: dto.changelog ?? null,
+            },
+          });
+
+          await tx.policy.update({
+            where: { id: policyId },
+            data: {
+              content: contentToPublish,
+              draftContent: contentToPublish,
+              lastPublishedAt: new Date(),
+              reviewDate: computeNextReviewDate(policy.frequency),
+              status: 'published',
+              // Clear any pending approval since we're publishing directly
+              pendingVersionId: null,
+              approverId: null,
+              // Clear signatures - employees must re-acknowledge new content
+              signedBy: [],
+              ...(dto.setAsActive !== false && {
+                currentVersionId: newVersion.id,
+              }),
+            },
+          });
+
+          return {
+            versionId: newVersion.id,
+            version: nextVersion,
+          };
+        });
+
+        // Check timeline auto-completion after publishing a version
+        checkAutoCompletePhases({
+          organizationId,
+          timelinesService: this.timelinesService,
+        }).catch((err) => {
+          this.logger.warn('timeline auto-complete check failed', err);
+        });
+
+        return result;
+      } catch (error) {
+        if (
+          this.isUniqueConstraintError(error) &&
+          attempt < this.versionCreateRetries
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error('Failed to publish policy version after retries');
+  }
+
+  async setActiveVersion(
+    policyId: string,
+    versionId: string,
+    organizationId: string,
+  ) {
+    const policy = await db.policy.findUnique({
+      where: { id: policyId, organizationId },
+    });
+
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID ${policyId} not found`);
+    }
+
+    if (policy.pendingVersionId && policy.pendingVersionId !== versionId) {
+      throw new BadRequestException(
+        'Another version is already pending approval',
+      );
+    }
+
+    const version = await db.policyVersion.findUnique({
+      where: { id: versionId },
+    });
+
+    if (!version || version.policyId !== policyId) {
+      throw new NotFoundException('Version not found');
+    }
+
+    await db.policy.update({
+      where: { id: policyId },
+      data: {
+        currentVersionId: versionId,
+        content: version.content as Prisma.InputJsonValue[],
+        draftContent: version.content as Prisma.InputJsonValue[],
+        status: 'published',
+        reviewDate: computeNextReviewDate(policy.frequency),
+        pendingVersionId: null,
+        approverId: null,
+        signedBy: [],
+      },
+    });
+
+    // Check timeline auto-completion after setting active version
+    checkAutoCompletePhases({
+      organizationId,
+      timelinesService: this.timelinesService,
+    }).catch((err) => {
+      this.logger.warn('timeline auto-complete check failed', err);
+    });
+
+    return {
+      versionId: version.id,
+      version: version.version,
+    };
+  }
+
+  async submitForApproval(
+    policyId: string,
+    versionId: string,
+    organizationId: string,
+    dto: SubmitForApprovalDto,
+  ) {
+    const policy = await db.policy.findUnique({
+      where: { id: policyId, organizationId },
+    });
+
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID ${policyId} not found`);
+    }
+
+    const version = await db.policyVersion.findUnique({
+      where: { id: versionId },
+    });
+
+    if (!version || version.policyId !== policyId) {
+      throw new NotFoundException('Version not found');
+    }
+
+    // Cannot re-submit the already-published version for approval
+    if (
+      versionId === policy.currentVersionId &&
+      policy.status === PolicyStatus.published
+    ) {
+      throw new BadRequestException(
+        'Cannot submit the currently published version for approval',
+      );
+    }
+
+    const approver = await db.member.findUnique({
+      where: { id: dto.approverId },
+    });
+
+    if (!approver || approver.organizationId !== organizationId) {
+      throw new NotFoundException('Approver not found');
+    }
+
+    // Cannot assign a deactivated member as approver - they can't log in to approve
+    if (approver.deactivated) {
+      throw new BadRequestException(
+        'Cannot assign a deactivated member as approver',
+      );
+    }
+
+    // Cannot assign a platform admin as approver (unless this is an internal org)
+    const approverUser = await db.user.findUnique({
+      where: { id: approver.userId },
+      select: { role: true },
+    });
+    if (!(await isMemberOrgParticipant(approverUser?.role, organizationId))) {
+      throw new BadRequestException(
+        'Cannot assign a platform admin as approver',
+      );
+    }
+
+    await db.policy.update({
+      where: { id: policyId },
+      data: {
+        pendingVersionId: versionId,
+        status: PolicyStatus.needs_review,
+        approverId: dto.approverId,
+      },
+    });
+
+    return {
+      versionId: version.id,
+      version: version.version,
+    };
+  }
+
+  async acceptChanges(
+    policyId: string,
+    organizationId: string,
+    dto: { approverId: string; comment?: string },
+    userId?: string,
+  ) {
+    const policy = await db.policy.findUnique({
+      where: { id: policyId, organizationId },
+    });
+
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID ${policyId} not found`);
+    }
+
+    if (!policy.pendingVersionId) {
+      if (policy.approverId) {
+        if (policy.approverId !== dto.approverId) {
+          throw new BadRequestException(
+            'Only the assigned approver can accept changes',
+          );
+        }
+        await db.policy.update({
+          where: { id: policyId },
+          data: { approverId: null },
+        });
+        throw new BadRequestException(
+          'This policy has no pending changes to approve. The stale approval request has been cleared — please ask the policy owner to re-submit if a new approval is needed.',
+        );
+      }
+      throw new BadRequestException('No pending version to approve');
+    }
+
+    if (policy.approverId !== dto.approverId) {
+      throw new BadRequestException(
+        'Only the assigned approver can accept changes',
+      );
+    }
+
+    const version = await db.policyVersion.findUnique({
+      where: { id: policy.pendingVersionId },
+    });
+
+    if (!version) {
+      throw new NotFoundException('Pending version not found');
+    }
+
+    const memberId = await this.getMemberId(organizationId, userId);
+
+    await db.$transaction(async (tx) => {
+      // Publish the pending version. Policy row first, then the version row —
+      // same lock order as every other path that writes both, so a concurrent
+      // version edit (which locks the policy first) cannot deadlock with this.
+      await tx.policy.update({
+        where: { id: policyId },
+        data: {
+          currentVersionId: version.id,
+          content: version.content as Prisma.InputJsonValue[],
+          draftContent: version.content as Prisma.InputJsonValue[],
+          status: PolicyStatus.published,
+          lastPublishedAt: new Date(),
+          reviewDate: computeNextReviewDate(policy.frequency),
+          pendingVersionId: null,
+          approverId: null,
+          // Clear signatures — employees must re-acknowledge new content
+          signedBy: [],
+        },
+      });
+
+      // Stamp the version with the publisher
+      await tx.policyVersion.update({
+        where: { id: version.id },
+        data: { publishedById: memberId },
+      });
+    });
+
+    // Check timeline auto-completion after accepting changes (policy published)
+    checkAutoCompletePhases({
+      organizationId,
+      timelinesService: this.timelinesService,
+    }).catch((err) => {
+      this.logger.warn('timeline auto-complete check failed', err);
+    });
+
+    // Publishing cleared signedBy[] above, so everyone with the compliance
+    // obligation must (re-)acknowledge the new version. Surface that audience so
+    // the app layer can send notification emails — the email task lives in the
+    // app's Trigger.dev project, which the API cannot trigger directly. Mirrors
+    // publishAll. notificationType uses the pre-update policy state captured at
+    // the top of this method (signedBy/lastPublishedAt before they were reset).
+    const allMembers = await db.member.findMany({
+      where: { organizationId, isActive: true, deactivated: false },
+      include: {
+        user: { select: { email: true, name: true, role: true } },
+        organization: { select: { name: true, id: true } },
+      },
+    });
+    const complianceMembers = await filterComplianceMembers(
+      allMembers,
+      organizationId,
+    );
+    const isNewPolicy = policy.lastPublishedAt === null;
+    const members = complianceMembers.map((m) => ({
+      email: m.user.email,
+      userName: m.user.name || m.user.email || 'Employee',
+      policyName: policy.name,
+      organizationId,
+      organizationName: m.organization.name || '',
+      notificationType: isNewPolicy
+        ? ('new' as const)
+        : policy.signedBy.includes(m.id)
+          ? ('re-acceptance' as const)
+          : ('updated' as const),
+    }));
+
+    return { versionId: version.id, version: version.version, members };
+  }
+
+  async denyChanges(
+    policyId: string,
+    organizationId: string,
+    dto: { approverId: string; comment?: string },
+  ) {
+    const policy = await db.policy.findUnique({
+      where: { id: policyId, organizationId },
+    });
+
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID ${policyId} not found`);
+    }
+
+    if (!policy.pendingVersionId) {
+      if (policy.approverId) {
+        await db.policy.update({
+          where: { id: policyId },
+          data: { approverId: null },
+        });
+        throw new BadRequestException(
+          'This policy has no pending changes to deny. The stale approval request has been cleared — please ask the policy owner to re-submit if a new approval is needed.',
+        );
+      }
+      throw new BadRequestException('No pending version to deny');
+    }
+
+    if (policy.approverId !== dto.approverId) {
+      throw new BadRequestException(
+        'Only the assigned approver can deny changes',
+      );
+    }
+
+    // Revert policy to previous state (draft if never published, published if it was)
+    const newStatus = policy.lastPublishedAt
+      ? PolicyStatus.published
+      : PolicyStatus.draft;
+
+    await db.policy.update({
+      where: { id: policyId },
+      data: {
+        status: newStatus,
+        pendingVersionId: null,
+        approverId: null,
+      },
+    });
+
+    return { status: newStatus };
+  }
+
+  private async getMemberId(
+    organizationId: string,
+    userId?: string,
+  ): Promise<string | null> {
+    if (!userId) {
+      return null;
+    }
+
+    const member = await db.member.findFirst({
+      where: {
+        userId,
+        organizationId,
+        deactivated: false,
+      },
+      select: { id: true },
+    });
+
+    return member?.id ?? null;
+  }
+
+  /**
+   * Convert hex color to RGB values (0-1 range for pdf-lib)
+   */
+  private hexToRgb(hex: string): { r: number; g: number; b: number } {
+    const cleanHex = hex.replace('#', '');
+    const r = parseInt(cleanHex.substring(0, 2), 16) / 255;
+    const g = parseInt(cleanHex.substring(2, 4), 16) / 255;
+    const b = parseInt(cleanHex.substring(4, 6), 16) / 255;
+    return { r, g, b };
+  }
+
+  /**
+   * Get accent color from organization or use default
+   */
+  private getAccentColor(primaryColor: string | null | undefined): {
+    r: number;
+    g: number;
+    b: number;
+  } {
+    // Default project primary color: dark teal/green (#004D3D)
+    const defaultColor = { r: 0, g: 0.302, b: 0.239 };
+
+    if (!primaryColor) {
+      return defaultColor;
+    }
+
+    const color = this.hexToRgb(primaryColor);
+
+    if (
+      Number.isNaN(color.r) ||
+      Number.isNaN(color.g) ||
+      Number.isNaN(color.b)
+    ) {
+      this.logger.warn(
+        `Invalid primary color format, using default: ${primaryColor}`,
+      );
+      return defaultColor;
+    }
+
+    return color;
+  }
+
+  /**
+   * Download all published policies as a single PDF bundle (no watermark)
+   */
+  async downloadAllPoliciesPdf(organizationId: string, policyIds?: string[]) {
+    // Get organization info
+    const organization = await db.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true, primaryColor: true },
+    });
+
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    // Get all non-archived policies, prioritizing published > needs_review > draft
+    const policies = await db.policy.findMany({
+      where: {
+        organizationId,
+        isArchived: false,
+        archivedAt: null,
+        ...(policyIds && policyIds.length > 0 ? { id: { in: policyIds } } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        content: true,
+        pdfUrl: true,
+        currentVersion: {
+          select: {
+            content: true,
+            pdfUrl: true,
+          },
+        },
+      },
+      orderBy: [{ lastPublishedAt: 'desc' }, { updatedAt: 'desc' }],
+    });
+
+    if (policies.length === 0) {
+      throw new NotFoundException('No policies available');
+    }
+
+    // Sort by status priority: published first, then needs_review, then draft
+    const statusPriority: Record<string, number> = {
+      published: 0,
+      needs_review: 1,
+      draft: 2,
+    };
+    policies.sort(
+      (a, b) =>
+        (statusPriority[a.status] ?? 3) - (statusPriority[b.status] ?? 3),
+    );
+
+    const mergedPdf = await PDFDocument.create();
+    const organizationName = organization.name || 'Organization';
+    const accentColor = this.getAccentColor(organization.primaryColor);
+
+    // Embed fonts once before the loop (expensive operation)
+    const helveticaBold = await mergedPdf.embedFont(
+      StandardFonts.HelveticaBold,
+    );
+    const helvetica = await mergedPdf.embedFont(StandardFonts.Helvetica);
+
+    // Step 1: Fetch/render all PDFs in parallel (expensive I/O operations)
+    type PreparedPolicy = {
+      policy: (typeof policies)[0];
+      pdfBuffer: Buffer;
+      isUploaded: boolean;
+    };
+
+    // Helper to get effective content and pdfUrl (version first, fallback to policy)
+    // Matches single policy download logic
+    const getEffectiveData = (policy: (typeof policies)[0]) => {
+      const content = policy.currentVersion?.content ?? policy.content;
+      const pdfUrl = policy.currentVersion?.pdfUrl ?? policy.pdfUrl;
+      return { content, pdfUrl };
+    };
+
+    const preparePolicy = async (
+      policy: (typeof policies)[0],
+    ): Promise<PreparedPolicy> => {
+      const { content, pdfUrl } = getEffectiveData(policy);
+      const hasUploadedPdf = pdfUrl && pdfUrl.trim() !== '';
+
+      if (hasUploadedPdf) {
+        try {
+          const pdfBuffer =
+            await this.attachmentsService.getObjectBuffer(pdfUrl);
+          return {
+            policy,
+            pdfBuffer: Buffer.from(pdfBuffer),
+            isUploaded: true,
+          };
+        } catch (error) {
+          this.logger.warn(
+            `Failed to fetch uploaded PDF for policy ${policy.id}, falling back to content rendering`,
+            error,
+          );
+        }
+      }
+
+      // Render from content (either no pdfUrl or fetch failed)
+      const renderedBuffer = this.pdfRendererService.renderPoliciesPdfBuffer(
+        [{ name: policy.name, content }],
+        undefined, // We'll add org header during merge
+        organization.primaryColor,
+        policies.length,
+      );
+      return { policy, pdfBuffer: renderedBuffer, isUploaded: false };
+    };
+
+    const preparedPolicies = await Promise.all(policies.map(preparePolicy));
+
+    // Step 2: Merge PDFs sequentially (must be sequential for PDFDocument operations)
+    // Helper to add content-rendered policy to merged PDF
+    const addContentRenderedPolicy = async (
+      policy: (typeof policies)[0],
+      addOrgHeader: boolean,
+    ) => {
+      const { content } = getEffectiveData(policy);
+      const renderedBuffer = this.pdfRendererService.renderPoliciesPdfBuffer(
+        [{ name: policy.name, content }],
+        addOrgHeader ? organizationName : undefined,
+        organization.primaryColor,
+        policies.length,
+      );
+      const renderedPdf = await PDFDocument.load(renderedBuffer);
+      const copiedPages = await mergedPdf.copyPages(
+        renderedPdf,
+        renderedPdf.getPageIndices(),
+      );
+      for (const page of copiedPages) {
+        mergedPdf.addPage(page);
+      }
+    };
+
+    let isFirst = true;
+    for (const { policy, pdfBuffer, isUploaded } of preparedPolicies) {
+      if (isUploaded) {
+        try {
+          const uploadedPdf = await PDFDocument.load(pdfBuffer, {
+            ignoreEncryption: true,
+          });
+
+          // Rebuild the FIRST page: embed original page into a taller page
+          const originalFirstPage = uploadedPdf.getPage(0);
+          const { width, height } = originalFirstPage.getSize();
+
+          const headerHeight = isFirst ? 120 : 60;
+          const embeddedFirstPage =
+            await mergedPdf.embedPage(originalFirstPage);
+          const rebuiltFirstPage = mergedPdf.addPage([
+            width,
+            height + headerHeight,
+          ]);
+
+          rebuiltFirstPage.drawPage(embeddedFirstPage, {
+            x: 0,
+            y: 0,
+            width,
+            height,
+          });
+
+          let yPos = height + headerHeight - 25;
+
+          if (isFirst) {
+            rebuiltFirstPage.drawLine({
+              start: { x: 20, y: yPos + 8 },
+              end: { x: width - 20, y: yPos + 8 },
+              thickness: 2,
+              color: rgb(accentColor.r, accentColor.g, accentColor.b),
+            });
+
+            rebuiltFirstPage.drawText(`${organizationName} - All Policies`, {
+              x: 20,
+              y: yPos - 14,
+              size: 14,
+              font: helveticaBold,
+              color: rgb(0, 0, 0),
+            });
+
+            const generatedDate = new Date().toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+            });
+
+            rebuiltFirstPage.drawText(
+              `Generated: ${generatedDate} | Total: ${policies.length} policies`,
+              {
+                x: width - 180,
+                y: yPos - 14,
+                size: 8,
+                font: helvetica,
+                color: rgb(0.5, 0.5, 0.5),
+              },
+            );
+
+            yPos -= 34;
+            isFirst = false;
+          }
+
+          rebuiltFirstPage.drawRectangle({
+            x: 55,
+            y: yPos - 40,
+            width: 10,
+            height: 26,
+            color: rgb(accentColor.r, accentColor.g, accentColor.b),
+          });
+
+          rebuiltFirstPage.drawText(`POLICY: ${policy.name}`, {
+            x: 75,
+            y: yPos - 34,
+            size: 16,
+            font: helveticaBold,
+            color: rgb(0.12, 0.16, 0.23),
+          });
+
+          // Remaining pages unchanged (page 2..n)
+          if (uploadedPdf.getPageCount() > 1) {
+            const copiedRemainingPages = await mergedPdf.copyPages(
+              uploadedPdf,
+              uploadedPdf.getPageIndices().slice(1),
+            );
+            for (const page of copiedRemainingPages) {
+              mergedPdf.addPage(page);
+            }
+          }
+        } catch (error) {
+          // PDF is corrupted/malformed, fall back to content rendering
+          this.logger.warn(
+            `Failed to parse uploaded PDF for policy ${policy.id}, falling back to content rendering`,
+            error,
+          );
+          await addContentRenderedPolicy(policy, isFirst);
+          isFirst = false;
+        }
+      } else {
+        // Content was already rendered, but re-render if first (needs org header)
+        await addContentRenderedPolicy(policy, isFirst);
+        isFirst = false;
+      }
+    }
+
+    // Add page numbers to all pages in the merged PDF
+    const pages = mergedPdf.getPages();
+    const totalPages = pages.length;
+    // helvetica font already embedded above
+
+    for (let i = 0; i < totalPages; i++) {
+      const page = pages[i];
+      const { width } = page.getSize();
+      const pageNumber = i + 1;
+
+      page.drawText(`Page ${pageNumber} of ${totalPages}`, {
+        x: width / 2 - 30,
+        y: 15,
+        size: 8,
+        font: helvetica,
+        color: rgb(0.5, 0.5, 0.5),
+      });
+    }
+
+    const pdfBuffer = Buffer.from(await mergedPdf.save());
+
+    // Upload to S3 (no watermarking for internal use)
+    const timestamp = Date.now();
+    const key = await this.attachmentsService.uploadToS3(
+      pdfBuffer,
+      `policies-bundle-${organizationId}-${timestamp}.pdf`,
+      'application/pdf',
+      organizationId,
+      'policy_downloads',
+      organizationId,
+    );
+
+    const fileName = `${organizationName} - All Policies.pdf`;
+    const downloadUrl =
+      await this.attachmentsService.getPresignedDownloadUrlWithFilename(
+        key,
+        fileName,
+      );
+
+    this.logger.log(
+      `Generated PDF bundle for organization ${organizationId} with ${policies.length} policies`,
+    );
+
+    return {
+      name: `${organizationName} - All Policies`,
+      downloadUrl,
+      policyCount: policies.length,
+    };
+  }
+
+  /**
+   * Generate a presigned S3 PUT URL the caller can upload a PDF to directly.
+   * No file bytes flow through the API or the LLM — caller PUTs straight to S3.
+   * Used by the MCP flow where streaming base64 through the LLM is impractical.
+   */
+  async generatePolicyPdfUploadUrl(
+    policyId: string,
+    organizationId: string,
+    body: RequestPolicyPdfUploadUrlDto,
+  ): Promise<PolicyPdfUploadUrlResponseDto> {
+    if (!s3Client || !BUCKET_NAME) {
+      throw new BadRequestException('File storage is not configured');
+    }
+
+    if (body.fileType !== 'application/pdf') {
+      throw new BadRequestException(
+        'fileType must be "application/pdf" — only PDF uploads are supported',
+      );
+    }
+
+    const policy = await db.policy.findFirst({
+      where: { id: policyId, organizationId, archivedAt: null },
+      select: {
+        id: true,
+        status: true,
+        currentVersionId: true,
+        pendingVersionId: true,
+      },
+    });
+    if (!policy) throw new NotFoundException('Policy not found');
+
+    if (policy.status === 'published' && !body.versionId) {
+      throw new BadRequestException(
+        'Cannot attach a PDF directly to a published policy. Published policies are immutable — create a new draft version via create-policy-version, then call this endpoint again with the new versionId.',
+      );
+    }
+
+    let versionNumber: number | undefined;
+    if (body.versionId) {
+      const version = await db.policyVersion.findFirst({
+        where: { id: body.versionId, policyId },
+        select: { id: true, version: true },
+      });
+      if (!version) throw new NotFoundException('Version not found');
+      if (version.id === policy.currentVersionId && policy.status !== 'draft') {
+        throw new BadRequestException(
+          'Cannot upload PDF to the published version',
+        );
+      }
+      if (version.id === policy.pendingVersionId) {
+        throw new BadRequestException(
+          'Cannot upload PDF to a version pending approval',
+        );
+      }
+      versionNumber = version.version;
+    }
+
+    const sanitizedFileName = body.fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const versionPrefix =
+      versionNumber !== undefined ? `v${versionNumber}-` : '';
+    const s3Key = `${organizationId}/policies/${policyId}/${versionPrefix}${Date.now()}-${sanitizedFileName}`;
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: s3Key,
+      ContentType: 'application/pdf',
+    });
+
+    const expiresIn = 900; // 15 minutes
+    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
+
+    return { uploadUrl, s3Key, expiresIn };
+  }
+
+  /**
+   * Confirm a previously presigned upload completed and link the S3 object to
+   * the policy (or specific version). Verifies the file actually exists in S3
+   * and that the key belongs to this org+policy before persisting.
+   */
+  async confirmPolicyPdfUploaded(
+    policyId: string,
+    organizationId: string,
+    body: ConfirmPolicyPdfUploadedDto,
+  ) {
+    if (!s3Client || !BUCKET_NAME) {
+      throw new BadRequestException('File storage is not configured');
+    }
+
+    const expectedPrefix = `${organizationId}/policies/${policyId}/`;
+    if (!body.s3Key.startsWith(expectedPrefix)) {
+      throw new BadRequestException(
+        's3Key does not belong to this policy. Pass the exact s3Key returned by the upload-url endpoint.',
+      );
+    }
+
+    const policy = await db.policy.findFirst({
+      where: { id: policyId, organizationId, archivedAt: null },
+      select: {
+        id: true,
+        status: true,
+        pdfUrl: true,
+        currentVersionId: true,
+      },
+    });
+    if (!policy) throw new NotFoundException('Policy not found');
+
+    if (policy.status === 'published' && !body.versionId) {
+      throw new BadRequestException(
+        'Cannot finalize a policy-level PDF upload on a published policy. Published policies are immutable — create a new draft version via create-policy-version, upload the PDF with the new versionId, then confirm.',
+      );
+    }
+
+    try {
+      await s3Client.send(
+        new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: body.s3Key }),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Confirm called for missing S3 object ${body.s3Key}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      throw new BadRequestException(
+        'No file found at the given s3Key — upload it via the presigned URL first.',
+      );
+    }
+
+    if (body.versionId) {
+      const version = await db.policyVersion.findFirst({
+        where: { id: body.versionId, policyId },
+        select: { id: true, pdfUrl: true },
+      });
+      if (!version) throw new NotFoundException('Version not found');
+
+      await db.policyVersion.update({
+        where: { id: body.versionId },
+        data: { pdfUrl: body.s3Key },
+      });
+
+      return {
+        success: true,
+        pdfUrl: body.s3Key,
+        versionId: body.versionId,
+      };
+    }
+
+    await db.policy.update({
+      where: { id: policyId },
+      data: { pdfUrl: body.s3Key, displayFormat: 'PDF' },
+    });
+
+    return {
+      success: true,
+      pdfUrl: body.s3Key,
+    };
+  }
+
+  private isUniqueConstraintError(error: unknown): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    );
+  }
+}

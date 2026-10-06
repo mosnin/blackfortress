@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "Compliance-Portal",
+    "getAccess": "Zugang anfordern",
+    "openMenu": "Menü öffnen",
+    "closeMenu": "Menü schließen",
+    "menuTitle": "Menü",
+    "nav": {
+      "documents": "Dokumente",
+      "subprocessors": "Subprozessoren",
+      "updates": "Updates",
+      "requests": "Anfragen"
+    }
+  },
+  "userMenu": {
+    "subscribe": "Aktualisierungen abonnieren",
+    "subscribed": "Aktualisierungen abonniert",
+    "signOut": "Abmelden",
+    "signOutFailed": "Abmelden nicht möglich",
+    "switchToDarkMode": "Zum dunklen Modus wechseln",
+    "switchToLightMode": "Zum hellen Modus wechseln"
+  },
+  "common": {
+    "error": "Etwas ist schiefgelaufen",
+    "previousPage": "Vorherige Seite",
+    "nextPage": "Nächste Seite",
+    "pageOf": "Seite {{current}} von {{total}}",
+    "zoomOut": "Verkleinern",
+    "zoomIn": "Vergrößern"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "Zugang angefordert"
+    },
+    "fullName": {
+      "title": "Geben Sie Ihren Namen an",
+      "label": "Vollständiger Name",
+      "placeholder": "Max Mustermann",
+      "required": "Vollständiger Name ist erforderlich",
+      "tooShort": "Der vollständige Name ist zu kurz",
+      "submit": "Weiter"
+    },
+    "errors": {
+      "fullNameFailed": "Ihr Name konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+      "requestFailed": "Ihre Zugangsanfrage konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut."
+    }
+  },
+  "home": {
+    "heroTitle": "Compliance bei {{name}}.",
+    "heroDescription": "Willkommen auf unserem Compliance-Portal. Hier finden Sie unsere Sicherheitsdokumentation und Zertifizierungen.",
+    "sections": {
+      "compliance": "Compliance",
+      "securityCommitments": "Sicherheitsverpflichtungen",
+      "trustedBy": "Vertraut von",
+      "recentUpdates": "Neueste Aktualisierungen"
+    },
+    "recentUpdates": {
+      "viewAll": "Alle anzeigen"
+    }
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "description": "Die gesuchte Seite existiert nicht oder wurde verschoben.",
+    "backHome": "Zurück zur Startseite"
+  },
+  "errors": {
+    "notFound": {
+      "title": "Seite nicht gefunden",
+      "description": "Die gesuchte Seite existiert nicht oder wurde möglicherweise verschoben."
+    },
+    "forbidden": {
+      "title": "Zugriff verweigert",
+      "description": "Sie haben keine Berechtigung, diese Seite anzuzeigen."
+    },
+    "serverError": {
+      "title": "Etwas ist schiefgelaufen",
+      "description": "Es ist ein unerwarteter Fehler aufgetreten. Bitte versuchen Sie es in Kürze erneut."
+    },
+    "generic": {
+      "title": "Etwas ist schiefgelaufen",
+      "description": "Es ist ein unerwarteter Fehler aufgetreten. Bitte versuchen Sie es in Kürze erneut."
+    },
+    "actions": {
+      "backToCompliancePortal": "Zurück zum Compliance-Portal",
+      "tryAgain": "Erneut versuchen",
+      "contactSupport": "Support kontaktieren",
+      "requestAccess": "Zugang anfordern"
+    },
+    "inline": {
+      "message": "Inhalt kann nicht geladen werden",
+      "retry": "Erneut versuchen"
+    }
+  },
+  "footer": {
+    "poweredBy": "Bereitgestellt von"
+  },
+  "pagination": {
+    "previous": "Vorherige Seite",
+    "next": "Nächste Seite"
+  },
+  "locale": {
+    "label": "Sprache",
+    "updateFailed": "Sprache konnte nicht aktualisiert werden",
+    "mismatch": {
+      "message": "Sie sehen diese Seite auf {{language}}.",
+      "switchToMine": "Zu {{language}} wechseln",
+      "useThis": "{{language}} als meine Sprache verwenden",
+      "dismiss": "Schließen"
+    }
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "Unterschreiben Sie die Geheimhaltungsvereinbarung, um auf private Dokumente zuzugreifen.",
+      "sign": "Prüfen und unterschreiben",
+      "dismiss": "Schließen"
+    }
+  }
+}

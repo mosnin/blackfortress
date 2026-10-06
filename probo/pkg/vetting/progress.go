@@ -1,0 +1,418 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package vetting
+
+import (
+	"context"
+	"math/rand/v2"
+
+	"go.probo.inc/probo/pkg/agent"
+)
+
+var (
+	toolMessages = map[string][]string{
+		// Orchestrator tools (top-level steps).
+		"crawl_third_party_website": {
+			"Exploring thirdParty website for security and compliance pages",
+			"Discovering key pages on the thirdParty website",
+			"Mapping out the thirdParty's online presence",
+			"Scanning the website structure for relevant sections",
+			"Browsing the thirdParty site to locate important resources",
+		},
+		"assess_security": {
+			"Running technical security checks on the domain",
+			"Evaluating the thirdParty's security posture",
+			"Performing infrastructure security analysis",
+			"Auditing the domain's technical defenses",
+			"Probing the thirdParty's security configuration",
+		},
+		"analyze_document": {
+			"Reviewing document for key provisions",
+			"Analyzing policy details and obligations",
+			"Extracting important clauses from the document",
+			"Parsing the document for notable terms",
+			"Breaking down the document's main points",
+		},
+		"assess_compliance": {
+			"Identifying certifications and compliance frameworks",
+			"Reviewing the thirdParty's compliance posture",
+			"Checking for recognized security certifications",
+			"Surveying the thirdParty's regulatory standing",
+			"Evaluating adherence to industry standards",
+		},
+		"assess_market_presence": {
+			"Investigating the thirdParty's market presence",
+			"Looking for notable customers and case studies",
+			"Checking who uses this thirdParty",
+			"Assessing the thirdParty's market credibility",
+			"Identifying the thirdParty's customer base",
+		},
+		"extract_subprocessors": {
+			"Extracting sub-processor information",
+			"Reading the thirdParty's sub-processor list",
+			"Identifying third-party sub-processors",
+			"Parsing sub-processor details",
+			"Cataloging the thirdParty's sub-processors",
+		},
+		"assess_data_processing": {
+			"Analyzing data processing practices",
+			"Reviewing encryption and data handling",
+			"Evaluating data retention and transfer policies",
+			"Checking data processing documentation",
+			"Assessing cross-border data transfer mechanisms",
+		},
+		"assess_incident_response": {
+			"Evaluating incident response capabilities",
+			"Reviewing breach notification procedures",
+			"Checking incident history and transparency",
+			"Assessing security incident readiness",
+			"Examining post-incident review processes",
+		},
+		"assess_business_continuity": {
+			"Assessing business continuity planning",
+			"Reviewing disaster recovery capabilities",
+			"Checking SLA and uptime commitments",
+			"Evaluating infrastructure redundancy",
+			"Examining geographic distribution and failover",
+		},
+		"assess_professional_standing": {
+			"Evaluating professional standing and credentials",
+			"Reviewing licensing and industry memberships",
+			"Checking professional qualifications and accreditation",
+			"Assessing team credentials and experience",
+			"Examining professional liability and insurance coverage",
+		},
+		"assess_ai_risk": {
+			"Evaluating AI governance and responsible AI practices",
+			"Reviewing AI transparency and bias controls",
+			"Checking AI risk management documentation",
+			"Assessing automated decision-making safeguards",
+			"Examining AI training data governance",
+		},
+		"research_third_party_externally": {
+			"Researching the thirdParty across the web",
+			"Searching for external signals about the thirdParty",
+			"Looking for news and breach reports",
+			"Investigating the thirdParty's external reputation",
+			"Scanning public sources for thirdParty intelligence",
+		},
+		"assess_regulatory_compliance": {
+			"Performing deep regulatory compliance analysis",
+			"Checking GDPR article-level compliance",
+			"Analyzing regulatory framework adherence",
+			"Reviewing compliance against specific regulations",
+			"Evaluating regulatory requirements coverage",
+		},
+		"assess_financial_stability": {
+			"Assessing thirdParty financial stability",
+			"Investigating company funding and financial health",
+			"Checking business registration and SEC filings",
+			"Evaluating thirdParty viability and longevity",
+			"Researching company financial standing",
+		},
+		"assess_code_security": {
+			"Evaluating open-source code security posture",
+			"Checking for security advisories and CVEs",
+			"Reviewing dependency management practices",
+			"Analyzing release cadence and maintenance",
+			"Inspecting code security practices",
+		},
+		"compare_thirdParty": {
+			"Comparing thirdParty against alternatives",
+			"Finding competing thirdParties in the same category",
+			"Benchmarking security and compliance posture",
+			"Evaluating thirdParty relative to market alternatives",
+			"Assessing competitive landscape",
+		},
+		"extract_third_party_info": {
+			"Extracting thirdParty information from assessment",
+			"Parsing assessment into structured data",
+			"Building thirdParty profile from findings",
+			"Distilling key thirdParty details from report",
+			"Organizing thirdParty metadata from assessment",
+		},
+
+		// Web search sub-agent tools.
+		"web_search": {
+			"Searching the web",
+			"Running a web search query",
+			"Looking up information online",
+			"Querying search results",
+			"Fetching search results",
+		},
+
+		// Security sub-agent tools.
+		"check_ssl_certificate": {
+			"Inspecting SSL/TLS certificate",
+			"Verifying certificate validity and configuration",
+			"Checking SSL certificate details",
+			"Reviewing the certificate chain",
+			"Examining TLS setup and expiration",
+		},
+		"check_security_headers": {
+			"Analyzing HTTP security headers",
+			"Reviewing response headers for security best practices",
+			"Checking for missing security headers",
+			"Scanning HTTP headers for protective directives",
+			"Evaluating header-based security controls",
+		},
+		"check_dmarc": {
+			"Looking up DMARC email authentication record",
+			"Checking DMARC policy configuration",
+			"Verifying email spoofing protections",
+			"Querying DNS for DMARC policy",
+			"Reviewing email authentication settings",
+		},
+		"check_spf": {
+			"Looking up SPF email authentication record",
+			"Checking SPF policy configuration",
+			"Verifying sender policy framework",
+			"Querying DNS for SPF record",
+			"Reviewing SPF authorization settings",
+		},
+		"check_breaches": {
+			"Searching for known data breaches",
+			"Checking breach databases for past incidents",
+			"Looking up the domain in breach records",
+			"Scanning public breach disclosures",
+			"Querying breach intelligence sources",
+		},
+		"check_dnssec": {
+			"Verifying DNSSEC configuration",
+			"Checking DNS security extensions",
+			"Inspecting DNSSEC chain of trust",
+			"Validating DNS signing status",
+			"Reviewing DNSSEC deployment",
+		},
+		"analyze_csp": {
+			"Evaluating Content Security Policy",
+			"Analyzing CSP directives for weaknesses",
+			"Reviewing content security rules",
+			"Checking CSP for unsafe directives",
+			"Parsing Content Security Policy header",
+		},
+		"check_cors": {
+			"Checking CORS configuration",
+			"Inspecting cross-origin resource sharing policy",
+			"Reviewing CORS headers",
+			"Evaluating cross-origin access rules",
+			"Analyzing CORS allow-origin settings",
+		},
+
+		// Browser tools used by crawler, analyzer, and compliance sub-agents.
+		"navigate_to_url": {
+			"Opening page",
+			"Loading page content",
+			"Navigating to the page",
+			"Visiting the page",
+			"Heading to the page",
+		},
+		"extract_page_text": {
+			"Reading page content",
+			"Extracting text from the page",
+			"Pulling content from the page",
+			"Scanning page text",
+			"Capturing the page body",
+		},
+		"extract_links": {
+			"Collecting links from the page",
+			"Gathering all page links",
+			"Discovering outgoing links",
+			"Harvesting links on the page",
+			"Listing page hyperlinks",
+		},
+		"find_links_matching": {
+			"Searching for relevant links",
+			"Looking for links matching the pattern",
+			"Filtering page links by keyword",
+			"Hunting for specific links on the page",
+			"Sifting through links for a match",
+		},
+		"click_element": {
+			"Clicking on the page",
+			"Interacting with the page",
+			"Pressing a button on the page",
+			"Navigating within the page",
+			"Triggering a page action",
+		},
+		"select_option": {
+			"Selecting an option on the page",
+			"Changing a dropdown selection",
+			"Adjusting page settings",
+			"Picking a value from a dropdown",
+			"Updating a page filter",
+		},
+
+		// New security tools.
+		"check_whois": {
+			"Looking up domain registration details",
+			"Checking WHOIS records",
+			"Querying domain registrar information",
+			"Inspecting domain ownership data",
+			"Retrieving domain age and registrant info",
+		},
+		"check_dns_records": {
+			"Querying DNS records",
+			"Looking up A, MX, and NS records",
+			"Checking DNS configuration",
+			"Resolving domain DNS entries",
+			"Inspecting hosting and email providers",
+		},
+
+		// New browser tools.
+		"fetch_robots_txt": {
+			"Fetching robots.txt",
+			"Checking robots.txt for hidden pages",
+			"Reading site crawl directives",
+			"Discovering sitemap URLs from robots.txt",
+			"Parsing robots.txt disallow rules",
+		},
+		"fetch_sitemap": {
+			"Fetching sitemap",
+			"Parsing sitemap for page URLs",
+			"Discovering pages from sitemap",
+			"Reading sitemap index",
+			"Extracting URLs from sitemap XML",
+		},
+		"download_pdf": {
+			"Downloading and extracting PDF",
+			"Reading PDF document content",
+			"Extracting text from PDF",
+			"Processing PDF document",
+			"Parsing PDF for analysis",
+		},
+
+		// New search tools.
+		"check_wayback": {
+			"Checking Wayback Machine archives",
+			"Looking for historical page snapshots",
+			"Querying Internet Archive",
+			"Searching for archived versions",
+			"Checking page history in Wayback Machine",
+		},
+		"check_government_databases": {
+			"Searching government regulatory databases",
+			"Checking SEC and FTC records",
+			"Looking for GDPR enforcement actions",
+			"Querying regulatory databases",
+			"Searching for enforcement history",
+		},
+		"diff_documents": {
+			"Comparing document versions",
+			"Diffing document texts",
+			"Analyzing document changes",
+			"Checking for document modifications",
+			"Computing document differences",
+		},
+	}
+)
+
+func randomMessage(step string) string {
+	msgs, ok := toolMessages[step]
+	if !ok {
+		return ""
+	}
+
+	return msgs[rand.IntN(len(msgs))]
+}
+
+// reportProgress emits a progress event to the reporter if non-nil.
+func reportProgress(
+	ctx context.Context,
+	reporter agent.ProgressReporter,
+	step string,
+	eventType agent.ProgressEventType,
+) {
+	if reporter == nil {
+		return
+	}
+
+	event := agent.ProgressEvent{
+		Type: eventType,
+		Step: step,
+	}
+
+	if eventType == agent.ProgressEventStepStarted {
+		event.Message = randomMessage(step)
+	}
+
+	reporter(ctx, event)
+}
+
+// progressHooks translates tool events into progress events. When
+// parentStep is non-empty, emitted events are scoped under a parent
+// step (sub-agent mode); otherwise they are top-level orchestrator
+// events.
+type progressHooks struct {
+	agent.NoOpHooks
+	reporter   agent.ProgressReporter
+	parentStep string
+}
+
+func newProgressHooks(reporter agent.ProgressReporter) *progressHooks {
+	return &progressHooks{reporter: reporter}
+}
+
+func newSubProgressHooks(reporter agent.ProgressReporter, parentStep string) *progressHooks {
+	return &progressHooks{
+		reporter:   reporter,
+		parentStep: parentStep,
+	}
+}
+
+func (h *progressHooks) OnToolStart(ctx context.Context, _ *agent.Agent, tool agent.Tool, _ string) {
+	msg := randomMessage(tool.Name())
+	if msg == "" {
+		return
+	}
+
+	h.reporter(
+		ctx,
+		agent.ProgressEvent{
+			Type:       agent.ProgressEventStepStarted,
+			Step:       tool.Name(),
+			ParentStep: h.parentStep,
+			Message:    msg,
+		},
+	)
+}
+
+func (h *progressHooks) OnToolEnd(ctx context.Context, _ *agent.Agent, tool agent.Tool, _ agent.ToolResult, err error) {
+	if _, ok := toolMessages[tool.Name()]; !ok {
+		return
+	}
+
+	eventType := agent.ProgressEventStepCompleted
+	if err != nil {
+		eventType = agent.ProgressEventStepFailed
+	}
+
+	h.reporter(
+		ctx,
+		agent.ProgressEvent{
+			Type:       eventType,
+			Step:       tool.Name(),
+			ParentStep: h.parentStep,
+		},
+	)
+}
+
+var _ agent.RunHooks = (*progressHooks)(nil)

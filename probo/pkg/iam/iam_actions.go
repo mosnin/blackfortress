@@ -1,0 +1,113 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package iam
+
+type Action = string
+
+const (
+	// Organization actions
+	ActionOrganizationCreate = "iam:organization:create"
+	ActionOrganizationGet    = "iam:organization:get"
+	ActionOrganizationUpdate = "iam:organization:update"
+	ActionOrganizationDelete = "iam:organization:delete"
+	ActionOrganizationList   = "iam:organization:list"
+
+	// Identity actions
+	ActionIdentityGet    = "iam:identity:get"
+	ActionIdentityUpdate = "iam:identity:update"
+	ActionIdentityDelete = "iam:identity:delete"
+
+	// Session actions
+	ActionSessionList      = "iam:session:list"
+	ActionSessionGet       = "iam:session:get"
+	ActionSessionRevoke    = "iam:session:revoke"
+	ActionSessionRevokeAll = "iam:session:revoke-all"
+
+	// Invitation actions
+	ActionInvitationList   = "iam:invitation:list"
+	ActionInvitationCreate = "iam:invitation:create"
+	ActionInvitationGet    = "iam:invitation:get"
+	ActionInvitationAccept = "iam:invitation:accept"
+	ActionInvitationDelete = "iam:invitation:delete"
+
+	// Membership actions
+	ActionMembershipGet    = "iam:membership:get"
+	ActionMembershipList   = "iam:membership:list"
+	ActionMembershipUpdate = "iam:membership:update"
+	ActionMembershipDelete = "iam:membership:delete"
+
+	// Membership Profile actions
+	ActionMembershipProfileGet        = "iam:membership-profile:get"
+	ActionMembershipProfileList       = "iam:membership-profile:list"
+	ActionMembershipProfileCreate     = "iam:membership-profile:create"
+	ActionMembershipProfileUpdate     = "iam:membership-profile:update"
+	ActionMembershipProfileDelete     = "iam:membership-profile:delete"
+	ActionMembershipProfileActivate   = "iam:membership-profile:activate"
+	ActionMembershipProfileDeactivate = "iam:membership-profile:deactivate"
+
+	// Personal API Key actions
+	ActionPersonalAPIKeyCreate = "iam:personal-api-key:create"
+	ActionPersonalAPIKeyGet    = "iam:personal-api-key:get"
+	ActionPersonalAPIKeyList   = "iam:personal-api-key:list"
+	ActionPersonalAPIKeyUpdate = "iam:personal-api-key:update"
+	ActionPersonalAPIKeyDelete = "iam:personal-api-key:delete"
+
+	// SAML Configuration actions
+	ActionSAMLConfigurationCreate = "iam:saml-configuration:create"
+	ActionSAMLConfigurationGet    = "iam:saml-configuration:get"
+	ActionSAMLConfigurationUpdate = "iam:saml-configuration:update"
+	ActionSAMLConfigurationDelete = "iam:saml-configuration:delete"
+	ActionSAMLConfigurationList   = "iam:saml-configuration:list"
+
+	// SCIM Configuration actions
+	ActionSCIMConfigurationCreate = "iam:scim-configuration:create"
+	ActionSCIMConfigurationGet    = "iam:scim-configuration:get"
+	ActionSCIMConfigurationUpdate = "iam:scim-configuration:update"
+	ActionSCIMConfigurationDelete = "iam:scim-configuration:delete"
+
+	// SCIM Event actions
+	ActionSCIMEventList = "iam:scim-event:list"
+	ActionSCIMEventGet  = "iam:scim-event:get"
+
+	// SCIM Bridge actions
+	ActionSCIMBridgeGet    = "iam:scim-bridge:get"
+	ActionSCIMBridgeCreate = "iam:scim-bridge:create"
+	ActionSCIMBridgeUpdate = "iam:scim-bridge:update"
+	ActionSCIMBridgeDelete = "iam:scim-bridge:delete"
+
+	// OAuth2 Consent actions
+	ActionOAuth2ConsentGet     = "iam:oauth2-consent:get"
+	ActionOAuth2ConsentApprove = "iam:oauth2-consent:approve"
+
+	// OAuth2 Access Token actions
+	ActionOAuth2AccessTokenCreate = "iam:oauth2-access-token:create"
+	ActionOAuth2AccessTokenGet    = "iam:oauth2-access-token:get"
+	ActionOAuth2AccessTokenList   = "iam:oauth2-access-token:list"
+	ActionOAuth2AccessTokenDelete = "iam:oauth2-access-token:delete"
+
+	// Audit log entry actions
+	ActionAuditLogEntryGet  = "iam:audit-log-entry:get"
+	ActionAuditLogEntryList = "iam:audit-log-entry:list"
+
+	// Log export actions
+	ActionAuditLogExport  = "iam:audit-log:export"
+	ActionSCIMEventExport = "iam:scim-event:export"
+)

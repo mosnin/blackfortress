@@ -1,0 +1,169 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package create
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/spf13/cobra"
+	"go.probo.inc/probo/pkg/cli/api"
+	"go.probo.inc/probo/pkg/cmd/cmdutil"
+)
+
+const createMutation = `
+mutation($input: CreateControlInput!) {
+  createControl(input: $input) {
+    controlEdge {
+      node {
+        id
+        sectionTitle
+        name
+        description
+        bestPractice
+        notImplementedJustification
+        maturityLevel
+      }
+    }
+  }
+}
+`
+
+var maturityLevelValues = []string{
+	"NONE",
+	"INITIAL",
+	"MANAGED",
+	"DEFINED",
+	"QUANTITATIVELY_MANAGED",
+	"OPTIMIZING",
+}
+
+type createResponse struct {
+	CreateControl struct {
+		ControlEdge struct {
+			Node struct {
+				ID                          string  `json:"id"`
+				SectionTitle                string  `json:"sectionTitle"`
+				Name                        string  `json:"name"`
+				Description                 *string `json:"description"`
+				BestPractice                bool    `json:"bestPractice"`
+				NotImplementedJustification *string `json:"notImplementedJustification"`
+				MaturityLevel               string  `json:"maturityLevel"`
+			} `json:"node"`
+		} `json:"controlEdge"`
+	} `json:"createControl"`
+}
+
+func NewCmdCreate(f *cmdutil.Factory) *cobra.Command {
+	var (
+		flagFramework                   string
+		flagSectionTitle                string
+		flagName                        string
+		flagDescription                 string
+		flagBestPractice                bool
+		flagMaturityLevel               string
+		flagNotImplementedJustification string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new control",
+		Example: `  # Create a control
+  prb control create --framework FW_ID --section-title "A.5" --name "Information security policies" --maturity-level INITIAL`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := f.Config()
+			if err != nil {
+				return err
+			}
+
+			host, hc, err := cfg.DefaultHost()
+			if err != nil {
+				return err
+			}
+
+			client := api.NewClient(
+				host,
+				hc.Token,
+				"/api/console/v1/graphql",
+				cfg.HTTPTimeoutDuration(),
+				cmdutil.TokenRefreshOption(cfg, host, hc),
+			)
+
+			if err := cmdutil.ValidateEnum("maturity-level", flagMaturityLevel, maturityLevelValues); err != nil {
+				return err
+			}
+
+			input := map[string]any{
+				"frameworkId":   flagFramework,
+				"sectionTitle":  flagSectionTitle,
+				"name":          flagName,
+				"bestPractice":  flagBestPractice,
+				"maturityLevel": flagMaturityLevel,
+			}
+
+			if flagDescription != "" {
+				input["description"] = flagDescription
+			}
+
+			if flagMaturityLevel == "NONE" && flagNotImplementedJustification != "" {
+				input["notImplementedJustification"] = flagNotImplementedJustification
+			}
+
+			data, err := client.Do(
+				createMutation,
+				map[string]any{"input": input},
+			)
+			if err != nil {
+				return err
+			}
+
+			var resp createResponse
+			if err := json.Unmarshal(data, &resp); err != nil {
+				return fmt.Errorf("cannot parse response: %w", err)
+			}
+
+			c := resp.CreateControl.ControlEdge.Node
+			_, _ = fmt.Fprintf(
+				f.IOStreams.Out,
+				"Created control %s (%s)\n",
+				c.ID,
+				c.Name,
+			)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&flagFramework, "framework", "", "Framework ID (required)")
+	cmd.Flags().StringVar(&flagSectionTitle, "section-title", "", "Section title (required)")
+	cmd.Flags().StringVar(&flagName, "name", "", "Control name (required)")
+	cmd.Flags().StringVar(&flagDescription, "description", "", "Control description")
+	cmd.Flags().BoolVar(&flagBestPractice, "best-practice", false, "Mark as best practice")
+	cmd.Flags().StringVar(&flagMaturityLevel, "maturity-level", "INITIAL", "CMMI maturity level (NONE, INITIAL, MANAGED, DEFINED, QUANTITATIVELY_MANAGED, OPTIMIZING)")
+	cmd.Flags().StringVar(&flagNotImplementedJustification, "not-implemented-justification", "", "Justification when maturity level is NONE")
+
+	_ = cmd.MarkFlagRequired("framework")
+	_ = cmd.MarkFlagRequired("section-title")
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
+}

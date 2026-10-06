@@ -1,0 +1,117 @@
+services:
+  probo:
+    image: "artifact.probo.inc/probo/probo:latest"
+    environment:
+      # Required secrets (use secure values in production)
+      PROBOD_ENCRYPTION_KEY: ${PROBOD_ENCRYPTION_KEY}
+      PROBOD_AUTH_COOKIE_SECRET: ${PROBOD_AUTH_COOKIE_SECRET}
+      PROBOD_AUTH_PASSWORD_PEPPER: ${PROBOD_AUTH_PASSWORD_PEPPER}
+      PROBOD_TRUST_AUTH_TOKEN_SECRET: ${PROBOD_TRUST_AUTH_TOKEN_SECRET}
+
+      # Application settings
+      PROBOD_BASE_URL: ${PROBOD_BASE_URL}
+      PROBOD_API_ADDR: ${PROBOD_API_ADDR}
+      PROBOD_API_CORS_ALLOWED_ORIGINS: ${PROBOD_API_CORS_ALLOWED_ORIGINS}
+
+      # PostgreSQL database
+      PROBOD_PG_ADDR: "postgres:5432"
+      PROBOD_PG_USERNAME: "postgres"
+      PROBOD_PG_PASSWORD: "postgres"
+      PROBOD_PG_DATABASE: "probod"
+      PROBOD_PG_POOL_SIZE: "100"
+
+      # S3-compatible storage (SeaweedFS)
+      PROBOD_AWS_REGION: "us-east-1"
+      PROBOD_AWS_BUCKET: "probod"
+      PROBOD_AWS_ACCESS_KEY_ID: "probod"
+      PROBOD_AWS_SECRET_ACCESS_KEY: "thisisnotasecret"
+      PROBOD_AWS_ENDPOINT: "http://seaweedfs:8333"
+      PROBOD_AWS_USE_PATH_STYLE: "true"
+
+      # Observability - Metrics & Tracing
+      PROBOD_METRICS_ADDR: "probo:8081"
+      PROBOD_TRACING_ADDR: ""
+
+      # Email notifications
+      PROBOD_SMTP_ADDR: "your.smtp.server:587"
+      PROBOD_SMTP_TLS_REQUIRED: "false"
+      PROBOD_MAILER_SENDER_NAME: "Probo"
+      PROBOD_MAILER_SENDER_EMAIL: "no-reply@notification.getprobo.com"
+
+      # Chrome for PDF generation
+      PROBOD_CHROME_DP_ADDR: "chrome:9222"
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8443:8443"
+    volumes:
+      - "probo-data:/data"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_started
+      chrome:
+        condition: service_started
+
+
+  postgres:
+    image: "postgres@sha256:7ad98329d513dd497293b951c195ca354274a77f12ddbbbbf85e68a811823d72"
+    shm_size: "1g"
+    command: >
+      postgres -c "shared_buffers=4GB"
+               -c "max_connections=200"
+               -c "log_statement=all"
+    ports:
+      - "5432:5432"
+    volumes:
+      - "./compose/postgres:/docker-entrypoint-initdb.d:ro"
+      - "postgres-data:/var/lib/postgresql/data:rw"
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  seaweedfs:
+    image: "chrislusf/seaweedfs@sha256:cea8339d21dad1b200adce581dd7434d254b8f5975f142c3b4c930ba78647eef"
+    command: >
+      server
+      -s3
+      -s3.config=/etc/seaweedfs/s3.json
+      -s3.port=8333
+      -volume.max=100
+      -master.volumeSizeLimitMB=1024
+      -dir=/data
+    ports:
+      - "8333:8333"
+      - "9333:9333"
+      - "8888:8888"
+    volumes:
+      - "./compose/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro"
+      - "seaweedfs-data:/data:rw"
+
+  chrome:
+    image: "chromedp/headless-shell@sha256:b24482ae166e2c67135f5a8ba9575c257efdd8e2fd6b2e931f9d88ede3d72f3b"
+    ports:
+      - "9222:9222"
+    command:
+      - "--headless"
+      - "--disable-gpu"
+      - "--disable-dev-shm-usage"
+      - "--hide-scrollbars"
+      - "--mute-audio"
+      - "--no-default-browser-check"
+      - "--no-first-run"
+      - "--disable-background-networking"
+      - "--disable-background-timer-throttling"
+      - "--disable-extensions"
+
+
+volumes:
+  probo-data:
+  postgres-data:
+  seaweedfs-data:

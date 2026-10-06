@@ -1,0 +1,142 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package connect_v1
+
+import (
+	"errors"
+	"net/http"
+	"net/url"
+
+	"go.gearno.de/kit/httpserver"
+	"go.gearno.de/kit/log"
+	"go.probo.inc/probo/pkg/iam/oauth2"
+	"go.probo.inc/probo/pkg/server/api/connect/v1/types"
+	"go.probo.inc/probo/pkg/server/httpx"
+)
+
+func (h *OAuth2Handler) handleAuthorizeError(w http.ResponseWriter, r *http.Request, err error, redirectURI, state string) {
+	if isRedirectableError(err) && redirectURI != "" {
+		redirectWithError(w, r, redirectURI, state, h.baseURL.String(), err)
+		return
+	}
+
+	h.renderOAuth2ErrorResponse(w, r, err)
+}
+
+func (h *OAuth2Handler) renderOAuth2ErrorResponse(w http.ResponseWriter, r *http.Request, err error) {
+	oauthErr, ok := errors.AsType[*oauth2.OAuth2Error](err)
+	if !ok {
+		httpserver.RenderError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	if errors.Is(err, oauth2.ErrServerError) {
+		h.logger.ErrorCtx(r.Context(), "oauth2 server error", log.Error(err))
+	}
+
+	httpx.NoCache(w)
+
+	httpserver.RenderJSON(w, oauth2ErrorStatusCode(oauthErr), &types.OAuth2ErrorResponse{
+		Code:        oauthErr.ErrorCode(),
+		Description: oauthErr.Description(),
+	})
+}
+
+func isRedirectableError(err error) bool {
+	return errors.Is(err, oauth2.ErrAccessDenied) ||
+		errors.Is(err, oauth2.ErrInvalidRequest) ||
+		errors.Is(err, oauth2.ErrInvalidScope) ||
+		errors.Is(err, oauth2.ErrInvalidTarget) ||
+		errors.Is(err, oauth2.ErrUnauthorizedClient) ||
+		errors.Is(err, oauth2.ErrInvalidGrant) ||
+		errors.Is(err, oauth2.ErrServerError) ||
+		errors.Is(err, oauth2.ErrUnsupportedResponseType) ||
+		errors.Is(err, oauth2.ErrUnsupportedGrantType)
+}
+
+func oauth2ErrorStatusCode(err *oauth2.OAuth2Error) int {
+	switch err.ErrorCode() {
+	case "access_denied":
+		return http.StatusForbidden
+	case "invalid_client":
+		return http.StatusUnauthorized
+	case "server_error":
+		return http.StatusInternalServerError
+	default:
+		return http.StatusBadRequest
+	}
+}
+
+func toOAuth2Error(err error) *oauth2.OAuth2Error {
+	switch {
+	case errors.Is(err, oauth2.ErrClientNotFound):
+		return oauth2.NewError(oauth2.ErrInvalidClient, oauth2.WithDescription("client not found"))
+	case errors.Is(err, oauth2.ErrInvalidRedirectURI):
+		return oauth2.ErrInvalidRedirectURI
+	case errors.Is(err, oauth2.ErrUnauthorizedMember):
+		return oauth2.NewError(oauth2.ErrUnauthorizedClient, oauth2.WithDescription("client is private and user is not a member of the organization"))
+	case errors.Is(err, oauth2.ErrDeviceCodeNotPending):
+		return oauth2.NewError(oauth2.ErrInvalidGrant, oauth2.WithDescription("device code is not pending"))
+	default:
+		if oauthErr, ok := errors.AsType[*oauth2.OAuth2Error](err); ok {
+			return oauthErr
+		}
+
+		return oauth2.NewError(oauth2.ErrServerError, oauth2.WithDescription("internal error"))
+	}
+}
+
+func redirectWithError(
+	w http.ResponseWriter,
+	r *http.Request,
+	redirectURI string,
+	state string,
+	issuer string,
+	err error,
+) {
+	u, parseErr := url.Parse(redirectURI)
+	if parseErr != nil {
+		httpserver.RenderError(w, http.StatusInternalServerError, errors.New("internal server error"))
+		return
+	}
+
+	oauthErr, ok := errors.AsType[*oauth2.OAuth2Error](err)
+	if !ok {
+		httpserver.RenderError(w, http.StatusInternalServerError, errors.New("internal server error"))
+		return
+	}
+
+	q := u.Query()
+	q.Set("error", oauthErr.ErrorCode())
+	q.Set("iss", issuer)
+
+	if desc := oauthErr.Description(); desc != "" {
+		q.Set("error_description", desc)
+	}
+
+	if state != "" {
+		q.Set("state", state)
+	}
+
+	u.RawQuery = q.Encode()
+
+	http.Redirect(w, r, u.String(), http.StatusFound)
+}

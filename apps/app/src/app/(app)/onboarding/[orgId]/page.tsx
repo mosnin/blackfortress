@@ -1,0 +1,131 @@
+import { auth } from '@/utils/auth';
+import { db } from '@db/server';
+import { headers } from 'next/headers';
+import { notFound, redirect } from 'next/navigation';
+import { PostPaymentOnboarding } from '../components/PostPaymentOnboarding';
+
+interface OnboardingPageProps {
+  params: Promise<{ orgId: string }>;
+}
+
+export default async function OnboardingPage({ params }: OnboardingPageProps) {
+  const { orgId } = await params;
+
+  // Get headers once to avoid multiple async calls
+  const requestHeaders = await headers();
+
+  // Get current user
+  const session = await auth.api.getSession({
+    headers: requestHeaders,
+  });
+
+  if (!session?.user?.id) {
+    redirect('/auth');
+  }
+
+  // Verify membership BEFORE syncing activeOrganizationId
+  const organization = await db.organization.findFirst({
+    where: {
+      id: orgId,
+      members: {
+        some: {
+          userId: session.user.id,
+        },
+      },
+    },
+    include: {
+      context: {
+        where: {
+          tags: {
+            has: 'onboarding',
+          },
+        },
+      },
+    },
+  });
+
+  if (!organization) {
+    notFound();
+  }
+
+  // Sync activeOrganizationId only after membership is verified
+  const currentActiveOrgId = session.session.activeOrganizationId;
+  if (!currentActiveOrgId || currentActiveOrgId !== orgId) {
+    try {
+      await auth.api.setActiveOrganization({
+        headers: requestHeaders,
+        body: {
+          organizationId: orgId,
+        },
+      });
+    } catch (error) {
+      console.error('[OnboardingPage] Failed to sync activeOrganizationId:', error);
+    }
+  }
+
+  // Check if already completed onboarding
+  if (organization.onboardingCompleted) {
+    redirect(`/${orgId}/`);
+  }
+
+  // Check if they have a subscription
+  if (!organization.hasAccess) {
+    redirect(`/upgrade/${orgId}`);
+  }
+
+  // Convert context to initial data format
+  const initialData: Record<string, any> = {};
+  organization.context.forEach((ctx) => {
+    // Map questions back to field keys (this is a bit hacky but works)
+    if (ctx.question.includes('framework')) {
+      initialData.frameworkIds = ctx.answer.split(', ');
+    }
+  });
+
+  // Local-only: prefill onboarding fields to speed up development
+  const hdrs = await headers();
+  const host = hdrs.get('host') || '';
+  const isLocal =
+    process.env.NODE_ENV !== 'production' ||
+    host.includes('localhost') ||
+    host.startsWith('127.0.0.1') ||
+    host.startsWith('::1');
+
+  if (isLocal) {
+    Object.assign(initialData, {
+      describe:
+        initialData.describe ||
+        'Bubba AI, Inc. is the company behind Comp AI - the fastest way to get SOC 2 compliant.',
+      industry: initialData.industry || 'SaaS',
+      teamSize: initialData.teamSize || '1-10',
+      devices: initialData.devices || 'Personal laptops',
+      authentication: initialData.authentication || 'Google Workspace',
+      software:
+        initialData.software || 'Rippling, HubSpot, Slack, Notion, Linear, GitHub, Figma, Stripe',
+      workLocation: initialData.workLocation || 'Fully remote',
+      infrastructure: initialData.infrastructure || 'AWS, Vercel',
+      dataTypes: initialData.dataTypes || 'Employee data',
+      geo: initialData.geo || 'North America,Europe (EU)',
+    });
+  }
+
+  // Check if user has other completed orgs (for cancel button)
+  const otherOrgCount = await db.member.count({
+    where: {
+      userId: session.user.id,
+      organizationId: { not: orgId },
+      deactivated: false,
+      organization: { onboardingCompleted: true, hasAccess: true },
+    },
+  });
+
+  // We'll use a modified version that starts at step 3
+  return (
+    <PostPaymentOnboarding
+      organization={organization}
+      initialData={initialData}
+      userEmail={session.user.email}
+      hasOtherOrgs={otherOrgCount > 0}
+    />
+  );
+}

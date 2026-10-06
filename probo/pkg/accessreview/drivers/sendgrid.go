@@ -1,0 +1,339 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package drivers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"go.gearno.de/kit/log"
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+type SendGridDriver struct {
+	httpClient *http.Client
+	logger     *log.Logger
+	baseURL    string
+}
+
+var _ Driver = (*SendGridDriver)(nil)
+
+type sendGridTeammate struct {
+	Username     string   `json:"username"`
+	Email        string   `json:"email"`
+	FirstName    string   `json:"first_name"`
+	LastName     string   `json:"last_name"`
+	UserType     string   `json:"user_type"`
+	IsAdmin      bool     `json:"is_admin"`
+	IsSSO        bool     `json:"is_sso"`
+	IsPartnerSSO bool     `json:"is_partner_sso"`
+	Scopes       []string `json:"scopes"`
+}
+
+type sendGridTeammatesResponse struct {
+	Result  []sendGridTeammate `json:"result"`
+	Results []sendGridTeammate `json:"results"`
+}
+
+const (
+	sendGridTeammatesPath      = "/teammates"
+	sendGridUserProfilePath    = "/user/profile"
+	sendGridTeammatesPageLimit = 500
+)
+
+func NewSendGridDriver(httpClient *http.Client, logger *log.Logger, baseURL string) *SendGridDriver {
+	return &SendGridDriver{
+		httpClient: httpClient,
+		logger:     logger,
+		baseURL:    baseURL,
+	}
+}
+
+func (d *SendGridDriver) ListAccounts(ctx context.Context) ([]AccountRecord, error) {
+	var (
+		records []AccountRecord
+		offset  int
+	)
+
+	for range maxPaginationPages {
+		resp, err := d.fetchTeammates(ctx, offset)
+		if err != nil {
+			return nil, err
+		}
+
+		teammates := sendGridResponseItems(resp)
+		for _, teammate := range teammates {
+			if teammate.Email == "" {
+				continue
+			}
+
+			// The teammate list carries no scopes, so MFA must be read from
+			// the per-teammate detail endpoint (N+1).
+			mfaStatus := sendGridMFAStatus(teammate.Scopes)
+			if mfaStatus == coredata.MFAStatusUnknown && teammate.Username != "" {
+				detailedTeammate, err := d.fetchTeammate(ctx, teammate.Username)
+				if err != nil {
+					// Best-effort: a failed detail fetch leaves MFA Unknown
+					// rather than dropping the account. Log it (PII-free) so a
+					// wholesale detail-endpoint outage is observable.
+					d.logger.WarnCtx(
+						ctx,
+						"cannot fetch sendgrid teammate details, reporting MFA unknown",
+						log.Error(err),
+					)
+				} else {
+					mfaStatus = sendGridMFAStatus(detailedTeammate.Scopes)
+				}
+			}
+
+			records = append(records, AccountRecord{
+				Email:    teammate.Email,
+				FullName: sendGridFullName(teammate.FirstName, teammate.LastName),
+				Roles:    sendGridRoles(teammate.UserType, teammate.IsAdmin),
+				IsAdmin:  new(teammate.IsAdmin),
+				// SendGrid exposes no UUID for teammates; the username is the
+				// only stable handle. For unified accounts it equals the email.
+				ExternalID:  strings.TrimSpace(teammate.Username),
+				MFAStatus:   mfaStatus,
+				AuthMethod:  sendGridAuthMethod(teammate),
+				AccountType: coredata.AccessReviewEntryAccountTypeUser,
+			})
+		}
+
+		if len(teammates) < sendGridTeammatesPageLimit {
+			return records, nil
+		}
+
+		offset += len(teammates)
+	}
+
+	return nil, fmt.Errorf("cannot list all sendgrid teammates: %w", ErrPaginationLimitReached)
+}
+
+func (d *SendGridDriver) fetchTeammates(
+	ctx context.Context,
+	offset int,
+) (*sendGridTeammatesResponse, error) {
+	endpoint, err := url.JoinPath(d.baseURL, sendGridTeammatesPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build sendgrid teammates url: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create sendgrid teammates request: %w", err)
+	}
+
+	q := req.URL.Query()
+	q.Set("limit", strconv.Itoa(sendGridTeammatesPageLimit))
+	q.Set("offset", strconv.Itoa(offset))
+	req.URL.RawQuery = q.Encode()
+
+	req.Header.Set("Accept", "application/json")
+
+	httpResp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot execute sendgrid teammates request: %w", err)
+	}
+
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("cannot fetch sendgrid teammates: unexpected status %d", httpResp.StatusCode)
+	}
+
+	var resp sendGridTeammatesResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("cannot decode sendgrid teammates response: %w", err)
+	}
+
+	return &resp, nil
+}
+
+func (d *SendGridDriver) fetchTeammate(ctx context.Context, username string) (*sendGridTeammate, error) {
+	endpoint, err := url.JoinPath(d.baseURL, sendGridTeammatesPath, url.PathEscape(username))
+	if err != nil {
+		return nil, fmt.Errorf("cannot build sendgrid teammate details url: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create sendgrid teammate details request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	httpResp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot execute sendgrid teammate details request: %w", err)
+	}
+
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("cannot fetch sendgrid teammate details: unexpected status %d", httpResp.StatusCode)
+	}
+
+	// The teammate detail endpoint returns a bare teammate object, NOT a
+	// {"result": {...}} envelope (the list endpoint is the wrapped one).
+	var resp sendGridTeammate
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("cannot decode sendgrid teammate details response: %w", err)
+	}
+
+	return &resp, nil
+}
+
+func sendGridResponseItems(resp *sendGridTeammatesResponse) []sendGridTeammate {
+	if len(resp.Result) > 0 {
+		return resp.Result
+	}
+
+	return resp.Results
+}
+
+func sendGridFullName(firstName, lastName string) string {
+	return strings.TrimSpace(strings.Join([]string{firstName, lastName}, " "))
+}
+
+func sendGridRoles(userType string, isAdmin bool) []string {
+	switch userType {
+	case "owner":
+		return []string{"Owner"}
+	case "admin":
+		return []string{"Admin"}
+	case "teammate":
+		return []string{"Teammate"}
+	case "":
+		if isAdmin {
+			return []string{"Admin"}
+		}
+
+		return []string{"Teammate"}
+	default:
+		return []string{userType}
+	}
+}
+
+// sendGridAuthMethod maps SendGrid's SSO flags to an auth method. A teammate
+// authenticated through SSO (native or partner) is SSO; otherwise they sign in
+// with SendGrid's own credentials. Both flags are always present on the
+// teammate payload, so this is a definitive signal.
+func sendGridAuthMethod(t sendGridTeammate) coredata.AccessReviewEntryAuthMethod {
+	if t.IsSSO || t.IsPartnerSSO {
+		return coredata.AccessReviewEntryAuthMethodSSO
+	}
+
+	return coredata.AccessReviewEntryAuthMethodPassword
+}
+
+// sendGridMFAStatus derives a teammate's MFA status from the auto-set 2fa
+// scopes SendGrid attaches to the teammate detail. A restricted teammate
+// carries exactly one of them to reflect their real status. Full-access
+// users (the account owner and full-access teammates) are the exception:
+// their scope list is the entire catalog and therefore contains BOTH
+// 2fa_exempt and 2fa_required, which says nothing about their actual MFA.
+// Only report a definitive status when exactly one scope is present;
+// both-or-neither is ambiguous, so report Unknown rather than guessing.
+func sendGridMFAStatus(scopes []string) coredata.MFAStatus {
+	var exempt, required bool
+
+	for _, scope := range scopes {
+		switch scope {
+		case "2fa_exempt":
+			exempt = true
+		case "2fa_required":
+			required = true
+		}
+	}
+
+	switch {
+	case required && !exempt:
+		return coredata.MFAStatusEnabled
+	case exempt && !required:
+		return coredata.MFAStatusDisabled
+	default:
+		return coredata.MFAStatusUnknown
+	}
+}
+
+// sendGridNameResolver resolves the SendGrid account's company name from
+// the user profile endpoint, used as the AccessReviewSource instance label.
+type sendGridNameResolver struct {
+	httpClient *http.Client
+	baseURL    string
+}
+
+func NewSendGridNameResolver(httpClient *http.Client, baseURL string) NameResolver {
+	return &sendGridNameResolver{httpClient: httpClient, baseURL: baseURL}
+}
+
+func (r *sendGridNameResolver) ResolveInstanceName(ctx context.Context) (string, error) {
+	endpoint, err := url.JoinPath(r.baseURL, sendGridUserProfilePath)
+	if err != nil {
+		return "", fmt.Errorf("cannot build sendgrid profile url: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		endpoint,
+		nil,
+	)
+	if err != nil {
+		return "", fmt.Errorf("cannot create sendgrid profile request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	httpResp, err := r.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("cannot execute sendgrid profile request: %w", err)
+	}
+
+	defer func() { _ = httpResp.Body.Close() }()
+
+	// Best-effort: a non-2xx (revoked key, or a key without the
+	// user.profile.read scope) must not make the source-name worker retry
+	// forever. Give up gracefully and keep the generic source name; a dead
+	// key surfaces on the next ListAccounts.
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return "", nil
+	}
+
+	var resp struct {
+		Company string `json:"company"`
+	}
+	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+		return "", fmt.Errorf("cannot decode sendgrid profile response: %w", err)
+	}
+
+	return resp.Company, nil
+}

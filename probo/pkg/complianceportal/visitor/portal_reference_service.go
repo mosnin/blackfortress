@@ -1,0 +1,99 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package visitor
+
+import (
+	"context"
+	"fmt"
+
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/page"
+)
+
+func (s *Service) ListPortalReferencesForPortalID(
+	ctx context.Context,
+	scope coredata.Scoper,
+	compliancePageID gid.GID,
+	cursor *page.Cursor[coredata.CompliancePortalReferenceOrderField],
+) (*page.Page[*coredata.CompliancePortalReference, coredata.CompliancePortalReferenceOrderField], error) {
+	var references coredata.CompliancePortalReferences
+
+	err := s.pg.WithConn(
+
+		ctx,
+
+		func(ctx context.Context, conn pg.Querier) error {
+			err := references.LoadByCompliancePortalID(ctx, conn, scope, compliancePageID, cursor)
+			if err != nil {
+				return fmt.Errorf("cannot load compliance page references: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(references, cursor), nil
+}
+
+// GetPortalReferenceForCompliancePortalID loads a reference displayed by the
+// given compliance portal. A reference belonging to another portal is reported
+// as not found.
+func (s *Service) GetPortalReferenceForCompliancePortalID(
+	ctx context.Context,
+	scope coredata.Scoper,
+	compliancePortalID gid.GID,
+	referenceID gid.GID,
+) (*coredata.CompliancePortalReference, error) {
+	reference := &coredata.CompliancePortalReference{}
+	compliancePortal := &coredata.CompliancePortal{}
+
+	err := s.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			if err := loadPortalByID(ctx, conn, scope, compliancePortalID, compliancePortal); err != nil {
+				return err
+			}
+
+			err := reference.LoadByCompliancePortalIDAndID(
+				ctx,
+				conn,
+				scope,
+				compliancePortalID,
+				referenceID,
+			)
+			if err != nil {
+				return fmt.Errorf("cannot load compliance page reference: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return reference, nil
+}

@@ -1,0 +1,523 @@
+# Production values for probo.
+# This file provides a template for production deployment.
+# Copy this file to values-production.yaml and customize it for your environment.
+
+# Use specific version tag
+image:
+  repository: artifact.probo.inc/probo/probo
+  tag: "0.74.7"
+  pullPolicy: IfNotPresent
+
+# Scale for high availability
+replicaCount: 3
+
+# Production security context (non-root user)
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000  # probo user (UID defined in Dockerfile)
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false  # /data directory requires write access
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+  httpPort: 80
+  httpsPort: 443
+  annotations: {}
+
+# Production resource limits
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+
+# Enable horizontal pod autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# HAProxy Ingress Controller configuration
+haproxy-ingress:
+  enabled: true
+  controller:
+    ingressClass: haproxy
+    ingressClassResource:
+      enabled: true
+      name: haproxy
+      default: false
+    name: controller
+    service:
+      type: LoadBalancer
+      annotations:
+        # Cloud provider annotations for LoadBalancer
+        # AWS example:
+        # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+        # GCP example:
+        # cloud.google.com/load-balancer-type: "External"
+    extraArgs:
+      - --tcp-services-configmap=$(POD_NAMESPACE)/haproxy-tcp-services
+    config:
+      ssl-redirect: "false"  # Probo handles SSL internally
+
+# Configure ingress with TLS
+ingress:
+  enabled: true
+  className: "haproxy"
+  annotations:
+    kubernetes.io/ingress.class: haproxy
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: probo.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: probo-tls
+      hosts:
+        - probo.example.com
+
+# Probo application configuration
+probo:
+  # Must match your ingress hostname
+  baseUrl: "probo.example.com"
+
+  # IAB TCF CMP ID. 4095 is a placeholder until IAB Europe issues a
+  # registered ID. Self-hosted instances that register their own CMP
+  # must set this to that ID.
+  cookieBanner:
+    tcfCmpId: 4095
+
+  # REQUIRED: Generate with: openssl rand -base64 32
+  encryptionKey: "CHANGE_ME_ENCRYPTION_KEY"
+
+  service:
+    port: 8080
+
+  metrics:
+    port: 8081
+
+  trustCenter:
+    # Set to "external" when an external L7 proxy terminates TLS and forwards
+    # requests privately to service.httpPort. Probo's HTTPS port and all
+    # bundled HAProxy TCP passthrough are disabled in this mode.
+    # External mode also disables Probo ACME issuance and renewal. Preserve the
+    # requested Host and overwrite X-Forwarded-Proto at the proxy. Route
+    # {slug}.<baseDomain> or a domain already stored in Probo.
+    # Creating custom domains is unsupported and leaves them pending.
+    tlsMode: "direct"
+
+  # CORS configuration - add all domains that will access the API
+  cors:
+    allowedOrigins:
+      - "https://probo.example.com"
+
+  # GraphQL request-cost guards (application-layer DoS protection).
+  # Defaults are production-safe; tune only if a legitimate query is rejected
+  # or to enable complexity analysis. A value of 0 disables the guard.
+  graphql:
+    parserTokenLimit: 15000
+    complexityLimit: 2000
+    queryCacheSize: 1000
+    disableSuggestion: true
+
+  # Extra HTTP headers to add to responses
+  extraHeaderFields: {}
+    # X-Custom-Header: "custom-value"
+
+  # Authentication
+  auth:
+    # When true, only identities that belong to an organization can use the
+    # console: password signup is rejected, and a magic-link or OIDC identity
+    # with no membership is refused by the console API (compliance-portal
+    # access is unaffected). Invited people keep normal access.
+    disableSignup: false
+    # Cookie domain should be your root domain
+    cookieDomain: "example.com"
+    # REQUIRED: Generate with: openssl rand -base64 32
+    cookieSecret: "CHANGE_ME_COOKIE_SECRET"
+    # REQUIRED: Generate with: openssl rand -base64 32
+    passwordPepper: "CHANGE_ME_PASSWORD_PEPPER"
+
+  oauth2:
+    # REQUIRED: PEM-encoded private key (RSA recommended)
+    # Example: openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > oauth2_signing_key.pem
+    # Then set with --set-file probo.oauth2.signingKey=oauth2_signing_key.pem
+    signingKey: "CHANGE_ME_OAUTH2_SIGNING_KEY_PEM"
+
+  # Identity federation issuer (outbound OIDC), used to federate into a customer's
+  # cloud accounts without a shared secret. Disabled by default: it is only
+  # needed once you connect a cloud provider, and it requires an issuer URL that
+  # is publicly reachable over HTTPS, because the cloud provider fetches it to
+  # validate the OIDC provider being registered.
+  identityFederation:
+    enabled: false
+    # Leave empty to serve the issuer at {baseUrl}/federation, which is what a
+    # self-hosted deployment should do. Set it only to an HTTPS apex you
+    # control — never to Probo's own issuer, which you cannot serve documents
+    # for.
+    # WARNING: immutable once a customer registers it with their cloud provider.
+    # Changing it forces every one of your customers to redeploy the
+    # infrastructure they own.
+    issuerBaseUrl: ""
+    # REQUIRED when enabled: a key of its own, never the OAuth2 signing key.
+    # Example: openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > identity_federation_signing_key.pem
+    # Then set with --set-file probo.identityFederation.signingKey=identity_federation_signing_key.pem
+    signingKey: ""
+    # Key id published for signingKey. Give it a real name before the first
+    # rotation: a retired key is only distinguishable by its kid.
+    signingKeyKid: "default"
+    # Retired key, kept published so a cloud provider that cached the key set
+    # can still verify a token minted before a rotation. Leave empty until you
+    # rotate; then set it with
+    # --set-file probo.identityFederation.previousSigningKey=identity_federation_previous_signing_key.pem
+    previousSigningKey: ""
+    # REQUIRED when previousSigningKey is set, and it must differ from
+    # signingKeyKid.
+    previousSigningKeyKid: ""
+    # Public S3 HTTPS URL used to build the AWS console quick-create link.
+    # Leave the default unless you host your own template.
+    cloudformationTemplateUrl: "https://probo-cloudformation-template.s3.us-east-2.amazonaws.com/aws-audit-role.yaml"
+    # Terraform module addresses copied into the connector install snippets.
+    # Leave the defaults unless you pin a private or forked module.
+    terraformModuleSource: "getprobo/audit-role/aws"
+    gcpTerraformModuleSource: "getprobo/audit-role/gcp"
+    azureTerraformModuleSource: "getprobo/audit-role/azurerm"
+
+  # Trust center authentication
+  trustAuth:
+    cookieName: "TCT"
+    cookieDomain: "example.com"
+    cookieDuration: 24
+    tokenDuration: 168
+    reportUrlDuration: 15
+    ports:
+      httpChallenge: 80
+      tlsHttpServer: 443
+    # REQUIRED: Generate with: openssl rand -base64 32
+    tokenSecret: "CHANGE_ME_TRUST_TOKEN_SECRET"
+    scope: "trust_center_readonly"
+    tokenType: "trust_center_access"
+
+  # Email configuration
+  mailer:
+    senderName: "Probo"
+    senderEmail: "noreply@example.com"
+    smtp:
+      # Use your SMTP provider (e.g., SendGrid, Mailgun, AWS SES)
+      addr: "smtp.sendgrid.net:587"
+      user: "apikey"
+      password: "CHANGE_ME_SMTP_PASSWORD"
+      tlsRequired: true
+      # Set to your server's hostname when the relay requires a specific EHLO/HELO
+      # identity (e.g. Google Workspace smtp-relay.gmail.com rejects "localhost").
+      # helloName: "mail.example.com"
+
+  # OpenAI integration for AI features (optional)
+  openai:
+    apiKey: "CHANGE_ME_OPENAI_API_KEY"
+    temperature: 0.1
+    modelName: "gpt-4o"
+    maxTokens: 4096
+
+  # Anthropic integration (required when slackbot.provider is anthropic)
+  # anthropic:
+  #   apiKey: "CHANGE_ME_ANTHROPIC_API_KEY"
+
+  # Agent tools (optional, shared across agents)
+  # agentTools:
+  #   firecrawlApiKey: "CHANGE_ME_FIRECRAWL_API_KEY"
+
+  # Third-party vetter agent (optional, AI-powered third-party vetting)
+  # thirdPartyVetter:
+  #   provider: "openai"
+  #   modelName: "gpt-4o"
+  #   temperature: "0.3"
+  #   maxTokens: "8192"
+
+  # Third-party vetting worker tuning (optional; seconds for interval/staleAfter).
+  # thirdPartyVettingWorker:
+  #   interval: 10
+  #   maxConcurrency: 1
+  #   staleAfter: 1500
+
+  # Tracker mapping agent (optional, auto-links tracker patterns to vendors)
+  # trackerMapping:
+  #   provider: "openai"
+  #   modelName: "gpt-4o-mini"
+  #   temperature: "0.1"
+  #   maxTokens: "4096"
+
+  # Tracker enrichment agent (optional; researches catalog descriptions).
+  # Falls back to trackerMapping when its provider is unset.
+  # trackerEnrichment:
+  #   provider: "openai"
+  #   modelName: "gpt-4o"
+  #   temperature: "0.2"
+  #   maxTokens: "4096"
+
+  # Tracker mapping worker tuning (optional; seconds for
+  # interval/staleAfter/agentTimeout).
+  # Keep concurrency modest to stay under OpenAI/Firecrawl limits and the DB pool.
+  # trackerMappingWorker:
+  #   interval: 10
+  #   maxConcurrency: 3
+  #   staleAfter: 600
+  #   agentTimeout: 45
+  #   agentMaxTurns: 10
+
+  # Common-pattern enrichment worker tuning (optional; seconds for
+  # interval/staleAfter/agentTimeout).
+  # commonPatternEnrichmentWorker:
+  #   interval: 10
+  #   maxConcurrency: 2
+  #   staleAfter: 600
+  #   agentTimeout: 45
+  #   agentMaxTurns: 10
+
+  # Common third party enrichment agent (optional, fills common_third_parties
+  # metadata: URLs, address, certifications, logo).
+  # commonThirdPartyEnrichment:
+  #   provider: "openai"
+  #   modelName: "gpt-4o"
+  #   temperature: "0.1"
+  #   maxTokens: "8192"
+
+  # Common third party enrichment worker tuning (optional; seconds for
+  # interval/staleAfter/agentTimeout). confidenceThreshold is the 0-1 floor
+  # a value must clear before it is written.
+  # commonThirdPartyEnrichmentWorker:
+  #   interval: 10
+  #   maxConcurrency: 1
+  #   staleAfter: 900
+  #   agentTimeout: 90
+  #   agentMaxTurns: 12
+  #   confidenceThreshold: 0.7
+  #   maxAttempts: 3
+
+  # Slackbot assistant used by Probo's production deployment. Set enabled to
+  # false to deploy without Slack features. Events API URL:
+  # https://<baseUrl>/slack/v1/events
+  # Interactive URL: https://<baseUrl>/slack/v1/interactive
+  # Slash command Request URL: https://<baseUrl>/slack/v1/commands
+  # Create a /probot slash command on the Slackbot app pointing at that URL.
+  # OAuth requests the commands bot scope; reinstall after adding it.
+  # signingSecret is required and must belong to the Slackbot app. Do not copy
+  # the Slack connector signing secret when running two Slack apps in parallel.
+  slackbot:
+    enabled: true
+    signingSecret: ""
+    clientId: ""
+    clientSecret: ""
+    redirectUri: "https://probo.example.com/api/console/v1/slackbot/install/complete"
+    provider: "openai"
+    modelName: "gpt-4o"
+    temperature: "0.1"
+    maxTokens: "4096"
+
+  # OpenTelemetry tracing (optional)
+  tracing:
+    enabled: true
+    addr: "tempo.monitoring:4317"
+    maxBatchSize: 1000
+    batchTimeout: 10
+    exportTimeout: 30
+    maxQueueSize: 10000
+
+  # Custom domains with Let's Encrypt (optional, direct TLS mode only)
+  customDomains:
+    enabled: true
+    renewalInterval: 86400  # 24 hours
+    provisionInterval: 300  # 5 minutes
+    cnameTarget: "custom.example.com"
+    acme:
+      directory: "https://acme-v02.api.letsencrypt.org/directory"
+      email: "admin@example.com"
+      keyType: "EC256"
+      insecureTls: false
+      # Optional persisted account key to avoid creating a new ACME account on restarts
+      accountKey: ""
+
+  # External OAuth2 connectors (optional)
+  connectors:
+    - name: "github"
+      type: "oauth2"
+      config:
+        client-id: "CHANGE_ME_GITHUB_CLIENT_ID"
+        client-secret: "CHANGE_ME_GITHUB_CLIENT_SECRET"
+        redirect-uri: "https://probo.example.com/api/console/v1/connectors/complete"
+        auth-url: "https://github.com/login/oauth/authorize"
+        token-url: "https://github.com/login/oauth/access_token"
+    - name: "github"
+      type: "github-app"
+      config:
+        # Enable "Request user authorization (OAuth) during installation" and
+        # set its callback URL to /api/console/v1/connectors/github-app/complete.
+        appId: "CHANGE_ME_GITHUB_APP_ID"
+        clientId: "CHANGE_ME_GITHUB_APP_CLIENT_ID"
+        clientSecret: "CHANGE_ME_GITHUB_APP_CLIENT_SECRET"
+        slug: "CHANGE_ME_GITHUB_APP_SLUG"
+        privateKey: |
+          -----BEGIN RSA PRIVATE KEY-----
+          CHANGE_ME_GITHUB_APP_PRIVATE_KEY
+          -----END RSA PRIVATE KEY-----
+
+    - name: "linear"
+      type: "oauth2"
+      config:
+        clientId: "CHANGE_ME_LINEAR_CLIENT_ID"
+        clientSecret: "CHANGE_ME_LINEAR_CLIENT_SECRET"
+    - name: "linear-sync"
+      type: "oauth2"
+      config:
+        clientId: "CHANGE_ME_LINEAR_SYNC_CLIENT_ID"
+        clientSecret: "CHANGE_ME_LINEAR_SYNC_CLIENT_SECRET"
+        # Required. Signs POST /api/linear/v1/webhooks.
+        webhookSecret: "CHANGE_ME_LINEAR_SYNC_WEBHOOK_SECRET"
+
+  # Slack connector endpointToken (Enterprise Grid / private API gateway) is
+  # secret material. Set it in values; the chart mounts it via secretKeyRef.
+  # Do not put it in a ConfigMap or a plain Deployment env value.
+
+# PostgreSQL configuration (REQUIRED)
+# For production: Use external managed PostgreSQL (AWS RDS, GCP Cloud SQL, etc.)
+# Disable the included PostgreSQL chart
+postgresql:
+  # Disable the included PostgreSQL for production
+  enabled: false
+
+  # External PostgreSQL connection (configure these when enabled=false)
+  # Examples:
+  # - AWS RDS: mydb.abc123.us-east-1.rds.amazonaws.com
+  # - GCP Cloud SQL: 10.0.0.5 (private IP)
+  # - Azure Database: myserver.postgres.database.azure.com
+  # - DigitalOcean: db-postgresql-nyc1-12345.ondigitalocean.com
+  host: "CHANGE_ME_POSTGRES_HOST"
+  port: 5432
+  database: "probod"
+  username: "probod"
+  password: "CHANGE_ME_DB_PASSWORD"
+  poolSize: 200
+  # Keep 20 connections warm to absorb bursts without paying the
+  # TLS + PostgreSQL startup handshake on each acquire.
+  minPoolSize: 20
+  maxConnIdleTimeSeconds: 1800
+  maxConnLifetimeSeconds: 3600
+  # Uncomment if using TLS with custom CA
+  # caBundle: |
+  #   -----BEGIN CERTIFICATE-----
+  #   ...
+  #   -----END CERTIFICATE-----
+
+# SeaweedFS configuration
+# Disable included SeaweedFS for production - use external S3 instead
+seaweedfs:
+  enabled: false
+
+# S3 storage configuration (REQUIRED)
+s3:
+  # AWS S3 example:
+  region: "us-east-1"
+  bucket: "probo-production"
+  # Leave endpoint empty for AWS S3
+  endpoint: ""
+  accessKeyId: "CHANGE_ME_AWS_ACCESS_KEY_ID"
+  secretAccessKey: "CHANGE_ME_AWS_SECRET_ACCESS_KEY"
+
+  # GCP Cloud Storage example (uncomment and adjust):
+  # region: "us-east1"
+  # bucket: "probo-production"
+  # endpoint: "https://storage.googleapis.com"
+  # accessKeyId: "GOOG1E..." # HMAC access key
+  # secretAccessKey: "..." # HMAC secret
+
+  # DigitalOcean Spaces example (uncomment and adjust):
+  # region: "nyc3"
+  # bucket: "probo-production"
+  # endpoint: "https://nyc3.digitaloceanspaces.com"
+  # accessKeyId: "..." # Spaces access key
+  # secretAccessKey: "..." # Spaces secret
+
+  # Azure Blob through S3-compat proxies has known metadata compatibility gaps.
+  # Prefer AWS S3 / GCS / Spaces for production until native Azure Blob support lands.
+
+# Chrome for PDF generation
+chrome:
+  enabled: true
+  # Scale for concurrent PDF generation
+  replicaCount: 3
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+  # To use external Chrome service instead, set enabled=false and configure:
+  # external:
+  #   addr: "chrome.browserless.io:3000"
+
+# Persistent data volume (optional)
+persistence:
+  enabled: true
+  # Use existing PVC or let Helm create one
+  # existingClaim: "probo-data-pvc"
+  storageClass: ""  # Use default storage class or specify one
+  accessMode: ReadWriteOnce
+  size: 50Gi
+  annotations: {}
+
+# Enable Prometheus monitoring
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+    labels:
+      prometheus: kube-prometheus
+
+# Pod placement (optional)
+nodeSelector: {}
+  # node-role.kubernetes.io/worker: "true"
+
+tolerations: []
+
+# Anti-affinity for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - probo
+          topologyKey: kubernetes.io/hostname
+
+# Service account annotations (for workload identity, IRSA, etc.)
+serviceAccount:
+  create: true
+  annotations: {}
+    # AWS EKS example (uncomment and adjust):
+    # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/probo-role
+
+    # GCP GKE example (uncomment and adjust):
+    # iam.gke.io/gcp-service-account: probo@PROJECT_ID.iam.gserviceaccount.com

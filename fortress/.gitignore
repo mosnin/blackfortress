@@ -1,0 +1,4 @@
+bfd/dist/
+macos/.build/
+macos/build/
+*.app/

@@ -1,0 +1,51 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { useEffect, useMemo } from "react";
+import { useQueryLoader } from "react-relay";
+import { useSearchParams } from "react-router";
+
+import type { SignInPageQuery } from "#/__generated__/iam/SignInPageQuery.graphql";
+import { clientIdFromContinueUrl } from "#/lib/buildAuthorizeContinueURL";
+
+import SignInPage, { signInPageQuery } from "./SignInPage";
+
+function SignInPageQueryLoader() {
+  const [searchParams] = useSearchParams();
+  const clientId = useMemo(
+    () => clientIdFromContinueUrl(searchParams.get("continue")),
+    [searchParams],
+  );
+
+  const [queryRef, loadQuery]
+    = useQueryLoader<SignInPageQuery>(signInPageQuery);
+
+  useEffect(() => {
+    loadQuery({ clientId });
+  }, [clientId, loadQuery]);
+
+  if (!queryRef) return null;
+
+  return <SignInPage queryRef={queryRef} />;
+}
+
+export default function SignInPageLoader() {
+  return <SignInPageQueryLoader />;
+}

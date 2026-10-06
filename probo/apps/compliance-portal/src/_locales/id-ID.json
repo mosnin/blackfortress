@@ -1,0 +1,118 @@
+{
+  "topBar": {
+    "tagline": "Portal Kepatuhan",
+    "getAccess": "Minta akses",
+    "openMenu": "Buka menu",
+    "closeMenu": "Tutup menu",
+    "menuTitle": "Menu",
+    "nav": {
+      "documents": "Dokumen",
+      "subprocessors": "Subprosesor",
+      "updates": "Pembaruan",
+      "requests": "Permintaan"
+    }
+  },
+  "userMenu": {
+    "subscribe": "Berlangganan pembaruan",
+    "subscribed": "Sudah berlangganan pembaruan",
+    "signOut": "Keluar",
+    "signOutFailed": "Tidak dapat keluar",
+    "switchToDarkMode": "Beralih ke mode gelap",
+    "switchToLightMode": "Beralih ke mode terang"
+  },
+  "common": {
+    "error": "Terjadi kesalahan",
+    "previousPage": "Halaman sebelumnya",
+    "nextPage": "Halaman berikutnya",
+    "pageOf": "Halaman {{current}} dari {{total}}",
+    "zoomOut": "Perkecil",
+    "zoomIn": "Perbesar"
+  },
+  "auth": {
+    "requestAccess": {
+      "success": "Akses telah diminta"
+    },
+    "fullName": {
+      "title": "Tambahkan nama Anda",
+      "label": "Nama Lengkap",
+      "placeholder": "Budi Santoso",
+      "required": "Nama lengkap wajib diisi",
+      "tooShort": "Nama lengkap terlalu pendek",
+      "submit": "Lanjutkan"
+    },
+    "errors": {
+      "fullNameFailed": "Nama Anda gagal disimpan. Silakan coba lagi.",
+      "requestFailed": "Permintaan akses Anda gagal diselesaikan. Silakan coba lagi."
+    }
+  },
+  "home": {
+    "heroTitle": "Kepatuhan di {{name}}.",
+    "heroDescription": "Selamat datang di Portal Kepatuhan kami. Temukan dokumentasi keamanan dan sertifikasi kami di sini.",
+    "sections": {
+      "compliance": "Kepatuhan",
+      "securityCommitments": "Komitmen Keamanan",
+      "trustedBy": "Dipercaya oleh",
+      "recentUpdates": "Pembaruan terbaru"
+    },
+    "recentUpdates": {
+      "viewAll": "Lihat semua"
+    }
+  },
+  "notFound": {
+    "title": "Halaman tidak ditemukan",
+    "description": "Halaman yang Anda cari tidak ada atau telah dipindahkan.",
+    "backHome": "Kembali ke beranda"
+  },
+  "errors": {
+    "notFound": {
+      "title": "Halaman tidak ditemukan",
+      "description": "Halaman yang Anda cari tidak ada atau mungkin telah dipindahkan."
+    },
+    "forbidden": {
+      "title": "Akses ditolak",
+      "description": "Anda tidak memiliki izin untuk melihat halaman ini."
+    },
+    "serverError": {
+      "title": "Terjadi kesalahan",
+      "description": "Kami mengalami kesalahan yang tidak terduga. Silakan coba lagi sebentar lagi."
+    },
+    "generic": {
+      "title": "Terjadi kesalahan",
+      "description": "Kami mengalami kesalahan yang tidak terduga. Silakan coba lagi sebentar lagi."
+    },
+    "actions": {
+      "backToCompliancePortal": "Kembali ke portal kepatuhan",
+      "tryAgain": "Coba lagi",
+      "contactSupport": "Hubungi dukungan",
+      "requestAccess": "Minta akses"
+    },
+    "inline": {
+      "message": "Konten tidak dapat dimuat",
+      "retry": "Coba lagi"
+    }
+  },
+  "footer": {
+    "poweredBy": "Didukung oleh"
+  },
+  "pagination": {
+    "previous": "Halaman sebelumnya",
+    "next": "Halaman berikutnya"
+  },
+  "locale": {
+    "label": "Bahasa",
+    "updateFailed": "Tidak dapat memperbarui bahasa",
+    "mismatch": {
+      "message": "Anda sedang melihat halaman ini dalam {{language}}.",
+      "switchToMine": "Beralih ke {{language}}",
+      "useThis": "Gunakan {{language}} sebagai bahasa saya",
+      "dismiss": "Tutup"
+    }
+  },
+  "nda": {
+    "unsignedBanner": {
+      "message": "Tandatangani perjanjian kerahasiaan untuk mengakses dokumen pribadi.",
+      "sign": "Tinjau dan tanda tangani",
+      "dismiss": "Tutup"
+    }
+  }
+}

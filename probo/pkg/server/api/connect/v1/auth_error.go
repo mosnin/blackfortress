@@ -1,0 +1,103 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package connect_v1
+
+import (
+	"mime"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"go.gearno.de/kit/httpserver"
+	"go.probo.inc/probo/pkg/server/httpx"
+)
+
+const (
+	authErrorPersonalAccountNotAllowed = "personal_account_not_allowed"
+	authErrorEmailNotVerified          = "email_not_verified"
+	authErrorInvalidState              = "invalid_state"
+	authErrorAuthenticationFailed      = "authentication_failed"
+	authErrorMagicLinkExpired          = "magic_link_expired"
+	authErrorMagicLinkAlreadyUsed      = "magic_link_already_used"
+	authErrorMagicLinkInvalid          = "magic_link_invalid"
+)
+
+type authRedirectResponse struct {
+	RedirectURL string `json:"redirect_url"`
+}
+
+func redirectAuthError(w http.ResponseWriter, r *http.Request, code string, continueURL string) {
+	q := url.Values{}
+	q.Set("error", code)
+
+	if continueURL != "" {
+		q.Set("continue", continueURL)
+	}
+
+	redirectURL := url.URL{
+		Path:     "/auth/error",
+		RawQuery: q.Encode(),
+	}
+
+	respondAuthRedirect(w, r, redirectURL.String())
+}
+
+func respondAuthRedirect(w http.ResponseWriter, r *http.Request, redirectURL string) {
+	w.Header().Set("Vary", "Accept")
+	httpx.NoCache(w)
+
+	if acceptsJSON(r.Header.Get("Accept")) {
+		httpserver.RenderJSON(
+			w,
+			http.StatusOK,
+			authRedirectResponse{RedirectURL: redirectURL},
+		)
+
+		return
+	}
+
+	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+func acceptsJSON(accept string) bool {
+	for value := range strings.SplitSeq(accept, ",") {
+		mediaType, params, err := mime.ParseMediaType(value)
+		if err != nil {
+			continue
+		}
+
+		if mediaType != "application/json" {
+			continue
+		}
+
+		if q, ok := params["q"]; ok {
+			quality, parseErr := strconv.ParseFloat(q, 64)
+			if parseErr != nil || quality <= 0 {
+				continue
+			}
+		}
+
+		return true
+	}
+
+	return false
+}

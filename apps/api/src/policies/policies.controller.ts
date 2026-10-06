@@ -1,0 +1,1621 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBody,
+  ApiConsumes,
+  ApiExtension,
+  ApiHeader,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+  ApiExtraModels,
+} from '@nestjs/swagger';
+import type { Response } from 'express';
+import { openai } from '@ai-sdk/openai';
+import { streamText, convertToModelMessages, type UIMessage } from 'ai';
+import { db } from '@db';
+import { auth as triggerAuth, tasks } from '@trigger.dev/sdk';
+import type { updatePolicy } from '../trigger/policies/update-policy';
+import { AuditRead } from '../audit/skip-audit-log.decorator';
+import { AuthContext, OrganizationId } from '../auth/auth-context.decorator';
+import { HybridAuthGuard } from '../auth/hybrid-auth.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission, RequirePermissions } from '../auth/require-permission.decorator';
+import { ActingUserResolver } from '../auth/acting-user.service';
+import type {
+  AuthContext as AuthContextType,
+  AuthenticatedRequest,
+} from '../auth/types';
+import { CreatePolicyDto } from './dto/create-policy.dto';
+import { UpdatePolicyDto } from './dto/update-policy.dto';
+import { AISuggestPolicyRequestDto } from './dto/ai-suggest-policy.dto';
+import {
+  ConfirmPolicyPdfUploadedDto,
+  PolicyPdfUploadUrlResponseDto,
+  RequestPolicyPdfUploadUrlDto,
+} from './dto/policy-pdf-upload-url.dto';
+import {
+  CreateVersionDto,
+  PublishVersionDto,
+  SubmitForApprovalDto,
+  UpdateVersionContentDto,
+} from './dto/version.dto';
+import { PoliciesService } from './policies.service';
+import { GET_ALL_POLICIES_RESPONSES } from './schemas/get-all-policies.responses';
+import { GET_POLICY_BY_ID_RESPONSES } from './schemas/get-policy-by-id.responses';
+import { CREATE_POLICY_RESPONSES } from './schemas/create-policy.responses';
+import { UPDATE_POLICY_RESPONSES } from './schemas/update-policy.responses';
+import { DELETE_POLICY_RESPONSES } from './schemas/delete-policy.responses';
+import { POLICY_OPERATIONS } from './schemas/policy-operations';
+import { POLICY_PARAMS } from './schemas/policy-params';
+import { POLICY_BODIES } from './schemas/policy-bodies';
+import { VERSION_OPERATIONS } from './schemas/version-operations';
+import { VERSION_PARAMS } from './schemas/version-params';
+import { VERSION_BODIES } from './schemas/version-bodies';
+import {
+  CREATE_POLICY_VERSION_RESPONSES,
+  DELETE_VERSION_RESPONSES,
+  GET_POLICY_VERSION_BY_ID_RESPONSES,
+  GET_POLICY_VERSIONS_RESPONSES,
+  PUBLISH_VERSION_RESPONSES,
+  SET_ACTIVE_VERSION_RESPONSES,
+  SUBMIT_VERSION_FOR_APPROVAL_RESPONSES,
+  UPDATE_VERSION_CONTENT_RESPONSES,
+} from './schemas/version-responses';
+import { PolicyResponseDto } from './dto/policy-responses.dto';
+
+function parsePolicyIdsParam(
+  raw: string | string[] | undefined,
+): string[] | undefined {
+  if (!raw) return undefined;
+  const values = Array.isArray(raw) ? raw : [raw];
+  const ids = Array.from(
+    new Set(
+      values
+        .flatMap((value) => value.split(','))
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+    ),
+  );
+  return ids.length > 0 ? ids : undefined;
+}
+
+@ApiTags('Policies')
+@ApiExtraModels(PolicyResponseDto)
+@Controller({ path: 'policies', version: '1' })
+@UseGuards(HybridAuthGuard, PermissionGuard)
+@ApiSecurity('apikey')
+@ApiHeader({
+  name: 'X-Organization-Id',
+  description:
+    'Organization ID (required for session auth, optional for API key auth)',
+  required: false,
+})
+export class PoliciesController {
+  constructor(
+    private readonly policiesService: PoliciesService,
+    private readonly actingUser: ActingUserResolver,
+  ) {}
+
+  @Get()
+  @RequirePermission('policy', 'read')
+  @ApiOperation(POLICY_OPERATIONS.getAllPolicies)
+  @ApiQuery({
+    name: 'excludeContent',
+    required: false,
+    type: Boolean,
+    description:
+      'When true, omits `content` and `draftContent` from each policy in the response. Use this when listing policies to find one by name/ID — fetch the full content via GET /v1/policies/{id} after.',
+  })
+  @ApiQuery({
+    name: 'includeArchived',
+    required: false,
+    type: Boolean,
+    description:
+      'When true, includes user-archived and framework-sync-archived policies in the response. Defaults to false.',
+  })
+  @ApiExtension('x-speakeasy-mcp', { name: 'list-policies' })
+  @ApiResponse(GET_ALL_POLICIES_RESPONSES[200])
+  @ApiResponse(GET_ALL_POLICIES_RESPONSES[401])
+  async getAllPolicies(
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Query('excludeContent') excludeContent?: string,
+    @Query('includeArchived') includeArchived?: string,
+  ) {
+    const policies = await this.policiesService.findAll({
+      organizationId,
+      excludeContent: excludeContent === 'true',
+      includeArchived: includeArchived === 'true',
+    });
+
+    return {
+      data: policies,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post('publish-all')
+  @RequirePermission('policy', 'update')
+  @ApiOperation({ summary: 'Publish all draft policies' })
+  async publishAllPolicies(
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    // Resolve the acting user so per-policy audit rows are attributed correctly.
+    // Session callers have authContext.userId; API-key / service-token callers
+    // resolve to the key creator (else org owner) — without this, the granular
+    // audit rows would be dropped for API-key auth (userId undefined).
+    const acting = await this.actingUser.resolve(req, organizationId);
+    const data = await this.policiesService.publishAll(
+      organizationId,
+      acting.userId ?? undefined,
+      acting.memberId ?? undefined,
+    );
+
+    return {
+      ...data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Get('download-all')
+  @RequirePermission('policy', 'read')
+  @AuditRead()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Download all published policies as a single PDF',
+    description:
+      'Generates a PDF bundle containing all published policies with organization branding and returns a signed download URL',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Signed URL for PDF bundle returned',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No published policies found',
+  })
+  async downloadAllPolicies(
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Query('policyIds') policyIdsParam?: string | string[],
+  ) {
+    const policyIds = parsePolicyIdsParam(policyIdsParam);
+
+    const result = await this.policiesService.downloadAllPoliciesPdf(
+      organizationId,
+      policyIds,
+    );
+
+    return {
+      ...result,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Get(':id/controls')
+  @RequirePermission('policy', 'read')
+  @ApiOperation({ summary: 'Get mapped and all controls for a policy' })
+  @ApiParam(POLICY_PARAMS.policyId)
+  async getPolicyControls(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const controlSelect = {
+      id: true,
+      name: true,
+      description: true,
+      requirementsMapped: {
+        where: {
+          archivedAt: null,
+          frameworkInstance: { organizationId },
+        },
+        select: {
+          frameworkInstance: {
+            select: {
+              id: true,
+              framework: { select: { id: true, name: true } },
+              customFramework: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
+    } as const;
+
+    const [policy, allControls] = await Promise.all([
+      db.policy.findFirst({
+        where: { id, organizationId, archivedAt: null },
+        select: {
+          id: true,
+          controls: { where: { archivedAt: null }, select: controlSelect },
+        },
+      }),
+      db.control.findMany({
+        where: { organizationId, archivedAt: null },
+        select: controlSelect,
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+
+    type RawControl = {
+      id: string;
+      name: string;
+      description: string | null;
+      requirementsMapped: Array<{
+        frameworkInstance: {
+          id: string;
+          framework: { id: string; name: string } | null;
+          customFramework: { id: string; name: string } | null;
+        } | null;
+      }>;
+    };
+
+    const transform = (controls: RawControl[]) =>
+      controls.map((c) => {
+        const frameworks: Array<{ id: string; name: string }> = [];
+        const seen = new Set<string>();
+        for (const rm of c.requirementsMapped) {
+          const fi = rm.frameworkInstance;
+          if (!fi || seen.has(fi.id)) continue;
+          seen.add(fi.id);
+          const fw = fi.framework ?? fi.customFramework;
+          if (fw) frameworks.push({ id: fw.id, name: fw.name });
+        }
+        return {
+          id: c.id,
+          name: c.name,
+          description: c.description,
+          frameworks,
+        };
+      });
+
+    return {
+      mappedControls: transform(policy?.controls ?? []),
+      allControls: transform(allControls),
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Get(':id/evidence-tasks')
+  @RequirePermissions([
+    { resource: 'policy', actions: ['read'] },
+    { resource: 'task', actions: ['read'] },
+  ])
+  @ApiOperation({ summary: 'Get tasks that serve as evidence for a policy, grouped by control' })
+  @ApiParam(POLICY_PARAMS.policyId)
+  async getPolicyEvidenceTasks(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const policy = await db.policy.findFirst({
+      where: { id, organizationId, archivedAt: null },
+      select: {
+        id: true,
+        controls: {
+          where: { archivedAt: null, organizationId },
+          select: {
+            id: true,
+            name: true,
+            tasks: {
+              where: { archivedAt: null, organizationId },
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                frequency: true,
+                department: true,
+                automationStatus: true,
+                assigneeId: true,
+              },
+              orderBy: { title: 'asc' },
+            },
+          },
+          orderBy: { name: 'asc' },
+        },
+      },
+    });
+
+    if (!policy) {
+      throw new NotFoundException('Policy not found');
+    }
+
+    const data = policy.controls.map((control) => ({
+      control: { id: control.id, name: control.name },
+      tasks: control.tasks,
+    }));
+
+    const uniqueTaskIds = new Set<string>();
+    for (const group of data) {
+      for (const task of group.tasks) uniqueTaskIds.add(task.id);
+    }
+
+    return {
+      data,
+      count: uniqueTaskIds.size,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/regenerate')
+  @RequirePermission('policy', 'update')
+  @ApiOperation({ summary: 'Regenerate policy content using AI' })
+  @ApiParam(POLICY_PARAMS.policyId)
+  async regeneratePolicy(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const member = authContext.userId
+      ? await db.member.findFirst({
+          where: { organizationId, userId: authContext.userId },
+          select: { id: true },
+        })
+      : null;
+
+    const instances = await db.frameworkInstance.findMany({
+      where: { organizationId },
+      include: { framework: true, customFramework: true },
+    });
+
+    // Normalize platform + org-custom frameworks into a single shape so the AI
+    // context reflects every framework the org has enabled, not just platform.
+    const normalized = instances.map((fi) => {
+      if (fi.framework) {
+        return {
+          id: fi.framework.id,
+          name: fi.framework.name,
+          version: fi.framework.version,
+          description: fi.framework.description,
+          visible: fi.framework.visible,
+          createdAt: fi.framework.createdAt,
+          updatedAt: fi.framework.updatedAt,
+        };
+      }
+      if (fi.customFramework) {
+        return {
+          id: fi.customFramework.id,
+          name: fi.customFramework.name,
+          version: fi.customFramework.version,
+          description: fi.customFramework.description,
+          visible: true,
+          createdAt: fi.customFramework.createdAt,
+          updatedAt: fi.customFramework.updatedAt,
+        };
+      }
+      return null;
+    });
+    const uniqueFrameworks = Array.from(
+      new Map(
+        normalized
+          .filter((f): f is NonNullable<typeof f> => f !== null)
+          .map((f) => [f.id, f]),
+      ).values(),
+    );
+
+    const contextEntries = await db.context.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'asc' },
+    });
+    const contextHub = contextEntries
+      .map((c) => `${c.question}\n${c.answer}`)
+      .join('\n');
+
+    const handle = await tasks.trigger<typeof updatePolicy>('update-policy', {
+      organizationId,
+      policyId: id,
+      contextHub,
+      frameworks: uniqueFrameworks,
+      memberId: member?.id,
+    });
+
+    const publicAccessToken = await triggerAuth.createPublicToken({
+      scopes: { read: { runs: [handle.id] } },
+    });
+
+    return {
+      data: { runId: handle.id, publicAccessToken },
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Get(':id/pdf/signed-url')
+  @RequirePermission('policy', 'read')
+  @AuditRead()
+  @ApiOperation({ summary: 'Get a signed URL for the policy PDF' })
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiQuery({ name: 'versionId', required: false })
+  async getPdfSignedUrl(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Query('versionId') versionId?: string,
+  ) {
+    // Find the PDF URL from version or policy
+    let pdfUrl: string | null = null;
+
+    if (versionId) {
+      // Apply the same archive guard to the parent policy as the non-versioned
+      // path — otherwise an archived policy's PDF could still be fetched by
+      // passing a versionId, bypassing the user-archived/sync-archived filter.
+      const version = await db.policyVersion.findFirst({
+        where: {
+          id: versionId,
+          policy: { id, organizationId, archivedAt: null, isArchived: false },
+        },
+        select: { pdfUrl: true },
+      });
+      pdfUrl = version?.pdfUrl ?? null;
+    }
+
+    if (!pdfUrl) {
+      const policy = await db.policy.findFirst({
+        where: { id, organizationId, archivedAt: null, isArchived: false },
+        select: { pdfUrl: true },
+      });
+      pdfUrl = policy?.pdfUrl ?? null;
+    }
+
+    if (!pdfUrl) {
+      return {
+        url: null,
+        authType: authContext.authType,
+        ...(authContext.userId && {
+          authenticatedUser: {
+            id: authContext.userId,
+            email: authContext.userEmail,
+          },
+        }),
+      };
+    }
+
+    // Generate signed URL
+    const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+    const { getSignedUrl } = await import('../app/s3.js');
+    const bucketName = process.env.APP_AWS_BUCKET_NAME;
+
+    if (!bucketName) {
+      return { url: null };
+    }
+
+    const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+    // Force inline PDF rendering regardless of the object's stored Content-Type.
+    // Files uploaded via presigned URLs can land with the wrong type (e.g. the
+    // uploader's HTTP client defaults to application/x-www-form-urlencoded),
+    // which makes browsers download instead of preview.
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: pdfUrl,
+      ResponseContentType: 'application/pdf',
+      ResponseContentDisposition: 'inline',
+    });
+    const url = await getSignedUrl(s3, command, { expiresIn: 900 });
+
+    return {
+      url,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/pdf')
+  @RequirePermission('policy', 'update')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({
+    summary: 'Upload a PDF to a policy version (UI-only)',
+    description:
+      'Uploads a PDF via multipart `file` or base64 `fileData` JSON. Defaults to the latest draft if no `versionId`; 400 if no draft is available. UI-only — AI clients should use the presigned `/pdf/upload-url` + `/pdf/confirm` flow.',
+  })
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiBody({
+    schema: {
+      oneOf: [
+        {
+          description: 'Multipart file upload (recommended)',
+          type: 'object',
+          properties: {
+            file: { type: 'string', format: 'binary' },
+            versionId: {
+              type: 'string',
+              description: 'Target version ID. If omitted, uploads to the latest draft version.',
+            },
+          },
+          required: ['file'],
+        },
+        {
+          description: 'JSON with base64-encoded file data',
+          type: 'object',
+          properties: {
+            fileName: { type: 'string' },
+            fileType: { type: 'string' },
+            fileData: { type: 'string', description: 'Base64-encoded file content' },
+            versionId: {
+              type: 'string',
+              description: 'Target version ID. If omitted, uploads to the latest draft version.',
+            },
+          },
+          required: ['fileName', 'fileType', 'fileData'],
+        },
+      ],
+    },
+  })
+  // Hidden from MCP so AI clients use the presigned /pdf/upload-url + /pdf/confirm flow.
+  // The HTTP endpoint stays live for the web UI / direct API callers.
+  @ApiExtension('x-speakeasy-mcp', { disabled: true })
+  async uploadPolicyPdf(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body()
+    body: {
+      versionId?: string;
+      fileName?: string;
+      fileType?: string;
+      fileData?: string;
+    },
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    let fileBuffer: Buffer;
+    let sanitizedFileName: string;
+    let fileType: string;
+
+    if (file) {
+      fileBuffer = file.buffer;
+      sanitizedFileName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      fileType = file.mimetype;
+    } else if (body.fileData && body.fileName && body.fileType) {
+      const stripped = body.fileData.replace(/\s/g, '');
+      if (!/^[A-Za-z0-9+/\-_]*={0,2}$/.test(stripped)) {
+        throw new BadRequestException('fileData must be valid base64-encoded content');
+      }
+      fileBuffer = Buffer.from(stripped, 'base64');
+      if (fileBuffer.length === 0) {
+        throw new BadRequestException('fileData must be valid base64-encoded content');
+      }
+      sanitizedFileName = body.fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+      fileType = body.fileType;
+    } else {
+      throw new BadRequestException(
+        'Upload a file via multipart/form-data or provide fileName, fileType, and fileData in JSON',
+      );
+    }
+
+    const { S3Client, PutObjectCommand, DeleteObjectCommand } =
+      await import('@aws-sdk/client-s3');
+    const bucketName = process.env.APP_AWS_BUCKET_NAME;
+    if (!bucketName)
+      throw new BadRequestException('File storage is not configured');
+
+    const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+
+    const policy = await db.policy.findFirst({
+      where: { id, organizationId, archivedAt: null },
+      select: {
+        id: true,
+        status: true,
+        pdfUrl: true,
+        currentVersionId: true,
+        pendingVersionId: true,
+      },
+    });
+    if (!policy) throw new NotFoundException('Policy not found');
+
+    let targetVersionId: string = body.versionId ?? '';
+    if (!targetVersionId) {
+      // Default to the latest draft version (not published, not pending approval)
+      const excludeIds = [policy.currentVersionId, policy.pendingVersionId].filter(
+        (v): v is string => v != null,
+      );
+      const draftVersion = excludeIds.length > 0
+        ? await db.policyVersion.findFirst({
+            where: { policyId: id, id: { notIn: excludeIds } },
+            orderBy: { version: 'desc' },
+            select: { id: true },
+          })
+        : null;
+      targetVersionId =
+        draftVersion?.id ??
+        (policy.status === 'draft' ? policy.currentVersionId ?? '' : '');
+      if (!targetVersionId) {
+        throw new BadRequestException(
+          'No draft version available. Create a new version before uploading a PDF.',
+        );
+      }
+    }
+
+    const version = await db.policyVersion.findFirst({
+      where: { id: targetVersionId, policyId: id },
+      select: { id: true, pdfUrl: true, version: true },
+    });
+    if (!version) throw new NotFoundException('Version not found');
+    if (version.id === policy.currentVersionId && policy.status !== 'draft') {
+      throw new BadRequestException(
+        'Cannot upload PDF to the published version',
+      );
+    }
+    if (version.id === policy.pendingVersionId) {
+      throw new BadRequestException(
+        'Cannot upload PDF to a version pending approval',
+      );
+    }
+
+    const s3Key = `${organizationId}/policies/${id}/v${version.version}-${Date.now()}-${sanitizedFileName}`;
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: bucketName,
+        Key: s3Key,
+        Body: fileBuffer,
+        ContentType: fileType,
+      }),
+    );
+    const oldPdfUrl = version.pdfUrl;
+    await db.$transaction([
+      db.policyVersion.update({
+        where: { id: version.id },
+        data: { pdfUrl: s3Key },
+      }),
+      db.policy.update({
+        where: { id },
+        data: { pdfUrl: s3Key, displayFormat: 'PDF' },
+      }),
+    ]);
+
+    if (oldPdfUrl && oldPdfUrl !== s3Key) {
+      try {
+        await s3.send(
+          new DeleteObjectCommand({ Bucket: bucketName, Key: oldPdfUrl }),
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+
+    return { data: { s3Key }, authType: authContext.authType };
+  }
+
+  @Post(':id/pdf/upload-url')
+  @RequirePermission('policy', 'update')
+  @ApiOperation({
+    summary: 'Request a presigned S3 URL to upload a policy PDF',
+    description:
+      'Step 1 of the upload flow for MCP/AI clients. Returns a presigned URL the caller PUTs the file bytes to directly (no base64, no LLM tokens). After upload, call POST /v1/policies/{id}/pdf/confirm with the returned s3Key.',
+  })
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiBody({ type: RequestPolicyPdfUploadUrlDto })
+  @ApiExtension('x-speakeasy-mcp', { name: 'request-policy-pdf-upload-url' })
+  @ApiResponse({ status: 201, type: PolicyPdfUploadUrlResponseDto })
+  async requestPolicyPdfUploadUrl(
+    @Param('id') id: string,
+    @Body() body: RequestPolicyPdfUploadUrlDto,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.generatePolicyPdfUploadUrl(
+      id,
+      organizationId,
+      body,
+    );
+
+    return {
+      ...data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/pdf/confirm')
+  @RequirePermission('policy', 'update')
+  @ApiOperation({
+    summary: 'Confirm a presigned PDF upload completed',
+    description:
+      'Step 2 of the upload flow. Pass the exact s3Key returned by the upload-url endpoint after PUTing the file to the presigned URL. Verifies the file exists in S3 and links it to the policy (or version).',
+  })
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiBody({ type: ConfirmPolicyPdfUploadedDto })
+  @ApiExtension('x-speakeasy-mcp', { name: 'confirm-policy-pdf-uploaded' })
+  async confirmPolicyPdfUploaded(
+    @Param('id') id: string,
+    @Body() body: ConfirmPolicyPdfUploadedDto,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.confirmPolicyPdfUploaded(
+      id,
+      organizationId,
+      body,
+    );
+
+    return {
+      ...data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Delete(':id/pdf')
+  @RequirePermission('policy', 'update')
+  @ApiOperation({
+    summary: 'Delete a policy version PDF',
+    description:
+      'Deletes the PDF from a specific policy version. ' +
+      'If no versionId is provided, deletes from the latest draft version. ' +
+      'Cannot delete PDFs from published or pending-approval versions.',
+  })
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiQuery({
+    name: 'versionId',
+    required: false,
+    description: 'Target version ID. If omitted, targets the latest draft version.',
+  })
+  async deletePolicyPdf(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Query('versionId') versionId?: string,
+  ) {
+    const { S3Client, DeleteObjectCommand } =
+      await import('@aws-sdk/client-s3');
+    const bucketName = process.env.APP_AWS_BUCKET_NAME;
+    if (!bucketName)
+      throw new BadRequestException('File storage is not configured');
+
+    const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+
+    const policy = await db.policy.findFirst({
+      where: { id, organizationId, archivedAt: null },
+      select: { id: true, status: true, pdfUrl: true, currentVersionId: true, pendingVersionId: true },
+    });
+    if (!policy) throw new NotFoundException('Policy not found');
+
+    let targetVersionId = versionId;
+    if (!targetVersionId) {
+      const excludeIds = [policy.currentVersionId, policy.pendingVersionId].filter(
+        (v): v is string => v != null,
+      );
+      const draftVersion = excludeIds.length > 0
+        ? await db.policyVersion.findFirst({
+            where: { policyId: id, id: { notIn: excludeIds } },
+            orderBy: { version: 'desc' },
+            select: { id: true },
+          })
+        : null;
+      targetVersionId =
+        draftVersion?.id ??
+        (policy.status === 'draft' ? policy.currentVersionId ?? undefined : undefined);
+      if (!targetVersionId) {
+        throw new BadRequestException(
+          'No draft version available to delete PDF from.',
+        );
+      }
+    }
+
+    const version = await db.policyVersion.findFirst({
+      where: { id: targetVersionId, policyId: id },
+      select: { id: true, pdfUrl: true },
+    });
+    if (!version) throw new NotFoundException('Version not found');
+    if (version.id === policy.currentVersionId && policy.status !== 'draft') {
+      throw new BadRequestException(
+        'Cannot delete PDF from the published version',
+      );
+    }
+    if (version.id === policy.pendingVersionId) {
+      throw new BadRequestException(
+        'Cannot delete PDF from a version pending approval',
+      );
+    }
+
+    if (version.pdfUrl) {
+      try {
+        await s3.send(
+          new DeleteObjectCommand({ Bucket: bucketName, Key: version.pdfUrl }),
+        );
+      } catch {
+        /* ignore */
+      }
+      await db.$transaction([
+        db.policyVersion.update({
+          where: { id: version.id },
+          data: { pdfUrl: null },
+        }),
+        db.policy.update({
+          where: { id },
+          data: { pdfUrl: null, displayFormat: 'EDITOR' },
+        }),
+      ]);
+    }
+
+    return {
+      success: true,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Get(':id/pdf-url')
+  @RequirePermission('policy', 'read')
+  @ApiOperation({ summary: 'Get signed URL for policy PDF (alternate path)' })
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiQuery({ name: 'versionId', required: false })
+  async getPdfUrl(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Query('versionId') versionId?: string,
+  ) {
+    let pdfUrl: string | null = null;
+
+    if (versionId) {
+      const version = await db.policyVersion.findFirst({
+        where: { id: versionId, policy: { id, organizationId } },
+        select: { pdfUrl: true },
+      });
+      pdfUrl = version?.pdfUrl ?? null;
+    }
+    if (!pdfUrl) {
+      const policy = await db.policy.findFirst({
+        where: { id, organizationId, archivedAt: null },
+        select: { pdfUrl: true },
+      });
+      pdfUrl = policy?.pdfUrl ?? null;
+    }
+    if (!pdfUrl) return { url: null };
+
+    const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+    const { getSignedUrl } = await import('../app/s3.js');
+    const bucketName = process.env.APP_AWS_BUCKET_NAME;
+    if (!bucketName) return { url: null };
+
+    const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+    // Force inline PDF rendering regardless of the object's stored Content-Type
+    // so the browser previews the document instead of downloading it.
+    const url = await getSignedUrl(
+      s3,
+      new GetObjectCommand({
+        Bucket: bucketName,
+        Key: pdfUrl,
+        ResponseContentType: 'application/pdf',
+        ResponseContentDisposition: 'inline',
+      }),
+      { expiresIn: 900 },
+    );
+
+    return { url };
+  }
+
+  @Post(':id/controls')
+  @RequirePermission('policy', 'update')
+  @ApiOperation({ summary: 'Map controls to a policy' })
+  @ApiParam(POLICY_PARAMS.policyId)
+  async addPolicyControls(
+    @Param('id') id: string,
+    @Body() body: { controlIds: string[] },
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    await db.policy.update({
+      where: { id, organizationId },
+      data: {
+        controls: {
+          connect: body.controlIds.map((cid) => ({ id: cid })),
+        },
+      },
+    });
+
+    return {
+      success: true,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Delete(':id/controls/:controlId')
+  @RequirePermission('policy', 'update')
+  @ApiOperation({ summary: 'Remove a control mapping from a policy' })
+  @ApiParam(POLICY_PARAMS.policyId)
+  async removePolicyControl(
+    @Param('id') id: string,
+    @Param('controlId') controlId: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    await db.$transaction(async (tx) => {
+      // Disconnect the implicit m2m link (used by custom-framework/direct policy
+      // lists). Scoped by { id, organizationId }, so a foreign or missing policy
+      // aborts the transaction here before anything is severed (tenant isolation).
+      await tx.policy.update({
+        where: { id, organizationId },
+        data: { controls: { disconnect: { id: controlId } } },
+      });
+      // ALWAYS sever the explicit control<->policy join rows on every framework
+      // instance (platform + custom), org-scoped. Framework-scoped links create
+      // ONLY a FrameworkControlPolicyLink (no implicit m2m), so gating this on the
+      // m2m link existing left those links un-severable — the policy kept showing
+      // against the control (the same CS-780 contradiction). deleteMany is
+      // idempotent (no match → 0 rows), so running it unconditionally is safe.
+      await tx.frameworkControlPolicyLink.deleteMany({
+        where: {
+          controlId,
+          policyId: id,
+          frameworkInstance: { organizationId },
+        },
+      });
+    });
+
+    return {
+      success: true,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Get(':id')
+  @RequirePermission('policy', 'read')
+  @ApiOperation(POLICY_OPERATIONS.getPolicyById)
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiExtension('x-speakeasy-mcp', { name: 'get-policy' })
+  @ApiResponse(GET_POLICY_BY_ID_RESPONSES[200])
+  @ApiResponse(GET_POLICY_BY_ID_RESPONSES[401])
+  @ApiResponse(GET_POLICY_BY_ID_RESPONSES[404])
+  async getPolicy(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const policy = await this.policiesService.findById(id, organizationId);
+
+    return {
+      ...policy,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post()
+  @RequirePermission('policy', 'create')
+  @ApiOperation(POLICY_OPERATIONS.createPolicy)
+  @ApiBody(POLICY_BODIES.createPolicy)
+  @ApiResponse(CREATE_POLICY_RESPONSES[201])
+  @ApiResponse(CREATE_POLICY_RESPONSES[400])
+  @ApiResponse(CREATE_POLICY_RESPONSES[401])
+  async createPolicy(
+    @Body() createData: CreatePolicyDto,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const policy = await this.policiesService.create(
+      organizationId,
+      createData,
+    );
+
+    return {
+      ...policy,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Patch(':id')
+  @RequirePermission('policy', 'update')
+  @ApiOperation(POLICY_OPERATIONS.updatePolicy)
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiBody(POLICY_BODIES.updatePolicy)
+  @ApiResponse(UPDATE_POLICY_RESPONSES[200])
+  @ApiResponse(UPDATE_POLICY_RESPONSES[400])
+  @ApiResponse(UPDATE_POLICY_RESPONSES[401])
+  @ApiResponse(UPDATE_POLICY_RESPONSES[404])
+  async updatePolicy(
+    @Param('id') id: string,
+    @Body() updateData: UpdatePolicyDto,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const updatedPolicy = await this.policiesService.updateById(
+      id,
+      organizationId,
+      updateData,
+    );
+
+    return {
+      ...updatedPolicy,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Delete(':id')
+  @RequirePermission('policy', 'delete')
+  @ApiOperation(POLICY_OPERATIONS.deletePolicy)
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiResponse(DELETE_POLICY_RESPONSES[200])
+  @ApiResponse(DELETE_POLICY_RESPONSES[401])
+  @ApiResponse(DELETE_POLICY_RESPONSES[404])
+  async deletePolicy(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const result = await this.policiesService.deleteById(id, organizationId);
+
+    return {
+      ...result,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Get(':id/versions')
+  @RequirePermission('policy', 'read')
+  @ApiOperation(VERSION_OPERATIONS.getPolicyVersions)
+  @ApiParam(VERSION_PARAMS.policyId)
+  @ApiExtension('x-speakeasy-mcp', { name: 'list-policy-versions' })
+  @ApiResponse(GET_POLICY_VERSIONS_RESPONSES[200])
+  @ApiResponse(GET_POLICY_VERSIONS_RESPONSES[401])
+  @ApiResponse(GET_POLICY_VERSIONS_RESPONSES[404])
+  async getPolicyVersions(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.getVersions(id, organizationId);
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Get(':id/versions/:versionId')
+  @RequirePermission('policy', 'read')
+  @ApiOperation(VERSION_OPERATIONS.getPolicyVersionById)
+  @ApiParam(VERSION_PARAMS.policyId)
+  @ApiParam(VERSION_PARAMS.versionId)
+  @ApiExtension('x-speakeasy-mcp', { name: 'get-policy-version' })
+  @ApiResponse(GET_POLICY_VERSION_BY_ID_RESPONSES[200])
+  @ApiResponse(GET_POLICY_VERSION_BY_ID_RESPONSES[401])
+  @ApiResponse(GET_POLICY_VERSION_BY_ID_RESPONSES[404])
+  async getPolicyVersionById(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.getVersionById(
+      id,
+      versionId,
+      organizationId,
+    );
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/versions')
+  @RequirePermission('policy', 'update')
+  @ApiOperation(VERSION_OPERATIONS.createPolicyVersion)
+  @ApiParam(VERSION_PARAMS.policyId)
+  @ApiBody(VERSION_BODIES.createVersion)
+  @ApiExtension('x-speakeasy-mcp', { name: 'create-policy-version' })
+  @ApiResponse(CREATE_POLICY_VERSION_RESPONSES[201])
+  @ApiResponse(CREATE_POLICY_VERSION_RESPONSES[400])
+  @ApiResponse(CREATE_POLICY_VERSION_RESPONSES[401])
+  @ApiResponse(CREATE_POLICY_VERSION_RESPONSES[404])
+  async createPolicyVersion(
+    @Param('id') id: string,
+    @Body() body: CreateVersionDto,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.createVersion(
+      id,
+      organizationId,
+      body,
+      authContext.userId,
+    );
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Patch(':id/versions/:versionId')
+  @RequirePermission('policy', 'update')
+  @ApiOperation(VERSION_OPERATIONS.updateVersionContent)
+  @ApiParam(VERSION_PARAMS.policyId)
+  @ApiParam(VERSION_PARAMS.versionId)
+  @ApiBody(VERSION_BODIES.updateVersionContent)
+  @ApiExtension('x-speakeasy-mcp', { name: 'update-policy-version-content' })
+  @ApiResponse(UPDATE_VERSION_CONTENT_RESPONSES[200])
+  @ApiResponse(UPDATE_VERSION_CONTENT_RESPONSES[400])
+  @ApiResponse(UPDATE_VERSION_CONTENT_RESPONSES[401])
+  @ApiResponse(UPDATE_VERSION_CONTENT_RESPONSES[404])
+  async updateVersionContent(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @Req() req: { body: { content?: unknown[] } },
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    // Use req.body directly to avoid class-transformer mangling TipTap JSON
+    const data = await this.policiesService.updateVersionContent(
+      id,
+      versionId,
+      organizationId,
+      { content: req.body.content ?? [] },
+    );
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Delete(':id/versions/:versionId')
+  @RequirePermission('policy', 'delete')
+  @ApiOperation(VERSION_OPERATIONS.deletePolicyVersion)
+  @ApiParam(VERSION_PARAMS.policyId)
+  @ApiParam(VERSION_PARAMS.versionId)
+  @ApiResponse(DELETE_VERSION_RESPONSES[200])
+  @ApiResponse(DELETE_VERSION_RESPONSES[400])
+  @ApiResponse(DELETE_VERSION_RESPONSES[401])
+  @ApiResponse(DELETE_VERSION_RESPONSES[404])
+  async deletePolicyVersion(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.deleteVersion(
+      id,
+      versionId,
+      organizationId,
+    );
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/versions/publish')
+  @RequirePermission('policy', 'update')
+  @ApiOperation(VERSION_OPERATIONS.publishPolicyVersion)
+  @ApiParam(VERSION_PARAMS.policyId)
+  @ApiBody(VERSION_BODIES.publishVersion)
+  @ApiExtension('x-speakeasy-mcp', { name: 'publish-policy-version' })
+  @ApiResponse(PUBLISH_VERSION_RESPONSES[200])
+  @ApiResponse(PUBLISH_VERSION_RESPONSES[400])
+  @ApiResponse(PUBLISH_VERSION_RESPONSES[401])
+  @ApiResponse(PUBLISH_VERSION_RESPONSES[404])
+  async publishPolicyVersion(
+    @Param('id') id: string,
+    @Body() body: PublishVersionDto,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.publishVersion(
+      id,
+      organizationId,
+      body,
+      authContext.userId,
+    );
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/versions/:versionId/activate')
+  @RequirePermission('policy', 'update')
+  @ApiOperation(VERSION_OPERATIONS.setActivePolicyVersion)
+  @ApiParam(VERSION_PARAMS.policyId)
+  @ApiParam(VERSION_PARAMS.versionId)
+  @ApiResponse(SET_ACTIVE_VERSION_RESPONSES[200])
+  @ApiResponse(SET_ACTIVE_VERSION_RESPONSES[400])
+  @ApiResponse(SET_ACTIVE_VERSION_RESPONSES[401])
+  @ApiResponse(SET_ACTIVE_VERSION_RESPONSES[404])
+  async setActivePolicyVersion(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.setActiveVersion(
+      id,
+      versionId,
+      organizationId,
+    );
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/versions/:versionId/submit-for-approval')
+  @RequirePermission('policy', 'update')
+  @ApiOperation(VERSION_OPERATIONS.submitVersionForApproval)
+  @ApiParam(VERSION_PARAMS.policyId)
+  @ApiParam(VERSION_PARAMS.versionId)
+  @ApiBody(VERSION_BODIES.submitForApproval)
+  @ApiExtension('x-speakeasy-mcp', { name: 'submit-policy-version-for-approval' })
+  @ApiResponse(SUBMIT_VERSION_FOR_APPROVAL_RESPONSES[200])
+  @ApiResponse(SUBMIT_VERSION_FOR_APPROVAL_RESPONSES[400])
+  @ApiResponse(SUBMIT_VERSION_FOR_APPROVAL_RESPONSES[401])
+  @ApiResponse(SUBMIT_VERSION_FOR_APPROVAL_RESPONSES[404])
+  async submitVersionForApproval(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @Body() body: SubmitForApprovalDto,
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.submitForApproval(
+      id,
+      versionId,
+      organizationId,
+      body,
+    );
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/accept-changes')
+  @RequirePermission('policy', 'update')
+  @ApiOperation({
+    summary: 'Accept pending policy changes and publish the version',
+  })
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiExtension('x-speakeasy-mcp', { name: 'accept-policy-changes' })
+  async acceptPolicyChanges(
+    @Param('id') id: string,
+    @Body() body: { approverId: string; comment?: string },
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.acceptChanges(
+      id,
+      organizationId,
+      body,
+      authContext.userId,
+    );
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/deny-changes')
+  @RequirePermission('policy', 'update')
+  @ApiOperation({ summary: 'Deny pending policy changes' })
+  @ApiParam(POLICY_PARAMS.policyId)
+  async denyPolicyChanges(
+    @Param('id') id: string,
+    @Body() body: { approverId: string; comment?: string },
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const data = await this.policiesService.denyChanges(
+      id,
+      organizationId,
+      body,
+    );
+
+    return {
+      data,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post(':id/ai-chat')
+  @RequirePermission('policy', 'read')
+  @ApiOperation({
+    summary: 'Chat with AI about a policy',
+    description:
+      'Stream AI responses for policy editing assistance. Returns a text/event-stream with AI-generated suggestions.',
+  })
+  @ApiParam(POLICY_PARAMS.policyId)
+  @ApiBody({ type: AISuggestPolicyRequestDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Streaming AI response',
+    content: {
+      'text/event-stream': {
+        schema: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Policy not found' })
+  async aiChatPolicy(
+    @Param('id') id: string,
+    @OrganizationId() organizationId: string,
+    @Body() body: AISuggestPolicyRequestDto,
+    @Res() res: Response,
+  ) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new HttpException(
+        'AI service not configured',
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+
+    const policy = await this.policiesService.findById(id, organizationId);
+
+    // Use currentVersion content if available, fallback to policy.content for backward compatibility
+    const effectiveContent = policy.currentVersion?.content ?? policy.content;
+    const policyContentText = this.convertPolicyContentToText(effectiveContent);
+
+    const systemPrompt = `You are an expert GRC (Governance, Risk, and Compliance) policy editor. You help users edit and improve their organizational policies to meet compliance requirements like SOC 2, ISO 27001, and GDPR.
+
+Current Policy Name: ${policy.name}
+${policy.description ? `Policy Description: ${policy.description}` : ''}
+
+Current Policy Content:
+---
+${policyContentText}
+---
+
+Your role:
+1. Help users understand and improve their policies
+2. Suggest specific changes when asked
+3. Ensure policies remain compliant with relevant frameworks
+4. Maintain professional, clear language appropriate for official documentation
+
+When the user asks you to make changes to the policy:
+1. First explain what changes you'll make and why
+2. Then provide the COMPLETE updated policy content in a code block with the label \`\`\`policy
+3. The policy content inside the code block should be in markdown format
+
+IMPORTANT: When providing updated policy content, you MUST include the ENTIRE policy, not just the changed sections. The content in the \`\`\`policy code block will replace the entire current policy.
+
+Keep responses helpful and focused on the policy editing task.`;
+
+    const messages: UIMessage[] = [
+      ...(body.chatHistory || []).map((msg) => ({
+        id: crypto.randomUUID(),
+        role: msg.role,
+        content: msg.content,
+        parts: [{ type: 'text' as const, text: msg.content }],
+      })),
+      {
+        id: crypto.randomUUID(),
+        role: 'user' as const,
+        content: body.instructions,
+        parts: [{ type: 'text' as const, text: body.instructions }],
+      },
+    ];
+
+    const result = streamText({
+      model: openai('gpt-5.5'),
+      system: systemPrompt,
+      messages: await convertToModelMessages(messages),
+    });
+
+    return result.pipeTextStreamToResponse(res);
+  }
+
+  private convertPolicyContentToText(content: unknown): string {
+    if (!content) return '';
+
+    const contentArray = Array.isArray(content) ? content : [content];
+
+    const extractText = (node: unknown): string => {
+      if (!node || typeof node !== 'object') return '';
+
+      const n = node as Record<string, unknown>;
+
+      if (n.type === 'text' && typeof n.text === 'string') {
+        return n.text;
+      }
+
+      if (Array.isArray(n.content)) {
+        const texts = n.content.map(extractText).filter(Boolean);
+
+        switch (n.type) {
+          case 'heading': {
+            const level = (n.attrs as Record<string, unknown>)?.level || 1;
+            return (
+              '\n' + '#'.repeat(Number(level)) + ' ' + texts.join('') + '\n'
+            );
+          }
+          case 'paragraph':
+            return texts.join('') + '\n';
+          case 'bulletList':
+          case 'orderedList':
+            return '\n' + texts.join('');
+          case 'listItem':
+            return '- ' + texts.join('') + '\n';
+          case 'blockquote':
+            return '\n> ' + texts.join('\n> ') + '\n';
+          default:
+            return texts.join('');
+        }
+      }
+
+      return '';
+    };
+
+    return contentArray.map(extractText).join('\n').trim();
+  }
+}

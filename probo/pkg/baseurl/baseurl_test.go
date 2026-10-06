@@ -1,0 +1,282 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package baseurl
+
+import (
+	"encoding/json"
+	"net/url"
+	"testing"
+)
+
+func TestParse(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name:    "valid http URL",
+			input:   "http://localhost:8080",
+			wantErr: false,
+		},
+		{
+			name:    "valid https URL",
+			input:   "https://example.com",
+			wantErr: false,
+		},
+		{
+			name:    "valid https URL with port",
+			input:   "https://example.com:8443",
+			wantErr: false,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:    "relative URL",
+			input:   "/path/to/resource",
+			wantErr: true,
+		},
+		{
+			name:    "invalid scheme",
+			input:   "ftp://example.com",
+			wantErr: true,
+		},
+		{
+			name:    "no host",
+			input:   "http://",
+			wantErr: true,
+		},
+		{
+			// The colon leaves Host non-empty, so only Hostname reveals that
+			// there is no host to reach.
+			name:    "port delimiter without host",
+			input:   "https://:/federation",
+			wantErr: true,
+		},
+		{
+			name:    "port without host",
+			input:   "https://:443",
+			wantErr: true,
+		},
+		{
+			name:    "empty port",
+			input:   "https://example.com:",
+			wantErr: true,
+		},
+		{
+			name:    "IPv6 host without port",
+			input:   "https://[::1]",
+			wantErr: false,
+		},
+		{
+			name:    "IPv6 host with port",
+			input:   "https://[::1]:8443",
+			wantErr: false,
+		},
+		{
+			name:    "IPv6 host with empty port",
+			input:   "https://[::1]:",
+			wantErr: true,
+		},
+		{
+			name:    "invalid URL",
+			input:   "ht!tp://invalid",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Parse(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Parse() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && got == nil {
+				t.Error("Parse() returned nil without error")
+			}
+		})
+	}
+}
+
+func TestBaseURL_Accessors(t *testing.T) {
+	b := MustParse("https://example.com:8443")
+
+	if got := b.String(); got != "https://example.com:8443" {
+		t.Errorf("String() = %v, want %v", got, "https://example.com:8443")
+	}
+
+	if got := b.Scheme(); got != "https" {
+		t.Errorf("Scheme() = %v, want %v", got, "https")
+	}
+
+	if got := b.Host(); got != "example.com:8443" {
+		t.Errorf("Host() = %v, want %v", got, "example.com:8443")
+	}
+
+	if got := b.Hostname(); got != "example.com" {
+		t.Errorf("Hostname() = %v, want %v", got, "example.com")
+	}
+
+	if got := b.Port(); got != "8443" {
+		t.Errorf("Port() = %v, want %v", got, "8443")
+	}
+}
+
+func TestBaseURL_WithPath(t *testing.T) {
+	b := MustParse("https://example.com")
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "path with leading slash",
+			path: "/auth/login",
+			want: "https://example.com/auth/login",
+		},
+		{
+			name: "path without leading slash",
+			path: "auth/login",
+			want: "https://example.com/auth/login",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := b.WithPath(tt.path).String()
+			if err != nil {
+				t.Errorf("WithPath().String() error = %v", err)
+				return
+			}
+
+			if got != tt.want {
+				t.Errorf("WithPath().String() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBaseURL_WithQuery(t *testing.T) {
+	b := MustParse("https://example.com")
+
+	got, err := b.WithPath("/search").
+		WithQuery("q", "test").
+		WithQuery("limit", "10").
+		String()
+	if err != nil {
+		t.Fatalf("WithPath().WithQuery().String() error = %v", err)
+	}
+
+	// Parse the result to check query parameters
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("Failed to parse result URL: %v", err)
+	}
+
+	if parsed.Query().Get("q") != "test" {
+		t.Errorf("Query param 'q' = %v, want %v", parsed.Query().Get("q"), "test")
+	}
+
+	if parsed.Query().Get("limit") != "10" {
+		t.Errorf("Query param 'limit' = %v, want %v", parsed.Query().Get("limit"), "10")
+	}
+}
+
+func TestBaseURL_WithQueryValues(t *testing.T) {
+	b := MustParse("https://example.com")
+
+	values := url.Values{}
+	values.Add("foo", "bar")
+	values.Add("baz", "qux")
+
+	got, err := b.WithPath("/test").WithQueryValues(values).String()
+	if err != nil {
+		t.Fatalf("WithPath().WithQueryValues().String() error = %v", err)
+	}
+
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("Failed to parse result URL: %v", err)
+	}
+
+	if parsed.Query().Get("foo") != "bar" {
+		t.Errorf("Query param 'foo' = %v, want %v", parsed.Query().Get("foo"), "bar")
+	}
+
+	if parsed.Query().Get("baz") != "qux" {
+		t.Errorf("Query param 'baz' = %v, want %v", parsed.Query().Get("baz"), "qux")
+	}
+}
+
+func TestBaseURL_JSON(t *testing.T) {
+	original := MustParse("https://example.com:8443")
+
+	// Marshal
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	// Unmarshal
+	var restored BaseURL
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if restored.String() != original.String() {
+		t.Errorf("After JSON round-trip: got %v, want %v", restored.String(), original.String())
+	}
+}
+
+func TestBaseURL_NilSafety(t *testing.T) {
+	var b *BaseURL
+
+	if got := b.String(); got != "" {
+		t.Errorf("nil.String() = %v, want empty string", got)
+	}
+
+	if got := b.Scheme(); got != "" {
+		t.Errorf("nil.Scheme() = %v, want empty string", got)
+	}
+
+	if got := b.Host(); got != "" {
+		t.Errorf("nil.Host() = %v, want empty string", got)
+	}
+
+	if got := b.Hostname(); got != "" {
+		t.Errorf("nil.Hostname() = %v, want empty string", got)
+	}
+
+	if got := b.Port(); got != "" {
+		t.Errorf("nil.Port() = %v, want empty string", got)
+	}
+
+	builder := b.WithPath("/test")
+	if _, err := builder.String(); err == nil {
+		t.Error("nil.WithPath().String() expected error, got nil")
+	}
+}

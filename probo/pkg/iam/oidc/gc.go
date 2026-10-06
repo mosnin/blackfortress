@@ -1,0 +1,118 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package oidc
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"go.gearno.de/kit/log"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+const (
+	DefaultGarbageCollectionInterval = 1 * time.Hour
+)
+
+type (
+	GarbageCollector struct {
+		pg       *pg.Client
+		interval time.Duration
+		logger   *log.Logger
+	}
+
+	GarbageCollectorOption func(*GarbageCollector)
+)
+
+func WithGarbageCollectionInterval(interval time.Duration) GarbageCollectorOption {
+	return func(gc *GarbageCollector) {
+		gc.interval = interval
+	}
+}
+
+func NewGarbageCollector(
+	pgClient *pg.Client,
+	logger *log.Logger,
+	opts ...GarbageCollectorOption,
+) *GarbageCollector {
+	gc := &GarbageCollector{
+		pg:       pgClient,
+		interval: DefaultGarbageCollectionInterval,
+		logger:   logger.Named("oidc.garbage_collector"),
+	}
+
+	for _, opt := range opts {
+		opt(gc)
+	}
+
+	gc.logger = gc.logger.With(log.Duration("interval", gc.interval))
+
+	return gc
+}
+
+func (gc *GarbageCollector) Run(ctx context.Context) error {
+	gc.logger.InfoCtx(ctx, "oidc garbage collector starting")
+
+	if err := gc.cleanup(ctx); err != nil {
+		gc.logger.ErrorCtx(ctx, "cannot run initial cleanup", log.Error(err))
+	}
+
+	ticker := time.NewTicker(gc.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			gc.logger.InfoCtx(ctx, "oidc garbage collector shutting down")
+			return ctx.Err()
+		case <-ticker.C:
+			if err := gc.cleanup(ctx); err != nil {
+				gc.logger.ErrorCtx(ctx, "cannot run periodic cleanup", log.Error(err))
+			}
+		}
+	}
+}
+
+func (gc *GarbageCollector) cleanup(ctx context.Context) error {
+	now := time.Now()
+
+	return gc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			var state coredata.OIDCState
+
+			deleted, err := state.DeleteExpired(ctx, tx, now)
+			if err != nil {
+				return fmt.Errorf("cannot delete expired oidc states: %w", err)
+			}
+
+			gc.logger.InfoCtx(
+				ctx,
+				"oidc garbage collector cleaned up expired states",
+				log.Int64("deleted", deleted),
+			)
+
+			return nil
+		},
+	)
+}

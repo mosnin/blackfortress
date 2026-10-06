@@ -1,0 +1,150 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package mcp_test
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/e2e/internal/factory"
+	"go.probo.inc/probo/e2e/internal/testutil"
+)
+
+func TestMCP_Framework_CRUD(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	mc := testutil.NewMCPClient(t, owner)
+	orgID := owner.GetOrganizationID().String()
+
+	// Create
+	var addResult struct {
+		Framework struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"framework"`
+	}
+	mc.CallToolInto("addFramework", map[string]any{
+		"organization_id": orgID,
+		"name":            factory.SafeName("Framework"),
+	}, &addResult)
+	require.NotEmpty(t, addResult.Framework.ID)
+
+	// Get
+	var getResult struct {
+		Framework struct {
+			ID string `json:"id"`
+		} `json:"framework"`
+	}
+	mc.CallToolInto("getFramework", map[string]any{
+		"id": addResult.Framework.ID,
+	}, &getResult)
+	assert.Equal(t, addResult.Framework.ID, getResult.Framework.ID)
+
+	// Update
+	var updateResult struct {
+		Framework struct {
+			ID          string `json:"id"`
+			Description string `json:"description"`
+		} `json:"framework"`
+	}
+	mc.CallToolInto("updateFramework", map[string]any{
+		"id":          addResult.Framework.ID,
+		"description": "Updated description",
+	}, &updateResult)
+	assert.Equal(t, "Updated description", updateResult.Framework.Description)
+
+	// List
+	var listResult struct {
+		Frameworks []struct {
+			ID string `json:"id"`
+		} `json:"frameworks"`
+	}
+	mc.CallToolInto("listFrameworks", map[string]any{
+		"organization_id": orgID,
+	}, &listResult)
+	assert.NotEmpty(t, listResult.Frameworks)
+}
+
+func TestMCP_Control_CRUD(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	mc := testutil.NewMCPClient(t, owner)
+	orgID := owner.GetOrganizationID().String()
+
+	frameworkID := factory.CreateFramework(owner)
+
+	// Create
+	var addResult struct {
+		Control struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"control"`
+	}
+	mc.CallToolInto("addControl", map[string]any{
+		"organization_id": orgID,
+		"framework_id":    frameworkID,
+		"section_title":   "Access Control",
+		"name":            factory.SafeName("Control"),
+		"description":     "Control description",
+		"best_practice":   true,
+		"maturity_level":  "INITIAL",
+	}, &addResult)
+	require.NotEmpty(t, addResult.Control.ID)
+
+	// Get
+	var getResult struct {
+		Control struct {
+			ID string `json:"id"`
+		} `json:"control"`
+	}
+	mc.CallToolInto("getControl", map[string]any{
+		"id": addResult.Control.ID,
+	}, &getResult)
+	assert.Equal(t, addResult.Control.ID, getResult.Control.ID)
+
+	// Update
+	var updateResult struct {
+		Control struct {
+			ID          string `json:"id"`
+			Description string `json:"description"`
+		} `json:"control"`
+	}
+	mc.CallToolInto("updateControl", map[string]any{
+		"id":          addResult.Control.ID,
+		"description": "Updated control",
+	}, &updateResult)
+	assert.Equal(t, "Updated control", updateResult.Control.Description)
+
+	// List
+	var listResult struct {
+		Controls []struct {
+			ID string `json:"id"`
+		} `json:"controls"`
+	}
+	mc.CallToolInto("listControls", map[string]any{
+		"organization_id": orgID,
+		"filter": map[string]any{
+			"framework_id": frameworkID,
+		},
+	}, &listResult)
+	assert.NotEmpty(t, listResult.Controls)
+}

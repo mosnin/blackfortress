@@ -1,0 +1,1301 @@
+enum CompliancePortalVisibility
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.CompliancePortalVisibility") {
+    RESTRICTED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalVisibilityRestricted"
+        )
+    PUBLIC
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalVisibilityPublic"
+        )
+}
+
+enum CompliancePortalLinkedVisibility
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.CompliancePortalVisibility") {
+    RESTRICTED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalVisibilityRestricted"
+        )
+    PUBLIC
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalVisibilityPublic"
+        )
+}
+
+enum SearchEngineIndexing
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.SearchEngineIndexing"
+    ) {
+    INDEXABLE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.SearchEngineIndexingIndexable"
+        )
+    NOT_INDEXABLE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.SearchEngineIndexingNotIndexable"
+        )
+}
+
+enum CompliancePortalDocumentAccessStatus
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatus"
+    ) {
+    REQUESTED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatusRequested"
+        )
+    GRANTED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatusGranted"
+        )
+    REJECTED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatusRejected"
+        )
+    REVOKED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalDocumentAccessStatusRevoked"
+        )
+}
+
+enum CompliancePortalAccessOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessOrderField"
+    ) {
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessOrderFieldCreatedAt"
+        )
+    PENDING_REQUEST_COUNT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessOrderFieldPendingRequestCount"
+        )
+}
+
+enum CompliancePortalAccessResourceKind
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceKind"
+    ) {
+    DOCUMENT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceKindDocument"
+        )
+    REPORT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceKindReport"
+        )
+    FILE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceKindFile"
+        )
+}
+
+enum CompliancePortalAccessResourceOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceOrderField"
+    ) {
+    ACCESS_STATUS
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceOrderFieldAccessStatus"
+        )
+}
+
+enum CompliancePortalAccessResourceStatusFilter
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceStatusFilter"
+    ) {
+    REQUESTED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceStatusFilterRequested"
+        )
+    GRANTED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceStatusFilterGranted"
+        )
+    REJECTED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceStatusFilterRejected"
+        )
+    REVOKED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceStatusFilterRevoked"
+        )
+    NONE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessResourceStatusFilterNone"
+        )
+}
+
+enum CompliancePortalAccessState
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessState"
+    ) {
+    ACTIVE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessStateActive"
+        )
+    DEACTIVATED
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalAccessStateDeactivated"
+        )
+}
+
+enum CompliancePortalReferenceOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalReferenceOrderField"
+    ) {
+    RANK
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalReferenceOrderFieldRank"
+        )
+    NAME
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalReferenceOrderFieldName"
+        )
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalReferenceOrderFieldCreatedAt"
+        )
+    UPDATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalReferenceOrderFieldUpdatedAt"
+        )
+}
+
+enum CompliancePortalCommitmentGroupOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentGroupOrderField"
+    ) {
+    RANK
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentGroupOrderFieldRank"
+        )
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentGroupOrderFieldCreatedAt"
+        )
+    UPDATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentGroupOrderFieldUpdatedAt"
+        )
+}
+
+enum CompliancePortalCommitmentOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentOrderField"
+    ) {
+    RANK
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentOrderFieldRank"
+        )
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentOrderFieldCreatedAt"
+        )
+    UPDATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentOrderFieldUpdatedAt"
+        )
+}
+
+enum CompliancePortalCommitmentIcon
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIcon"
+    ) {
+    LOCK_KEY
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconLockKey")
+    EYE_SLASH
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconEyeSlash")
+    FINGERPRINT
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconFingerprint")
+    SHIELD_WARNING
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconShieldWarning")
+    SHIELD_CHECK
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconShieldCheck")
+    SIREN
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconSiren")
+    KEY
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconKey")
+    LOCK
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconLock")
+    CLOUD
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconCloud")
+    DATABASE
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconDatabase")
+    GLOBE
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconGlobe")
+    EYE
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconEye")
+    USERS
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconUsers")
+    CERTIFICATE
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconCertificate")
+    GAVEL
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconGavel")
+    HEARTBEAT
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconHeartbeat")
+    BELL
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconBell")
+    BUG
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconBug")
+    CODE
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconCode")
+    SERVER
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CompliancePortalCommitmentIconServer")
+}
+
+enum ComplianceCustomLinkOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.ComplianceCustomLinkOrderField"
+    ) {
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.ComplianceCustomLinkOrderFieldCreatedAt"
+        )
+    RANK
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.ComplianceCustomLinkOrderFieldRank"
+        )
+}
+
+enum ComplianceFrameworkOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.ComplianceFrameworkOrderField"
+    ) {
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.ComplianceFrameworkOrderFieldCreatedAt"
+        )
+    RANK
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.ComplianceFrameworkOrderFieldRank"
+        )
+}
+
+enum ComplianceFrameworkVisibility
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.ComplianceFrameworkVisibility"
+    ) {
+    NONE
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.ComplianceFrameworkVisibilityNone"
+        )
+    PUBLIC
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.ComplianceFrameworkVisibilityPublic"
+        )
+}
+
+enum CompliancePortalFileOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalFileOrderField"
+    ) {
+    NAME
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalFileOrderFieldName"
+        )
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalFileOrderFieldCreatedAt"
+        )
+    UPDATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalFileOrderFieldUpdatedAt"
+        )
+}
+
+enum SSLStatus
+    @goModel(model: "go.probo.inc/probo/pkg/coredata.CertificateStatus") {
+    PENDING
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CertificateStatusPending")
+    PROVISIONING
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CertificateStatusProvisioning"
+        )
+    ACTIVE
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CertificateStatusActive")
+    RENEWING
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CertificateStatusRenewing")
+    EXPIRED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CertificateStatusExpired")
+    FAILED
+        @goEnum(value: "go.probo.inc/probo/pkg/coredata.CertificateStatusFailed")
+}
+
+input CompliancePortalAccessOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalAccessOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: CompliancePortalAccessOrderField!
+}
+
+input CompliancePortalAccessFilter {
+    query: String
+}
+
+input CompliancePortalAccessResourceOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalAccessResourceOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: CompliancePortalAccessResourceOrderField!
+}
+
+input CompliancePortalAccessResourceFilter {
+    status: CompliancePortalAccessResourceStatusFilter
+}
+
+input CompliancePortalReferenceOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalReferenceOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: CompliancePortalReferenceOrderField!
+}
+
+input CompliancePortalCommitmentGroupOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalCommitmentGroupOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: CompliancePortalCommitmentGroupOrderField!
+}
+
+input CompliancePortalCommitmentOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalCommitmentOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: CompliancePortalCommitmentOrderField!
+}
+
+input CompliancePortalFileOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalFileOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: CompliancePortalFileOrderField!
+}
+
+input ComplianceCustomLinkOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.ComplianceCustomLinkOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: ComplianceCustomLinkOrderField!
+}
+
+input ComplianceFrameworkOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.ComplianceFrameworkOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: ComplianceFrameworkOrderField!
+}
+
+enum CompliancePortalOrderField
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalOrderField"
+    ) {
+    CREATED_AT
+        @goEnum(
+            value: "go.probo.inc/probo/pkg/coredata.CompliancePortalOrderFieldCreatedAt"
+        )
+}
+
+input CompliancePortalOrder
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalOrderBy"
+    ) {
+    direction: OrderDirection!
+    field: CompliancePortalOrderField!
+}
+
+type CompliancePortalCapabilities
+    @goModel(
+        model: "go.probo.inc/probo/pkg/coredata.CompliancePortalCapabilities"
+    ) {
+    rightsRequests: Boolean!
+}
+
+type CompliancePortal implements Node {
+    id: ID!
+    active: Boolean!
+    searchEngineIndexing: SearchEngineIndexing!
+    capabilities: CompliancePortalCapabilities!
+    logo: File @goField(forceResolver: true)
+    darkLogo: File @goField(forceResolver: true)
+    nda: File @goField(forceResolver: true)
+    description: String
+    websiteUrl: String
+    email: String
+    headquarterAddress: String
+    entityName: String!
+    slug: String!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+    organization: Organization! @goField(forceResolver: true)
+    slackbotNotificationChannel: SlackbotNotificationChannel
+        @goField(forceResolver: true)
+
+    accesses(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: CompliancePortalAccessOrder
+        filter: CompliancePortalAccessFilter
+    ): CompliancePortalAccessConnection! @goField(forceResolver: true)
+
+    references(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: CompliancePortalReferenceOrder
+    ): CompliancePortalReferenceConnection! @goField(forceResolver: true)
+
+    commitmentGroups(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: CompliancePortalCommitmentGroupOrder
+    ): CompliancePortalCommitmentGroupConnection! @goField(forceResolver: true)
+
+    complianceFrameworks(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: ComplianceFrameworkOrder
+    ): ComplianceFrameworkConnection! @goField(forceResolver: true)
+
+    customLinks(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: ComplianceCustomLinkOrder
+    ): ComplianceCustomLinkConnection! @goField(forceResolver: true)
+
+    memberCandidates(query: String!): [Profile!]! @goField(forceResolver: true)
+
+    compliancePortalFiles(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: CompliancePortalFileOrder
+    ): CompliancePortalFileConnection! @goField(forceResolver: true)
+
+    mailingList: MailingList @goField(forceResolver: true)
+
+    defaultDomain: CustomDomain @goField(forceResolver: true)
+
+    customDomain: CustomDomain @goField(forceResolver: true)
+
+    publicUrl: String! @goField(forceResolver: true)
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type CompliancePortalConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [CompliancePortalEdge!]!
+    pageInfo: PageInfo!
+}
+
+type CompliancePortalDocument implements Node {
+    id: ID!
+    document: Document! @goField(forceResolver: true)
+    visibility: CompliancePortalLinkedVisibility!
+}
+
+type CompliancePortalAudit implements Node {
+    id: ID!
+    audit: Audit! @goField(forceResolver: true)
+    visibility: CompliancePortalLinkedVisibility!
+}
+
+type CompliancePortalThirdParty implements Node {
+    id: ID!
+    thirdParty: ThirdParty! @goField(forceResolver: true)
+}
+
+type CompliancePortalEdge {
+    cursor: CursorKey!
+    node: CompliancePortal!
+}
+
+type CompliancePortalAccess implements Node {
+    id: ID!
+    state: CompliancePortalAccessState!
+    authenticatedAt: Datetime
+    ndaSignature: ElectronicSignature @goField(forceResolver: true)
+    createdAt: Datetime!
+    updatedAt: Datetime!
+    pendingRequestCount: Int! @goField(forceResolver: true)
+    activeCount: Int! @goField(forceResolver: true)
+    organizationId: ID!
+    identityID: ID!
+
+    identity: CompliancePortalAccessIdentity! @goField(forceResolver: true)
+
+    resources(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: CompliancePortalAccessResourceOrder
+        filter: CompliancePortalAccessResourceFilter
+    ): CompliancePortalAccessResourceConnection! @goField(forceResolver: true)
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type CompliancePortalDocumentAccess implements Node {
+    id: ID!
+    status: CompliancePortalDocumentAccessStatus!
+    document: Document @goField(forceResolver: true)
+    reportFile: File @goField(forceResolver: true)
+    audit: Audit @goField(forceResolver: true)
+    compliancePortalFile: CompliancePortalFile @goField(forceResolver: true)
+}
+
+type CompliancePortalAccessConnection {
+    edges: [CompliancePortalAccessEdge!]!
+    pageInfo: PageInfo!
+}
+
+type CompliancePortalAccessEdge {
+    cursor: CursorKey!
+    node: CompliancePortalAccess!
+}
+
+type CompliancePortalAccessIdentity {
+    email: EmailAddr!
+    fullName: String!
+}
+
+type CompliancePortalAccessResource {
+    kind: CompliancePortalAccessResourceKind!
+    resourceId: ID!
+    name: String!
+    category: String!
+    status: CompliancePortalDocumentAccessStatus
+}
+
+type CompliancePortalAccessResourceConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalAccessResourceConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [CompliancePortalAccessResourceEdge!]!
+    pageInfo: PageInfo!
+}
+
+type CompliancePortalAccessResourceEdge {
+    cursor: CursorKey!
+    node: CompliancePortalAccessResource!
+}
+
+type CompliancePortalReference implements Node {
+    id: ID!
+    name: String!
+    description: String
+    websiteUrl: String!
+    logo: File! @goField(forceResolver: true)
+    rank: Int!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type CompliancePortalReferenceConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalReferenceConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [CompliancePortalReferenceEdge!]!
+    pageInfo: PageInfo!
+}
+
+type CompliancePortalReferenceEdge {
+    cursor: CursorKey!
+    node: CompliancePortalReference!
+}
+
+type CompliancePortalCommitmentGroup implements Node {
+    id: ID!
+    title: String!
+    description: String!
+    rank: Int!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+
+    commitments(
+        first: Int
+        after: CursorKey
+        last: Int
+        before: CursorKey
+        orderBy: CompliancePortalCommitmentOrder
+    ): CompliancePortalCommitmentConnection! @goField(forceResolver: true)
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type CompliancePortalCommitmentGroupConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalCommitmentGroupConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [CompliancePortalCommitmentGroupEdge!]!
+    pageInfo: PageInfo!
+}
+
+type CompliancePortalCommitmentGroupEdge {
+    cursor: CursorKey!
+    node: CompliancePortalCommitmentGroup!
+}
+
+type CompliancePortalCommitment implements Node {
+    id: ID!
+    icon: CompliancePortalCommitmentIcon!
+    eyebrow: String!
+    title: String!
+    description: String!
+    rank: Int!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type CompliancePortalCommitmentConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalCommitmentConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [CompliancePortalCommitmentEdge!]!
+    pageInfo: PageInfo!
+}
+
+type CompliancePortalCommitmentEdge {
+    cursor: CursorKey!
+    node: CompliancePortalCommitment!
+}
+
+type ComplianceFramework implements Node {
+    id: ID!
+    framework: Framework! @goField(forceResolver: true)
+    rank: Int!
+    visibility: ComplianceFrameworkVisibility!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+}
+
+type ComplianceFrameworkConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.ComplianceFrameworkConnection"
+    ) {
+    edges: [ComplianceFrameworkEdge!]!
+    pageInfo: PageInfo!
+}
+
+type ComplianceFrameworkEdge {
+    cursor: CursorKey!
+    node: ComplianceFramework!
+}
+
+type ComplianceCustomLink implements Node {
+    id: ID!
+    name: String!
+    url: String!
+    rank: Int!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type ComplianceCustomLinkConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.ComplianceCustomLinkConnection"
+    ) {
+    edges: [ComplianceCustomLinkEdge!]!
+    pageInfo: PageInfo!
+}
+
+type ComplianceCustomLinkEdge {
+    cursor: CursorKey!
+    node: ComplianceCustomLink!
+}
+
+type CompliancePortalFile implements Node {
+    id: ID!
+    name: String!
+    category: String!
+    file: File! @goField(forceResolver: true)
+    compliancePortalVisibility: CompliancePortalVisibility!
+    alias: String @goField(forceResolver: true)
+    createdAt: Datetime!
+    updatedAt: Datetime!
+    organization: Organization! @goField(forceResolver: true)
+    compliancePortalDocumentAccess(
+        compliancePortalAccessId: ID!
+    ): CompliancePortalDocumentAccess @goField(forceResolver: true)
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type CompliancePortalFileConnection
+    @goModel(
+        model: "go.probo.inc/probo/pkg/server/api/console/v1/types.CompliancePortalFileConnection"
+    ) {
+    totalCount: Int! @goField(forceResolver: true)
+    edges: [CompliancePortalFileEdge!]!
+    pageInfo: PageInfo!
+}
+
+type CompliancePortalFileEdge {
+    cursor: CursorKey!
+    node: CompliancePortalFile!
+}
+
+type CustomDomain implements Node {
+    id: ID!
+    organization: Organization!
+    domain: String!
+    managed: Boolean!
+    certificate: Certificate @goField(forceResolver: true)
+    dnsRecords: [DNSRecordInstruction!]!
+    createdAt: Datetime!
+    updatedAt: Datetime!
+
+    permission(action: String!): Boolean! @goField(forceResolver: true)
+}
+
+type Certificate {
+    id: ID!
+    status: SSLStatus!
+    expiresAt: Datetime
+    provisioningError: String
+}
+
+type DNSRecordInstruction {
+    type: String!
+    name: String!
+    value: String!
+    ttl: Int!
+    purpose: String!
+}
+
+extend type Mutation {
+    createCompliancePortal(
+        input: CreateCompliancePortalInput!
+    ): CreateCompliancePortalPayload!
+    deleteCompliancePortal(
+        input: DeleteCompliancePortalInput!
+    ): DeleteCompliancePortalPayload!
+    updateCompliancePortalDocumentVisibility(
+        input: UpdateCompliancePortalDocumentVisibilityInput!
+    ): UpdateCompliancePortalDocumentVisibilityPayload!
+    deleteCompliancePortalDocument(
+        input: DeleteCompliancePortalDocumentInput!
+    ): DeleteCompliancePortalDocumentPayload!
+    updateCompliancePortalAuditVisibility(
+        input: UpdateCompliancePortalAuditVisibilityInput!
+    ): UpdateCompliancePortalAuditVisibilityPayload!
+    deleteCompliancePortalAudit(
+        input: DeleteCompliancePortalAuditInput!
+    ): DeleteCompliancePortalAuditPayload!
+    updateCompliancePortalThirdPartyPublished(
+        input: UpdateCompliancePortalThirdPartyPublishedInput!
+    ): UpdateCompliancePortalThirdPartyPublishedPayload!
+    deleteCompliancePortalThirdParty(
+        input: DeleteCompliancePortalThirdPartyInput!
+    ): DeleteCompliancePortalThirdPartyPayload!
+    updateCompliancePortal(input: UpdateCompliancePortalInput!): UpdateCompliancePortalPayload!
+    uploadCompliancePortalNDA(
+        input: UploadCompliancePortalNDAInput!
+    ): UploadCompliancePortalNDAPayload!
+    deleteCompliancePortalNDA(
+        input: DeleteCompliancePortalNDAInput!
+    ): DeleteCompliancePortalNDAPayload!
+    updateCompliancePortalBrand(
+        input: UpdateCompliancePortalBrandInput!
+    ): UpdateCompliancePortalBrandPayload!
+    createCompliancePortalAccess(
+        input: CreateCompliancePortalAccessInput!
+    ): CreateCompliancePortalAccessPayload!
+    updateCompliancePortalAccess(
+        input: UpdateCompliancePortalAccessInput!
+    ): UpdateCompliancePortalAccessPayload!
+    deactivateCompliancePortalAccess(
+        input: DeactivateCompliancePortalAccessInput!
+    ): DeactivateCompliancePortalAccessPayload!
+    activateCompliancePortalAccess(
+        input: ActivateCompliancePortalAccessInput!
+    ): ActivateCompliancePortalAccessPayload!
+    deleteCompliancePortalAccess(
+        input: DeleteCompliancePortalAccessInput!
+    ): DeleteCompliancePortalAccessPayload!
+    createCompliancePortalReference(
+        input: CreateCompliancePortalReferenceInput!
+    ): CreateCompliancePortalReferencePayload!
+    updateCompliancePortalReference(
+        input: UpdateCompliancePortalReferenceInput!
+    ): UpdateCompliancePortalReferencePayload!
+    deleteCompliancePortalReference(
+        input: DeleteCompliancePortalReferenceInput!
+    ): DeleteCompliancePortalReferencePayload!
+    createCompliancePortalCommitmentGroup(
+        input: CreateCompliancePortalCommitmentGroupInput!
+    ): CreateCompliancePortalCommitmentGroupPayload!
+    updateCompliancePortalCommitmentGroup(
+        input: UpdateCompliancePortalCommitmentGroupInput!
+    ): UpdateCompliancePortalCommitmentGroupPayload!
+    deleteCompliancePortalCommitmentGroup(
+        input: DeleteCompliancePortalCommitmentGroupInput!
+    ): DeleteCompliancePortalCommitmentGroupPayload!
+    createCompliancePortalCommitment(
+        input: CreateCompliancePortalCommitmentInput!
+    ): CreateCompliancePortalCommitmentPayload!
+    updateCompliancePortalCommitment(
+        input: UpdateCompliancePortalCommitmentInput!
+    ): UpdateCompliancePortalCommitmentPayload!
+    deleteCompliancePortalCommitment(
+        input: DeleteCompliancePortalCommitmentInput!
+    ): DeleteCompliancePortalCommitmentPayload!
+    createComplianceFramework(
+        input: CreateComplianceFrameworkInput!
+    ): CreateComplianceFrameworkPayload!
+    updateComplianceFramework(
+        input: UpdateComplianceFrameworkInput!
+    ): UpdateComplianceFrameworkPayload!
+    deleteComplianceFramework(
+        input: DeleteComplianceFrameworkInput!
+    ): DeleteComplianceFrameworkPayload!
+    createComplianceCustomLink(
+        input: CreateComplianceCustomLinkInput!
+    ): CreateComplianceCustomLinkPayload!
+    updateComplianceCustomLink(
+        input: UpdateComplianceCustomLinkInput!
+    ): UpdateComplianceCustomLinkPayload!
+    deleteComplianceCustomLink(
+        input: DeleteComplianceCustomLinkInput!
+    ): DeleteComplianceCustomLinkPayload!
+    createCompliancePortalFile(
+        input: CreateCompliancePortalFileInput!
+    ): CreateCompliancePortalFilePayload!
+    updateCompliancePortalFile(
+        input: UpdateCompliancePortalFileInput!
+    ): UpdateCompliancePortalFilePayload!
+    getCompliancePortalFile(
+        input: GetCompliancePortalFileInput!
+    ): GetCompliancePortalFilePayload!
+    deleteCompliancePortalFile(
+        input: DeleteCompliancePortalFileInput!
+    ): DeleteCompliancePortalFilePayload!
+    createCustomDomain(
+        input: CreateCustomDomainInput!
+    ): CreateCustomDomainPayload!
+    deleteCustomDomain(
+        input: DeleteCustomDomainInput!
+    ): DeleteCustomDomainPayload!
+}
+
+input CreateCompliancePortalInput {
+    organizationId: ID!
+    entityName: String!
+}
+
+input DeleteCompliancePortalInput {
+    compliancePortalId: ID!
+}
+
+input CompliancePortalCapabilitiesInput {
+    rightsRequests: Boolean
+}
+
+input UpdateCompliancePortalInput {
+    compliancePortalId: ID!
+    active: Boolean
+    searchEngineIndexing: SearchEngineIndexing
+    capabilities: CompliancePortalCapabilitiesInput
+    entityName: String
+    description: String @goField(omittable: true)
+    websiteUrl: String @goField(omittable: true)
+    email: String @goField(omittable: true)
+    headquarterAddress: String @goField(omittable: true)
+}
+
+input UploadCompliancePortalNDAInput {
+    compliancePortalId: ID!
+    fileName: String!
+    file: Upload!
+}
+
+input DeleteCompliancePortalNDAInput {
+    compliancePortalId: ID!
+}
+
+input UpdateCompliancePortalBrandInput {
+    compliancePortalId: ID!
+    logoFile: Upload @goField(omittable: true)
+    darkLogoFile: Upload @goField(omittable: true)
+}
+
+input CreateCompliancePortalAccessInput {
+    compliancePortalId: ID!
+    profileId: ID
+    email: EmailAddr
+    documents: [ID!]
+    reports: [ID!]
+    compliancePortalFiles: [ID!]
+}
+
+input CompliancePortalDocumentAccessInput {
+    id: ID!
+    status: CompliancePortalDocumentAccessStatus!
+}
+
+input UpdateCompliancePortalAccessInput {
+    id: ID!
+    name: String
+    state: CompliancePortalAccessState
+    documents: [CompliancePortalDocumentAccessInput!]
+    reports: [CompliancePortalDocumentAccessInput!]
+    compliancePortalFiles: [CompliancePortalDocumentAccessInput!]
+}
+
+input DeleteCompliancePortalAccessInput {
+    id: ID!
+}
+
+input DeactivateCompliancePortalAccessInput {
+    id: ID!
+}
+
+input ActivateCompliancePortalAccessInput {
+    id: ID!
+}
+
+input CreateCompliancePortalReferenceInput {
+    compliancePortalId: ID!
+    name: String!
+    description: String
+    websiteUrl: String!
+    logoFile: Upload!
+}
+
+input UpdateCompliancePortalReferenceInput {
+    id: ID!
+    name: String
+    description: String @goField(omittable: true)
+    websiteUrl: String
+    logoFile: Upload
+    rank: Int
+}
+
+input DeleteCompliancePortalReferenceInput {
+    id: ID!
+}
+
+input CreateCompliancePortalCommitmentGroupInput {
+    compliancePortalId: ID!
+    title: String!
+    description: String!
+}
+
+input UpdateCompliancePortalCommitmentGroupInput {
+    id: ID!
+    title: String
+    description: String
+    rank: Int
+}
+
+input DeleteCompliancePortalCommitmentGroupInput {
+    id: ID!
+}
+
+input CreateCompliancePortalCommitmentInput {
+    groupId: ID!
+    icon: CompliancePortalCommitmentIcon!
+    eyebrow: String!
+    title: String!
+    description: String!
+}
+
+input UpdateCompliancePortalCommitmentInput {
+    id: ID!
+    icon: CompliancePortalCommitmentIcon
+    eyebrow: String
+    title: String
+    description: String
+    rank: Int
+}
+
+input DeleteCompliancePortalCommitmentInput {
+    id: ID!
+}
+
+input CreateComplianceFrameworkInput {
+    compliancePortalId: ID!
+    frameworkId: ID!
+}
+
+input UpdateComplianceFrameworkInput {
+    id: ID!
+    rank: Int!
+}
+
+input DeleteComplianceFrameworkInput {
+    id: ID!
+}
+
+input CreateComplianceCustomLinkInput {
+    compliancePortalId: ID!
+    name: String!
+    url: String!
+}
+
+input UpdateComplianceCustomLinkInput {
+    id: ID!
+    name: String!
+    url: String!
+    rank: Int
+}
+
+input DeleteComplianceCustomLinkInput {
+    id: ID!
+}
+
+input CreateCompliancePortalFileInput {
+    compliancePortalId: ID!
+    name: String!
+    category: String!
+    file: Upload!
+    compliancePortalVisibility: CompliancePortalVisibility!
+}
+
+input UpdateCompliancePortalDocumentVisibilityInput {
+    compliancePortalId: ID!
+    documentId: ID!
+    compliancePortalVisibility: CompliancePortalLinkedVisibility!
+}
+
+input DeleteCompliancePortalDocumentInput {
+    id: ID!
+}
+
+input UpdateCompliancePortalAuditVisibilityInput {
+    compliancePortalId: ID!
+    auditId: ID!
+    compliancePortalVisibility: CompliancePortalLinkedVisibility!
+}
+
+input DeleteCompliancePortalAuditInput {
+    id: ID!
+}
+
+input UpdateCompliancePortalThirdPartyPublishedInput {
+    compliancePortalId: ID!
+    thirdPartyId: ID!
+    published: Boolean!
+}
+
+input DeleteCompliancePortalThirdPartyInput {
+    id: ID!
+}
+
+type UpdateCompliancePortalDocumentVisibilityPayload {
+    catalogDocument: CompliancePortalDocument!
+    document: Document!
+}
+
+type DeleteCompliancePortalDocumentPayload {
+    deletedCompliancePortalDocumentId: ID!
+    document: Document!
+}
+
+type UpdateCompliancePortalAuditVisibilityPayload {
+    catalogAudit: CompliancePortalAudit!
+    audit: Audit!
+}
+
+type DeleteCompliancePortalAuditPayload {
+    deletedCompliancePortalAuditId: ID!
+    audit: Audit!
+}
+
+type UpdateCompliancePortalThirdPartyPublishedPayload {
+    catalogThirdParty: CompliancePortalThirdParty!
+    thirdParty: ThirdParty!
+}
+
+type DeleteCompliancePortalThirdPartyPayload {
+    deletedCompliancePortalThirdPartyId: ID!
+    thirdParty: ThirdParty!
+}
+
+input UpdateCompliancePortalFileInput {
+    id: ID!
+    name: String
+    category: String
+    compliancePortalVisibility: CompliancePortalVisibility
+}
+
+input GetCompliancePortalFileInput {
+    id: ID!
+}
+
+input DeleteCompliancePortalFileInput {
+    id: ID!
+}
+
+input CreateCustomDomainInput {
+    compliancePortalId: ID!
+    domain: String!
+}
+
+input DeleteCustomDomainInput {
+    customDomainId: ID!
+}
+
+type CreateCompliancePortalPayload {
+    compliancePortalEdge: CompliancePortalEdge!
+}
+
+type DeleteCompliancePortalPayload {
+    deletedCompliancePortalId: ID!
+}
+
+type UpdateCompliancePortalPayload {
+    compliancePortal: CompliancePortal!
+}
+
+type UploadCompliancePortalNDAPayload {
+    compliancePortal: CompliancePortal!
+}
+
+type DeleteCompliancePortalNDAPayload {
+    compliancePortal: CompliancePortal!
+}
+
+type UpdateCompliancePortalBrandPayload {
+    compliancePortal: CompliancePortal!
+}
+
+type CreateCompliancePortalAccessPayload {
+    compliancePortalAccessEdge: CompliancePortalAccessEdge!
+}
+
+type UpdateCompliancePortalAccessPayload {
+    compliancePortalAccess: CompliancePortalAccess!
+    documents: [Document!]!
+    audits: [Audit!]!
+    compliancePortalFiles: [CompliancePortalFile!]!
+}
+
+type DeleteCompliancePortalAccessPayload {
+    deletedCompliancePortalAccessId: ID!
+}
+
+type DeactivateCompliancePortalAccessPayload {
+    compliancePortalAccess: CompliancePortalAccess!
+}
+
+type ActivateCompliancePortalAccessPayload {
+    compliancePortalAccess: CompliancePortalAccess!
+}
+
+type CreateCompliancePortalReferencePayload {
+    compliancePortalReferenceEdge: CompliancePortalReferenceEdge!
+}
+
+type UpdateCompliancePortalReferencePayload {
+    compliancePortalReference: CompliancePortalReference!
+}
+
+type DeleteCompliancePortalReferencePayload {
+    deletedCompliancePortalReferenceId: ID!
+}
+
+type CreateCompliancePortalCommitmentGroupPayload {
+    compliancePortalCommitmentGroupEdge: CompliancePortalCommitmentGroupEdge!
+}
+
+type UpdateCompliancePortalCommitmentGroupPayload {
+    compliancePortalCommitmentGroup: CompliancePortalCommitmentGroup!
+}
+
+type DeleteCompliancePortalCommitmentGroupPayload {
+    deletedCompliancePortalCommitmentGroupId: ID!
+}
+
+type CreateCompliancePortalCommitmentPayload {
+    compliancePortalCommitmentEdge: CompliancePortalCommitmentEdge!
+}
+
+type UpdateCompliancePortalCommitmentPayload {
+    compliancePortalCommitment: CompliancePortalCommitment!
+}
+
+type DeleteCompliancePortalCommitmentPayload {
+    deletedCompliancePortalCommitmentId: ID!
+}
+
+type CreateComplianceFrameworkPayload {
+    complianceFrameworkEdge: ComplianceFrameworkEdge!
+}
+
+type UpdateComplianceFrameworkPayload {
+    complianceFramework: ComplianceFramework!
+}
+
+type DeleteComplianceFrameworkPayload {
+    deletedComplianceFrameworkId: ID!
+}
+
+type CreateComplianceCustomLinkPayload {
+    complianceCustomLinkEdge: ComplianceCustomLinkEdge!
+}
+
+type UpdateComplianceCustomLinkPayload {
+    complianceCustomLink: ComplianceCustomLink!
+}
+
+type DeleteComplianceCustomLinkPayload {
+    deletedComplianceCustomLinkId: ID!
+}
+
+type CreateCompliancePortalFilePayload {
+    compliancePortalFileEdge: CompliancePortalFileEdge!
+}
+
+type UpdateCompliancePortalFilePayload {
+    compliancePortalFile: CompliancePortalFile!
+}
+
+type GetCompliancePortalFilePayload {
+    compliancePortalFile: CompliancePortalFile!
+}
+
+type DeleteCompliancePortalFilePayload {
+    deletedCompliancePortalFileId: ID!
+}
+
+type CreateCustomDomainPayload {
+    customDomain: CustomDomain!
+}
+
+type DeleteCustomDomainPayload {
+    deletedCustomDomainId: ID!
+}

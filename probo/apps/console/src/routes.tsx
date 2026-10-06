@@ -1,0 +1,350 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { Role } from "@probo/helpers";
+import { lazy } from "@probo/react-lazy";
+import { type AppRoute, routeFromAppRoute } from "@probo/routes";
+import { CenteredLayout } from "@probo/ui";
+import { Fragment, use } from "react";
+import { createBrowserRouter, Navigate, redirect } from "react-router";
+
+import { OrganizationErrorBoundary } from "./components/OrganizationErrorBoundary";
+import { PageError } from "./components/PageError";
+import { RedirectToEmployeePortal } from "./components/RedirectToEmployeePortal";
+import { RootErrorBoundary } from "./components/RootErrorBoundary";
+import { PageSkeleton } from "./components/skeletons/PageSkeleton";
+import { AuthLayoutSkeleton } from "./pages/iam/auth/AuthLayoutSkeleton";
+import { ViewerLayoutLoading } from "./pages/iam/memberships/ViewerLayoutLoading";
+import { auditLogRoutes } from "./pages/iam/organizations/audit-log/routes";
+import { authRoutes } from "./pages/iam/organizations/auth/routes";
+import { settingsRoutes } from "./pages/iam/organizations/settings/routes";
+import { usersRoutes } from "./pages/iam/organizations/users/routes";
+import { accessReviewRoutes } from "./pages/organizations/access-reviews/routes";
+import { aiSystemRoutes } from "./pages/organizations/aiSystems/routes";
+import { businessFunctionRoutes } from "./pages/organizations/businessFunctions/routes";
+import { compliancePortalRoutes } from "./pages/organizations/compliance-portals/routes";
+import { cookieBannerRoutes } from "./pages/organizations/cookie-banners/routes";
+import { deviceRoutes } from "./pages/organizations/devices/routes";
+import { riskRoutes } from "./pages/organizations/risks/routes";
+import { integrationRoutes } from "./pages/organizations/settings/integrations/routes";
+import { taskRoutes } from "./pages/organizations/tasks/routes";
+import { thirdPartyRoutes } from "./pages/organizations/third-parties/routes";
+import { CurrentUser } from "./providers/CurrentUser";
+import { assetRoutes } from "./routes/assetRoutes";
+import { auditRoutes } from "./routes/auditRoutes";
+import { contextRoutes } from "./routes/contextRoutes";
+import { dataRoutes } from "./routes/dataRoutes";
+import { documentsRoutes } from "./routes/documentsRoutes";
+import { findingRoutes } from "./routes/findingRoutes";
+import { frameworkRoutes } from "./routes/frameworkRoutes";
+import { measureRoutes } from "./routes/measureRoutes";
+import { obligationRoutes } from "./routes/obligationRoutes";
+import { processingActivityRoutes } from "./routes/processingActivityRoutes";
+import { rightsRequestRoutes } from "./routes/rightsRequestRoutes";
+import { statementsOfApplicabilityRoutes } from "./routes/statementsOfApplicabilityRoutes";
+
+const routes = [
+  {
+    path: "/auth",
+    Component: lazy(() => import("./pages/iam/auth/AuthLayout")),
+    Fallback: AuthLayoutSkeleton,
+    children: [
+      {
+        path: "login",
+        Component: lazy(
+          () => import("./pages/iam/auth/sign-in/SignInPageLoader"),
+        ),
+      },
+      {
+        path: "password-login",
+        Component: lazy(
+          () => import("./pages/iam/auth/sign-in/PasswordSignInPage"),
+        ),
+      },
+      {
+        path: "sso-login",
+        Component: lazy(() => import("./pages/iam/auth/sign-in/SSOSignInPage")),
+      },
+      {
+        path: "register",
+        Component: lazy(() => import("./pages/iam/auth/SignUpPage")),
+      },
+      {
+        path: "verify-email",
+        Component: lazy(() => import("./pages/iam/auth/VerifyEmailPage")),
+      },
+      {
+        path: "magic-link",
+        Component: lazy(() => import("./pages/iam/auth/MagicLinkPage")),
+      },
+      {
+        path: "resend-verification-email",
+        Component: lazy(
+          () => import("./pages/iam/auth/ResendVerificationEmailPage"),
+        ),
+      },
+      {
+        path: "activate-account",
+        Component: lazy(
+          () => import("./pages/iam/auth/ActivateAccountPage"),
+        ),
+      },
+      {
+        path: "create-password",
+        Component: lazy(
+          () => import("./pages/iam/auth/CreatePasswordPage"),
+        ),
+      },
+      {
+        path: "forgot-password",
+        Component: lazy(() => import("./pages/iam/auth/ForgotPasswordPage")),
+      },
+      {
+        path: "reset-password",
+        Component: lazy(() => import("./pages/iam/auth/ResetPasswordPage")),
+      },
+      {
+        path: "device",
+        ErrorBoundary: RootErrorBoundary,
+        Component: lazy(
+          () => import("./pages/iam/auth/DeviceActivationPageLoader"),
+        ),
+      },
+      {
+        path: "consent",
+        ErrorBoundary: RootErrorBoundary,
+        Component: lazy(
+          () => import("./pages/iam/auth/ConsentPageLoader"),
+        ),
+      },
+      {
+        path: "error",
+        Component: lazy(() => import("./pages/iam/auth/AuthErrorPage")),
+      },
+    ],
+  },
+  {
+    path: "/",
+    ErrorBoundary: RootErrorBoundary,
+    children: [
+      {
+        Component: lazy(() => import("./pages/iam/memberships/ViewerLayoutLoader")),
+        Fallback: ViewerLayoutLoading,
+        children: [
+          {
+            index: true,
+            Component: lazy(
+              () => import("./pages/iam/memberships/MembershipsPageLoader"),
+            ),
+          },
+          {
+            path: "me/oauth-tokens",
+            Component: lazy(
+              () => import("./pages/iam/oauthTokens/OAuthTokensPageLoader"),
+            ),
+          },
+          {
+            path: "me/oauth-tokens/new",
+            Component: lazy(
+              () => import("./pages/iam/oauthTokens/NewOAuthTokenPageLoader"),
+            ),
+          },
+          {
+            Component: CenteredLayout,
+            children: [
+              {
+                path: "organizations/new",
+                Component: lazy(
+                  () => import("./pages/iam/organizations/NewOrganizationPage"),
+                ),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    path: "/organizations/:organizationId",
+    children: [
+      {
+        Component: lazy(() => import("./pages/iam/auth/AuthLayout")),
+        Fallback: AuthLayoutSkeleton,
+        children: [
+          {
+            path: "assume",
+            Component: lazy(() => import("./pages/iam/organizations/AssumePageLoader")),
+          },
+        ],
+      },
+      {
+        Component: lazy(
+          () => import("./pages/iam/organizations/OrganizationLayoutLoader"),
+        ),
+        ErrorBoundary: OrganizationErrorBoundary,
+        children: [
+          {
+            path: "",
+            Component: () => {
+              const { role } = use(CurrentUser);
+              switch (role) {
+                case Role.EMPLOYEE:
+                  return <RedirectToEmployeePortal />;
+                case Role.AUDITOR:
+                  return <Navigate to="governance/measures" />;
+                case Role.COMPLIANCE_PORTAL_MANAGER:
+                  return <Navigate to="compliance-portals" />;
+                case Role.COMPLIANCE_PORTAL_ACCESS_MANAGER:
+                  return <Navigate to="compliance-portals" />;
+                default:
+                  return <Navigate to="governance/tasks" />;
+              }
+            },
+          },
+
+          // Features are grouped under a product segment, mirroring the rail.
+          // NAV_GROUPS in _lib/navigation.ts must agree with these segments —
+          // it is what builds the links.
+          {
+            path: "governance",
+            children: [
+              ...frameworkRoutes,
+              ...auditRoutes,
+              ...findingRoutes,
+              ...measureRoutes,
+              ...documentsRoutes,
+              ...taskRoutes,
+              ...statementsOfApplicabilityRoutes,
+            ],
+          },
+          {
+            path: "privacy",
+            children: [
+              ...rightsRequestRoutes,
+              ...processingActivityRoutes,
+              ...cookieBannerRoutes,
+            ],
+          },
+          {
+            path: "tprm",
+            children: [...thirdPartyRoutes],
+          },
+          {
+            path: "itam",
+            children: [...deviceRoutes],
+          },
+          {
+            path: "risk-management",
+            children: [
+              ...riskRoutes,
+              {
+                path: "data",
+                loader: () => {
+                  // eslint-disable-next-line
+                  throw redirect("../registries/data");
+                },
+                Component: Fragment,
+              },
+              {
+                path: "data/:dataId",
+                loader: ({ params }) => {
+                  // eslint-disable-next-line
+                  throw redirect(`../registries/data/${params.dataId}`);
+                },
+                Component: Fragment,
+              },
+              {
+                path: "assets",
+                loader: () => {
+                  // eslint-disable-next-line
+                  throw redirect("../registries/assets");
+                },
+                Component: Fragment,
+              },
+              {
+                path: "assets/:assetId",
+                loader: ({ params }) => {
+                  // eslint-disable-next-line
+                  throw redirect(`../registries/assets/${params.assetId}`);
+                },
+                Component: Fragment,
+              },
+            ],
+          },
+
+          {
+            path: "access-reviews",
+            children: [...accessReviewRoutes],
+          },
+          {
+            path: "registries",
+            children: [
+              ...dataRoutes,
+              ...assetRoutes,
+              ...businessFunctionRoutes,
+              ...aiSystemRoutes,
+              ...obligationRoutes,
+            ],
+          },
+          ...compliancePortalRoutes,
+
+          {
+            path: "settings",
+            children: [
+              {
+                index: true,
+                loader: () => {
+                  // eslint-disable-next-line
+                  throw redirect("general");
+                },
+              },
+              ...settingsRoutes,
+              ...contextRoutes,
+              {
+                path: "slackbot",
+                Fallback: PageSkeleton,
+                Component: lazy(
+                  () =>
+                    import("./pages/organizations/settings/SlackBotSettingsPageLoader"),
+                ),
+              },
+              ...integrationRoutes,
+              ...usersRoutes,
+              ...authRoutes,
+              ...auditLogRoutes,
+            ],
+          },
+          {
+            path: "*",
+            Component: PageError,
+          },
+        ],
+      },
+    ],
+  },
+
+  // Fallback URL to the NotFound Page
+  {
+    path: "*",
+    Component: PageError,
+  },
+] satisfies AppRoute[];
+
+export const router = createBrowserRouter(routes.map(routeFromAppRoute));

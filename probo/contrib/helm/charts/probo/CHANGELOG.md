@@ -1,0 +1,275 @@
+# Changelog
+
+All notable changes to the Probo Helm chart will be documented in this file.
+
+## Unreleased
+
+## [0.25.0] - 2026-09-24
+
+### Added
+
+- `linear` and `linear-sync` example OAuth2 connector configs
+  (`clientId`, `clientSecret`, and `linear-sync`'s webhook-signing
+  `webhookSecret`) documented for Linear task sync
+- `probo.cookieBanner.tcfCmpId` sets the IAB TCF CMP ID; self-hosted
+  instances that register their own CMP with IAB Europe set this to
+  that ID
+
+### Changed
+
+- Default `appVersion` is now `0.296.0`
+
+## [0.24.0] - 2026-09-16
+
+### Changed
+
+- Default `appVersion` is now `0.290.0`
+
+## [0.23.0] - 2026-09-16
+
+### Removed
+
+- Tracker-pattern to org-third-party linking (the mapping worker, import,
+  policy, and console no longer write or display the org third party;
+  catalog identification is now the sole vendor path)
+
+## [0.22.0] - 2026-09-15
+
+### Added
+
+- `probo.identityFederation.azureTerraformModuleSource` Helm value, used to
+  build the Azure connector install snippet
+- `probo.identityFederation.cloudformationTemplateUrl`,
+  `probo.identityFederation.terraformModuleSource`, and
+  `probo.identityFederation.gcpTerraformModuleSource` documented on the
+  production values example and the Helm README
+
+## [0.21.0] - 2026-09-03
+
+### Added
+
+- `probo.identityFederation.gcpTerraformModuleSource` Helm value, used to
+  build the GCP connector install snippet
+
+## [0.20.0] - 2026-09-01
+
+### Added
+
+- `probo.identityFederation.cloudformationTemplateUrl` and `probo.identityFederation.terraformModuleSource` Helm values, used to build the AWS connector's quick-create link and install snippet
+
+## [0.19.0] - 2026-08-24
+
+### Added
+
+- Example Helm values for connecting a GitHub App connector (`appId`, `clientId`, `clientSecret`, `slug`, `privateKey`), and Secret wiring for the app's private key and client secret
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.265.0`
+
+## [0.18.0] - 2026-08-21
+
+### Added
+
+- Helm values for the per-organization cloud identity issuer: signing key, key id, retired-key rotation, and issuer base URL
+- Helm values for outbound webhook delivery tuning: sender interval, request timeout, cache TTL, stale-after threshold, retry base/max, and max concurrency
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.264.0`
+
+## [0.17.0] - 2026-08-18
+
+### Added
+
+- Helm values for deploying the Probot Slack bot: Slack OAuth, signing
+  secret, and durable delivery worker wiring, plus the Anthropic API key
+  required when the Slackbot's LLM provider is set to Anthropic
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.262.0`
+
+## [0.16.0] - 2026-08-17
+
+### Added
+
+- Support for externally terminated portal TLS: skips ACME environment variables and account-key secret, and disables the HAProxy TCP map, when a chart deployment runs in external TLS mode
+
+## [0.15.0] - 2026-08-10
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.254.0`, which restricts console access to users with an active organization membership.
+
+## [0.14.0] - 2026-08-07
+
+### Added
+
+- Helm value `probo.geolocation.subdivisionProvider` to enable IP-to-subdivision lookups for resolving state/province privacy regulations and jurisdiction on consent records
+
+## [0.13.0] - 2026-07-29
+
+### Added
+
+- `probo.auth.cookieSameSite` Helm value to configure the auth cookie's `SameSite` attribute (`lax`, `strict`, or `none`; default: `lax`)
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.240.0`
+
+## [0.12.0] - 2026-07-28
+
+### Added
+
+- `probo.auth.emailConfirmationTokenValidity` Helm value to configure the email-confirmation token lifetime (default: 3600 seconds / 1 hour)
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.238.0`
+
+## [0.11.0] - 2026-07-25
+
+### Added
+
+- `probo.itam.deviceEnrollmentTokenValidity` Helm value to configure the device enrollment token lifetime (default: 604800 seconds / 7 days)
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.235.0`
+
+## [0.10.0] - 2026-06-30
+
+### Added
+
+- `probo.api.graphql.*` Helm values to tune GraphQL request limits (parser token cap, complexity limit, query cache size) for all three endpoints
+
+### Fixed
+
+- GraphQL endpoint is now protected against alias-flooding DoS (GHSA-prh2-g8pv-m7p9)
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.222.0`
+- Bootstrap resolver now supports AWS Systems Manager Parameter Store (`awsps://` prefix)
+
+## [0.9.1] - 2026-06-25
+
+### Changed
+
+- Bump `kubernetes-ingress` (haproxy-ingress) dependency to `1.52.0`
+
+## [0.9.0] - 2026-06-24
+
+### Breaking Changes
+
+- **Bootstrap env var names now use the `PROBOD_` prefix** (e.g. `AUTH_COOKIE_SECRET` → `PROBOD_AUTH_COOKIE_SECRET`), matching probod-bootstrap v0.2.0. Existing env injection must be updated before upgrading.
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.219.0`
+
+## [0.8.0] - 2026-06-19
+
+### Added
+
+- `probo.oauth2.cimdAllowedClientIds` config slot: list of HTTPS client metadata document URLs allowed for CIMD OAuth clients (e.g. MCP connectors); leave empty to disable CIMD
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.216.0`
+
+## [0.7.0] - 2026-06-12
+
+### Added
+
+- `commonThirdPartyEnrichment` agent config slot (provider/modelName/temperature/maxTokens) for the new common third-party enricher
+- `commonThirdPartyEnrichmentWorker` config slot (interval, maxConcurrency, staleAfter, agentTimeout, agentMaxTurns, confidenceThreshold, maxAttempts) for tuning the background worker
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.209.0`
+- `commonThirdPartyEnrichmentWorker.confidenceThreshold` of `0` is now rendered correctly (was previously dropped by Helm's falsy-numeric truthiness)
+
+## [0.6.0] - 2026-06-11
+
+### Changed
+
+- Default `appVersion` updated to `probod v0.208.0`
+- Tracker mapping config restored to support linking (not create-only)
+- References updated to probo.com
+
+### Removed
+
+- `thirdPartyDisambiguation` agent config slot and
+  `trackerMappingWorker.disambiguationAgentTimeout` removed (disambiguation
+  agent dropped upstream)
+
+## [0.5.0] - 2026-06-09
+
+### Added
+
+- Expose dedicated `thirdPartyDisambiguation` and `trackerEnrichment` agent config slots (provider/model/temperature/maxTokens), each falling back to `trackerMapping` when the provider is unset
+- `trackerMappingWorker.disambiguationAgentTimeout` to size the disambiguation sub-agent independently from the main mapping agent
+
+### Changed
+
+- Default `appVersion` to `probod v0.206.0`
+
+## [0.4.0] - 2026-06-05
+
+### Added
+
+- `SMTP_HELLO_NAME` environment variable to configure the EHLO/HELO hostname
+
+### Changed
+
+- Default `appVersion` to `probod v0.203.0`
+
+## [0.3.0] - 2026-06-02
+
+### Added
+
+- Expose third-party vetting worker tuning (interval, concurrency, stale-after, agent timeout, max-turns) in values
+
+### Changed
+
+- Default `appVersion` to `probod v0.201.0`
+
+## [0.2.1] - 2026-06-01
+
+### Changed
+
+- Default `appVersion` to `probod v0.200.1`
+- Raise default tracker mapping and common-pattern enrichment agent `maxTurns` to 10 in `values.yaml` and `values-production.yaml.example`
+
+## [0.2.0] - 2026-06-01
+
+### Added
+
+- Expose tracker-mapping and common-pattern-enrichment worker tuning (interval, concurrency, stale-after, agent timeout, max-turns) in values
+- Wire `OAUTH2_SERVER_SIGNING_KEY` and add early validation for required base64 and PEM secrets
+
+### Changed
+
+- Default `appVersion` to `probod v0.200.0`
+- Raise default agent `maxTokens` to 4096 in `values-production.yaml.example` to leave headroom for reasoning models
+- Align `PG_ADDR` with `postgresql.host`/`port`
+- Isolate the main service/deployment with component labels so Chrome pods are not selected by server traffic
+- Document required secret formats, managed PostgreSQL prerequisites, ACME account key persistence, and Azure Blob compatibility caveats for S3 proxy deployments
+
+## [0.1.0] - 2026-05-25
+
+### Added
+
+- Initial Helm chart for deploying Probo (`probod v0.192.0`) with configurable PostgreSQL, SeaweedFS object storage, ingress, SAML, SMTP, and connector OAuth credentials
+
+### Changed
+
+- Container images are pulled from the `artifact.probo.inc` OCI registry
+- Firecrawl API key is now configured under `agents.tools.firecrawl.apiKey`; `FIRECRAWL_ENDPOINT` is no longer configurable
+- Access-review connectors now require `clientSecret`
+
+### Removed
+
+- SearXNG search backend — Firecrawl is the only supported web search provider

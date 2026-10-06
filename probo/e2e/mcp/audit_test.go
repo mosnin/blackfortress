@@ -1,0 +1,116 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package mcp_test
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/e2e/internal/factory"
+	"go.probo.inc/probo/e2e/internal/testutil"
+)
+
+func TestMCP_Audit_CRUD(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	mc := testutil.NewMCPClient(t, owner)
+	orgID := owner.GetOrganizationID().String()
+	frameworkID := factory.CreateFramework(owner)
+
+	// Create
+	var addResult struct {
+		Audit struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"audit"`
+	}
+	mc.CallToolInto("addAudit", map[string]any{
+		"organization_id": orgID,
+		"framework_id":    frameworkID,
+		"name":            factory.SafeName("Audit"),
+	}, &addResult)
+	require.NotEmpty(t, addResult.Audit.ID)
+
+	// Get
+	var getResult struct {
+		Audit struct {
+			ID string `json:"id"`
+		} `json:"audit"`
+	}
+	mc.CallToolInto("getAudit", map[string]any{
+		"id": addResult.Audit.ID,
+	}, &getResult)
+	assert.Equal(t, addResult.Audit.ID, getResult.Audit.ID)
+
+	// Update
+	var updateResult struct {
+		Audit struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"audit"`
+	}
+	mc.CallToolInto("updateAudit", map[string]any{
+		"id":   addResult.Audit.ID,
+		"name": "Updated Audit",
+	}, &updateResult)
+	assert.Equal(t, "Updated Audit", updateResult.Audit.Name)
+
+	// List
+	var listResult struct {
+		Audits []struct {
+			ID string `json:"id"`
+		} `json:"audits"`
+	}
+	mc.CallToolInto("listAudits", map[string]any{
+		"organization_id": orgID,
+	}, &listResult)
+	assert.NotEmpty(t, listResult.Audits)
+
+	// Delete
+	var deleteResult struct {
+		DeletedAuditID string `json:"deleted_audit_id"`
+	}
+	mc.CallToolInto("deleteAudit", map[string]any{
+		"id": addResult.Audit.ID,
+	}, &deleteResult)
+	assert.Equal(t, addResult.Audit.ID, deleteResult.DeletedAuditID)
+}
+
+func TestMCP_AuditLog(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+	mc := testutil.NewMCPClient(t, owner)
+	orgID := owner.GetOrganizationID().String()
+
+	// Creating something generates audit log entries
+	factory.CreateThirdParty(owner)
+
+	var listResult struct {
+		AuditLogEntries []struct {
+			ID string `json:"id"`
+		} `json:"audit_log_entries"`
+	}
+	mc.CallToolInto("listAuditLogEntries", map[string]any{
+		"organization_id": orgID,
+	}, &listResult)
+	assert.NotEmpty(t, listResult.AuditLogEntries)
+}

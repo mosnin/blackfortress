@@ -1,0 +1,59 @@
+{
+  "slug": "cloudflare",
+  "name": "Cloudflare",
+  "description": "Monitor Cloudflare security settings including TLS/SSL configuration and WAF firewall rules for compliance evidence",
+  "category": "Infrastructure",
+  "docsUrl": "https://developers.cloudflare.com/api/",
+  "baseUrl": "https://api.cloudflare.com/client/v4/",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to the Cloudflare Dashboard at https://dash.cloudflare.com.\n2. Go to My Profile > API Tokens > Create Token > Create Custom Token.\n3. Grant these permissions:\n   - Zone > Zone > Read\n   - Zone > Zone Settings > Read\n   - Zone > WAF > Read\n   - (optional) Zone > SSL and Certificates > Read — enables TLS certificate detail in the TLS/HTTPS check\n4. Set Zone Resources to 'All zones' (recommended — lets Comp AI auto-detect every domain).\n5. Click Continue to summary > Create Token, copy the generated token, and paste it below. That's it — Comp AI automatically discovers the zones (domains) your token can access; you do NOT need to enter Zone IDs.\n\nIMPORTANT — use an API Token, NOT the Global API Key:\n - This integration only works with a Cloudflare API Token (created via the Create Token button above).\n - Do NOT paste the Global API Key — it appears lower on the same 'API Tokens' page under the 'API Keys' section (a 37-character key with a View button). It is a different, legacy credential type and Cloudflare will reject it here, causing every check to fail with an authorization error.\n\nNotes:\n - A Cloudflare 'zone' is a DNS domain (e.g. example.com). These checks monitor domain security: TLS/SSL mode, WAF, and zone status.\n - Cloudflare Workers and Pages are account-scoped and have no zones, so they are not covered by these checks.\n - To limit monitoring to specific domains, you can optionally enter their Zone IDs (comma-separated) in the Zone IDs field; otherwise all accessible zones are monitored.",
+      "credentialFields": [
+        {
+          "label": "API Token",
+          "type": "password",
+          "required": true,
+          "helpText": "Create a custom API Token in Cloudflare Dashboard > My Profile > API Tokens > Create Token, with Zone:Read, Zone Settings:Read, and Zone WAF:Read for all zones you want to monitor. Must be an API Token — NOT the Global API Key shown in the 'API Keys' section of the same page (the Global API Key will be rejected)."
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "tls_https",
+      "name": "TLS / HTTPS",
+      "description": "Verifies that Cloudflare SSL/TLS encryption mode is set to Full or Strict for end-to-end encryption across all monitored zones",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "production_firewall",
+      "name": "Production Firewall",
+      "description": "Verifies that Cloudflare WAF firewall rules are configured and active across all monitored zones",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "encryption_at_rest",
+      "name": "Encryption at Rest",
+      "description": "Verifies Cloudflare data stores encryption at rest across all monitored zones - all Cloudflare storage is encrypted at rest by default using AES-256",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "app_availability",
+      "name": "App Availability",
+      "description": "Verifies Cloudflare zones are active with DDoS protection and performance features enabled",
+      "defaultSeverity": "high",
+      "enabled": true
+    }
+  ],
+  "checkCount": 4,
+  "isActive": true
+}

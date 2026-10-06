@@ -1,0 +1,29 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import type { IconProps } from "./type";
+
+export function IconBlock({ size = 24, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
+      <path fillRule="evenodd" clipRule="evenodd" d="M8 5C6.89543 5 6 5.89543 6 7V19H18V7C18 5.89542 17.1046 5 16 5H8ZM20 19V7C20 4.79088 18.2092 3 16 3H8C5.79087 3 4 4.79087 4 7V19H3C2.44772 19 2 19.4477 2 20C2 20.5523 2.44772 21 3 21H21C21.5523 21 22 20.5523 22 20C22 19.4477 21.5523 19 21 19H20ZM8 8C8 7.44772 8.44772 7 9 7H10C10.5523 7 11 7.44772 11 8C11 8.55228 10.5523 9 10 9H9C8.44772 9 8 8.55228 8 8ZM13 8C13 7.44772 13.4477 7 14 7H15C15.5523 7 16 7.44772 16 8C16 8.55228 15.5523 9 15 9H14C13.4477 9 13 8.55228 13 8ZM8 12C8 11.4477 8.44772 11 9 11H10C10.5523 11 11 11.4477 11 12C11 12.5523 10.5523 13 10 13H9C8.44772 13 8 12.5523 8 12ZM13 12C13 11.4477 13.4477 11 14 11H15C15.5523 11 16 11.4477 16 12C16 12.5523 15.5523 13 15 13H14C13.4477 13 13 12.5523 13 12ZM8 16C8 15.4477 8.44772 15 9 15H10C10.5523 15 11 15.4477 11 16C11 16.5523 10.5523 17 10 17H9C8.44772 17 8 16.5523 8 16ZM13 16C13 15.4477 13.4477 15 14 15H15C15.5523 15 16 15.4477 16 16C16 16.5523 15.5523 17 15 17H14C13.4477 17 13 16.5523 13 16Z" fill="currentColor" />
+    </svg>
+  );
+}

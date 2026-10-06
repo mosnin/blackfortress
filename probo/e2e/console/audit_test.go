@@ -1,0 +1,1593 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package console_test
+
+import (
+	"fmt"
+	"maps"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/e2e/internal/factory"
+	"go.probo.inc/probo/e2e/internal/testutil"
+)
+
+func TestAudit_Create(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Audit").Create()
+
+	tests := []struct {
+		name        string
+		input       map[string]any
+		assertField string
+		assertValue string
+	}{
+		{
+			name: "with full details",
+			input: map[string]any{
+				"name":  "SOC 2 Type II Audit 2025",
+				"state": "NOT_STARTED",
+			},
+			assertField: "name",
+			assertValue: "SOC 2 Type II Audit 2025",
+		},
+		{
+			name: "with NOT_STARTED state",
+			input: map[string]any{
+				"name":  "Audit NOT_STARTED",
+				"state": "NOT_STARTED",
+			},
+			assertField: "state",
+			assertValue: "NOT_STARTED",
+		},
+		{
+			name: "with IN_PROGRESS state",
+			input: map[string]any{
+				"name":  "Audit IN_PROGRESS",
+				"state": "IN_PROGRESS",
+			},
+			assertField: "state",
+			assertValue: "IN_PROGRESS",
+		},
+		{
+			name: "with COMPLETED state",
+			input: map[string]any{
+				"name":  "Audit COMPLETED",
+				"state": "COMPLETED",
+			},
+			assertField: "state",
+			assertValue: "COMPLETED",
+		},
+		{
+			name: "with REJECTED state",
+			input: map[string]any{
+				"name":  "Audit REJECTED",
+				"state": "REJECTED",
+			},
+			assertField: "state",
+			assertValue: "REJECTED",
+		},
+		{
+			name: "with OUTDATED state",
+			input: map[string]any{
+				"name":  "Audit OUTDATED",
+				"state": "OUTDATED",
+			},
+			assertField: "state",
+			assertValue: "OUTDATED",
+		},
+		{
+			name: "with TO_BOOK state",
+			input: map[string]any{
+				"name":  "Audit TO_BOOK",
+				"state": "TO_BOOK",
+			},
+			assertField: "state",
+			assertValue: "TO_BOOK",
+		},
+		{
+			name: "with AUDIT_BOOKED state",
+			input: map[string]any{
+				"name":  "Audit AUDIT_BOOKED",
+				"state": "AUDIT_BOOKED",
+			},
+			assertField: "state",
+			assertValue: "AUDIT_BOOKED",
+		},
+		{
+			name: "with firm",
+			input: map[string]any{
+				"name": "Audit with firm",
+				"firm": "A-LIGN",
+			},
+			assertField: "firm",
+			assertValue: "A-LIGN",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := `
+				mutation CreateAudit($input: CreateAuditInput!) {
+					createAudit(input: $input) {
+						auditEdge {
+							node {
+								id
+								name
+								firm
+								state
+							}
+						}
+					}
+				}
+			`
+
+			input := map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+				"frameworkId":    frameworkID,
+			}
+			maps.Copy(input, tt.input)
+
+			var result struct {
+				CreateAudit struct {
+					AuditEdge struct {
+						Node struct {
+							ID    string `json:"id"`
+							Name  string `json:"name"`
+							Firm  string `json:"firm"`
+							State string `json:"state"`
+						} `json:"node"`
+					} `json:"auditEdge"`
+				} `json:"createAudit"`
+			}
+
+			err := owner.Execute(query, map[string]any{"input": input}, &result)
+			require.NoError(t, err)
+
+			node := result.CreateAudit.AuditEdge.Node
+			assert.NotEmpty(t, node.ID)
+
+			switch tt.assertField {
+			case "name":
+				assert.Equal(t, tt.assertValue, node.Name)
+			case "firm":
+				assert.Equal(t, tt.assertValue, node.Firm)
+			case "state":
+				assert.Equal(t, tt.assertValue, node.State)
+			}
+		})
+	}
+}
+
+func TestAudit_AuditDates(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Audit Dates").Create()
+
+	const createQuery = `
+		mutation CreateAudit($input: CreateAuditInput!) {
+			createAudit(input: $input) {
+				auditEdge {
+					node {
+						id
+						auditDates {
+							start
+							end
+						}
+					}
+				}
+			}
+		}
+	`
+
+	input := map[string]any{
+		"organizationId": owner.GetOrganizationID().String(),
+		"frameworkId":    frameworkID,
+		"name":           "Audit with start and end dates",
+		"state":          "NOT_STARTED",
+		"auditDates": map[string]any{
+			"start": "2026-03-01T00:00:00Z",
+			"end":   "2026-03-15T00:00:00Z",
+		},
+	}
+
+	var createResult struct {
+		CreateAudit struct {
+			AuditEdge struct {
+				Node struct {
+					ID         string `json:"id"`
+					AuditDates *struct {
+						Start *string `json:"start"`
+						End   *string `json:"end"`
+					} `json:"auditDates"`
+				} `json:"node"`
+			} `json:"auditEdge"`
+		} `json:"createAudit"`
+	}
+
+	err := owner.Execute(createQuery, map[string]any{"input": input}, &createResult)
+	require.NoError(t, err)
+
+	node := createResult.CreateAudit.AuditEdge.Node
+	require.NotNil(t, node.AuditDates)
+	require.NotNil(t, node.AuditDates.Start)
+	require.NotNil(t, node.AuditDates.End)
+	assert.True(t, strings.HasPrefix(*node.AuditDates.Start, "2026-03-01"))
+	assert.True(t, strings.HasPrefix(*node.AuditDates.End, "2026-03-15"))
+
+	const updateQuery = `
+		mutation UpdateAudit($input: UpdateAuditInput!) {
+			updateAudit(input: $input) {
+				audit {
+					id
+					auditDates {
+						start
+						end
+					}
+				}
+			}
+		}
+	`
+
+	updateInput := map[string]any{
+		"id": node.ID,
+		"auditDates": map[string]any{
+			"start": "2026-04-01T00:00:00Z",
+			"end":   "2026-04-30T00:00:00Z",
+		},
+	}
+
+	var updateResult struct {
+		UpdateAudit struct {
+			Audit struct {
+				AuditDates *struct {
+					Start *string `json:"start"`
+					End   *string `json:"end"`
+				} `json:"auditDates"`
+			} `json:"audit"`
+		} `json:"updateAudit"`
+	}
+
+	err = owner.Execute(updateQuery, map[string]any{"input": updateInput}, &updateResult)
+	require.NoError(t, err)
+
+	updated := updateResult.UpdateAudit.Audit
+	require.NotNil(t, updated.AuditDates)
+	require.NotNil(t, updated.AuditDates.Start)
+	require.NotNil(t, updated.AuditDates.End)
+	assert.True(t, strings.HasPrefix(*updated.AuditDates.Start, "2026-04-01"))
+	assert.True(t, strings.HasPrefix(*updated.AuditDates.End, "2026-04-30"))
+}
+
+func TestAudit_Create_Validation(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Audit Validation").Create()
+
+	tests := []struct {
+		name              string
+		input             map[string]any
+		skipOrganization  bool
+		skipFramework     bool
+		wantErrorContains string
+	}{
+		{
+			name: "missing organizationId",
+			input: map[string]any{
+				"name": "Test Audit",
+			},
+			skipOrganization:  true,
+			wantErrorContains: "organizationId",
+		},
+		{
+			name: "missing frameworkId",
+			input: map[string]any{
+				"name": "Test Audit",
+			},
+			skipFramework:     true,
+			wantErrorContains: "frameworkId",
+		},
+		{
+			name: "name with HTML tags",
+			input: map[string]any{
+				"name": "<script>alert('xss')</script>",
+			},
+			wantErrorContains: "HTML",
+		},
+		{
+			name: "firm with HTML tags",
+			input: map[string]any{
+				"firm": "<script>alert('xss')</script>",
+			},
+			wantErrorContains: "HTML",
+		},
+		{
+			name: "name with newline",
+			input: map[string]any{
+				"name": "Test\nAudit",
+			},
+			wantErrorContains: "newline",
+		},
+		{
+			name: "name with carriage return",
+			input: map[string]any{
+				"name": "Test\rAudit",
+			},
+			wantErrorContains: "carriage return",
+		},
+		{
+			name: "name with null byte",
+			input: map[string]any{
+				"name": "Test\x00Audit",
+			},
+			wantErrorContains: "control character",
+		},
+		{
+			name: "name with tab character",
+			input: map[string]any{
+				"name": "Test\tAudit",
+			},
+			wantErrorContains: "control character",
+		},
+		{
+			name: "name with zero-width space",
+			input: map[string]any{
+				"name": "Test\u200BAudit",
+			},
+			wantErrorContains: "zero-width",
+		},
+		{
+			name: "name with zero-width joiner",
+			input: map[string]any{
+				"name": "Test\u200DAudit",
+			},
+			wantErrorContains: "zero-width",
+		},
+		{
+			name: "name with right-to-left override",
+			input: map[string]any{
+				"name": "Test\u202EAudit",
+			},
+			wantErrorContains: "bidirectional",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := `
+				mutation CreateAudit($input: CreateAuditInput!) {
+					createAudit(input: $input) {
+						auditEdge {
+							node {
+								id
+							}
+						}
+					}
+				}
+			`
+
+			input := make(map[string]any)
+			if !tt.skipOrganization {
+				input["organizationId"] = owner.GetOrganizationID().String()
+			}
+
+			if !tt.skipFramework {
+				input["frameworkId"] = frameworkID
+			}
+
+			maps.Copy(input, tt.input)
+
+			_, err := owner.Do(query, map[string]any{"input": input})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrorContains)
+		})
+	}
+}
+
+func TestAudit_Update(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Audit Update").Create()
+
+	tests := []struct {
+		name        string
+		setup       func() string
+		input       func(id string) map[string]any
+		assertField string
+		assertValue string
+	}{
+		{
+			name: "update name",
+			setup: func() string {
+				return factory.NewAudit(owner, frameworkID).
+					WithName("Audit to Update").
+					Create()
+			},
+			input: func(id string) map[string]any {
+				return map[string]any{
+					"id":   id,
+					"name": "Updated Audit Name",
+				}
+			},
+			assertField: "name",
+			assertValue: "Updated Audit Name",
+		},
+		{
+			name: "update to IN_PROGRESS state",
+			setup: func() string {
+				return factory.NewAudit(owner, frameworkID).
+					WithName("State Test").
+					WithState("NOT_STARTED").
+					Create()
+			},
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "state": "IN_PROGRESS"}
+			},
+			assertField: "state",
+			assertValue: "IN_PROGRESS",
+		},
+		{
+			name: "update to COMPLETED state",
+			setup: func() string {
+				return factory.NewAudit(owner, frameworkID).
+					WithName("State Test").
+					Create()
+			},
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "state": "COMPLETED"}
+			},
+			assertField: "state",
+			assertValue: "COMPLETED",
+		},
+		{
+			name: "update to REJECTED state",
+			setup: func() string {
+				return factory.NewAudit(owner, frameworkID).
+					WithName("State Test").
+					Create()
+			},
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "state": "REJECTED"}
+			},
+			assertField: "state",
+			assertValue: "REJECTED",
+		},
+		{
+			name: "update to OUTDATED state",
+			setup: func() string {
+				return factory.NewAudit(owner, frameworkID).
+					WithName("State Test").
+					Create()
+			},
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "state": "OUTDATED"}
+			},
+			assertField: "state",
+			assertValue: "OUTDATED",
+		},
+		{
+			name: "update to TO_BOOK state",
+			setup: func() string {
+				return factory.NewAudit(owner, frameworkID).
+					WithName("State Test").
+					Create()
+			},
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "state": "TO_BOOK"}
+			},
+			assertField: "state",
+			assertValue: "TO_BOOK",
+		},
+		{
+			name: "update to AUDIT_BOOKED state",
+			setup: func() string {
+				return factory.NewAudit(owner, frameworkID).
+					WithName("State Test").
+					Create()
+			},
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "state": "AUDIT_BOOKED"}
+			},
+			assertField: "state",
+			assertValue: "AUDIT_BOOKED",
+		},
+		{
+			name: "update firm",
+			setup: func() string {
+				return factory.NewAudit(owner, frameworkID).
+					WithName("Firm Test").
+					Create()
+			},
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "firm": "BSI"}
+			},
+			assertField: "firm",
+			assertValue: "BSI",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auditID := tt.setup()
+
+			query := `
+				mutation UpdateAudit($input: UpdateAuditInput!) {
+					updateAudit(input: $input) {
+						audit {
+							id
+							name
+							firm
+							state
+						}
+					}
+				}
+			`
+
+			var result struct {
+				UpdateAudit struct {
+					Audit struct {
+						ID    string `json:"id"`
+						Name  string `json:"name"`
+						Firm  string `json:"firm"`
+						State string `json:"state"`
+					} `json:"audit"`
+				} `json:"updateAudit"`
+			}
+
+			err := owner.Execute(query, map[string]any{"input": tt.input(auditID)}, &result)
+			require.NoError(t, err)
+
+			audit := result.UpdateAudit.Audit
+
+			switch tt.assertField {
+			case "name":
+				assert.Equal(t, tt.assertValue, audit.Name)
+			case "firm":
+				assert.Equal(t, tt.assertValue, audit.Firm)
+			case "state":
+				assert.Equal(t, tt.assertValue, audit.State)
+			}
+		})
+	}
+}
+
+func TestAudit_Update_Validation(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Audit Update Validation").Create()
+	baseAuditID := factory.NewAudit(owner, frameworkID).WithName("Validation Test Audit").Create()
+
+	tests := []struct {
+		name              string
+		setup             func() string
+		input             func(id string) map[string]any
+		wantErrorContains string
+	}{
+		{
+			name:  "invalid ID format",
+			setup: func() string { return "invalid-id-format" },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "name": "Test"}
+			},
+			wantErrorContains: "base64",
+		},
+		{
+			name:  "name with HTML tags",
+			setup: func() string { return baseAuditID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "name": "<script>alert('xss')</script>"}
+			},
+			wantErrorContains: "HTML",
+		},
+		{
+			name:  "firm with HTML tags",
+			setup: func() string { return baseAuditID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "firm": "<script>alert('xss')</script>"}
+			},
+			wantErrorContains: "HTML",
+		},
+		{
+			name:  "name with newline",
+			setup: func() string { return baseAuditID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "name": "Test\nAudit"}
+			},
+			wantErrorContains: "newline",
+		},
+		{
+			name:  "name with carriage return",
+			setup: func() string { return baseAuditID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "name": "Test\rAudit"}
+			},
+			wantErrorContains: "carriage return",
+		},
+		{
+			name:  "name with null byte",
+			setup: func() string { return baseAuditID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "name": "Test\x00Audit"}
+			},
+			wantErrorContains: "control character",
+		},
+		{
+			name:  "name with tab character",
+			setup: func() string { return baseAuditID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "name": "Test\tAudit"}
+			},
+			wantErrorContains: "control character",
+		},
+		{
+			name:  "name with zero-width space",
+			setup: func() string { return baseAuditID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "name": "Test\u200BAudit"}
+			},
+			wantErrorContains: "zero-width",
+		},
+		{
+			name:  "name with zero-width joiner",
+			setup: func() string { return baseAuditID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "name": "Test\u200DAudit"}
+			},
+			wantErrorContains: "zero-width",
+		},
+		{
+			name:  "name with right-to-left override",
+			setup: func() string { return baseAuditID },
+			input: func(id string) map[string]any {
+				return map[string]any{"id": id, "name": "Test\u202EAudit"}
+			},
+			wantErrorContains: "bidirectional",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auditID := tt.setup()
+
+			query := `
+				mutation UpdateAudit($input: UpdateAuditInput!) {
+					updateAudit(input: $input) {
+						audit {
+							id
+						}
+					}
+				}
+			`
+
+			_, err := owner.Do(query, map[string]any{"input": tt.input(auditID)})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrorContains)
+		})
+	}
+}
+
+func TestAudit_Delete(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Audit Delete").Create()
+
+	t.Run("delete existing audit", func(t *testing.T) {
+		auditID := factory.NewAudit(owner, frameworkID).WithName("Audit to Delete").Create()
+
+		query := `
+			mutation DeleteAudit($input: DeleteAuditInput!) {
+				deleteAudit(input: $input) {
+					deletedAuditId
+				}
+			}
+		`
+
+		var result struct {
+			DeleteAudit struct {
+				DeletedAuditID string `json:"deletedAuditId"`
+			} `json:"deleteAudit"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"input": map[string]any{"auditId": auditID},
+		}, &result)
+		require.NoError(t, err)
+		assert.Equal(t, auditID, result.DeleteAudit.DeletedAuditID)
+	})
+}
+
+func TestAudit_Delete_Validation(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	tests := []struct {
+		name              string
+		auditID           string
+		wantErrorContains string
+	}{
+		{
+			name:              "invalid ID format",
+			auditID:           "invalid-id-format",
+			wantErrorContains: "base64",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query := `
+				mutation DeleteAudit($input: DeleteAuditInput!) {
+					deleteAudit(input: $input) {
+						deletedAuditId
+					}
+				}
+			`
+
+			_, err := owner.Do(query, map[string]any{
+				"input": map[string]any{"auditId": tt.auditID},
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrorContains)
+		})
+	}
+}
+
+func TestAudit_List(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Audit List").Create()
+
+	auditNames := []string{"Audit A", "Audit B", "Audit C"}
+	for _, name := range auditNames {
+		factory.NewAudit(owner, frameworkID).WithName(name).Create()
+	}
+
+	query := `
+		query GetAudits($id: ID!) {
+			node(id: $id) {
+				... on Organization {
+					audits(first: 10) {
+						edges {
+							node {
+								id
+								name
+							}
+						}
+						totalCount
+					}
+				}
+			}
+		}
+	`
+
+	var result struct {
+		Node struct {
+			Audits struct {
+				Edges []struct {
+					Node struct {
+						ID   string `json:"id"`
+						Name string `json:"name"`
+					} `json:"node"`
+				} `json:"edges"`
+				TotalCount int `json:"totalCount"`
+			} `json:"audits"`
+		} `json:"node"`
+	}
+
+	err := owner.Execute(query, map[string]any{
+		"id": owner.GetOrganizationID().String(),
+	}, &result)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, result.Node.Audits.TotalCount, 3)
+}
+
+func TestAudit_Query(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	t.Run("query with non-existent ID returns error", func(t *testing.T) {
+		query := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Audit {
+						id
+						name
+					}
+				}
+			}
+		`
+
+		err := owner.ExecuteShouldFail(query, map[string]any{
+			"id": "V0wtM0tMNmJBQ1lBQUFBQUFackhLSTJfbXJJRUFZVXo", // Valid format but doesn't exist
+		})
+		require.Error(t, err, "Non-existent ID should return error")
+	})
+}
+
+func TestAudit_Timestamps(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Audit Timestamps").Create()
+
+	t.Run("createdAt and updatedAt are set on create", func(t *testing.T) {
+		beforeCreate := time.Now().Add(-time.Second)
+
+		query := `
+			mutation CreateAudit($input: CreateAuditInput!) {
+				createAudit(input: $input) {
+					auditEdge {
+						node {
+							id
+							createdAt
+							updatedAt
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			CreateAudit struct {
+				AuditEdge struct {
+					Node struct {
+						ID        string    `json:"id"`
+						CreatedAt time.Time `json:"createdAt"`
+						UpdatedAt time.Time `json:"updatedAt"`
+					} `json:"node"`
+				} `json:"auditEdge"`
+			} `json:"createAudit"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"input": map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+				"frameworkId":    frameworkID,
+				"name":           "Timestamp Test Audit",
+			},
+		}, &result)
+		require.NoError(t, err)
+
+		node := result.CreateAudit.AuditEdge.Node
+		testutil.AssertTimestampsOnCreate(t, node.CreatedAt, node.UpdatedAt, beforeCreate)
+	})
+
+	t.Run("updatedAt changes on update", func(t *testing.T) {
+		auditID := factory.NewAudit(owner, frameworkID).WithName("Timestamp Update Test").Create()
+
+		getQuery := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Audit {
+						createdAt
+						updatedAt
+					}
+				}
+			}
+		`
+
+		var getResult struct {
+			Node struct {
+				CreatedAt time.Time `json:"createdAt"`
+				UpdatedAt time.Time `json:"updatedAt"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(getQuery, map[string]any{"id": auditID}, &getResult)
+		require.NoError(t, err)
+
+		initialCreatedAt := getResult.Node.CreatedAt
+		initialUpdatedAt := getResult.Node.UpdatedAt
+
+		updateQuery := `
+			mutation UpdateAudit($input: UpdateAuditInput!) {
+				updateAudit(input: $input) {
+					audit {
+						createdAt
+						updatedAt
+					}
+				}
+			}
+		`
+
+		var updateResult struct {
+			UpdateAudit struct {
+				Audit struct {
+					CreatedAt time.Time `json:"createdAt"`
+					UpdatedAt time.Time `json:"updatedAt"`
+				} `json:"audit"`
+			} `json:"updateAudit"`
+		}
+
+		err = owner.Execute(updateQuery, map[string]any{
+			"input": map[string]any{
+				"id":   auditID,
+				"name": "Updated Timestamp Test",
+			},
+		}, &updateResult)
+		require.NoError(t, err)
+
+		audit := updateResult.UpdateAudit.Audit
+		testutil.AssertTimestampsOnUpdate(t, audit.CreatedAt, audit.UpdatedAt, initialCreatedAt, initialUpdatedAt)
+	})
+}
+
+func TestAudit_SubResolvers(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Audit SubResolvers").Create()
+	auditID := factory.NewAudit(owner, frameworkID).WithName("SubResolver Test Audit").Create()
+
+	t.Run("framework sub-resolver", func(t *testing.T) {
+		query := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Audit {
+						id
+						framework {
+							id
+							name
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			Node struct {
+				ID        string `json:"id"`
+				Framework struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"framework"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(query, map[string]any{"id": auditID}, &result)
+		require.NoError(t, err)
+		assert.Equal(t, frameworkID, result.Node.Framework.ID)
+	})
+
+	t.Run("organization sub-resolver", func(t *testing.T) {
+		query := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Audit {
+						id
+						organization {
+							id
+							name
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			Node struct {
+				ID           string `json:"id"`
+				Organization struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"organization"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(query, map[string]any{"id": auditID}, &result)
+		require.NoError(t, err)
+		assert.Equal(t, owner.GetOrganizationID().String(), result.Node.Organization.ID)
+		assert.NotEmpty(t, result.Node.Organization.Name)
+	})
+}
+
+func TestAudit_MaxLength_Validation(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Max Length").Create()
+	longName := strings.Repeat("a", 1001)
+
+	t.Run("create", func(t *testing.T) {
+		query := `
+			mutation CreateAudit($input: CreateAuditInput!) {
+				createAudit(input: $input) {
+					auditEdge {
+						node { id }
+					}
+				}
+			}
+		`
+
+		_, err := owner.Do(query, map[string]any{
+			"input": map[string]any{
+				"organizationId": owner.GetOrganizationID().String(),
+				"frameworkId":    frameworkID,
+				"name":           longName,
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "name")
+	})
+
+	t.Run("update", func(t *testing.T) {
+		auditID := factory.NewAudit(owner, frameworkID).WithName("Max Length Test").Create()
+
+		query := `
+			mutation UpdateAudit($input: UpdateAuditInput!) {
+				updateAudit(input: $input) {
+					audit { id }
+				}
+			}
+		`
+
+		_, err := owner.Do(query, map[string]any{
+			"input": map[string]any{
+				"id":   auditID,
+				"name": longName,
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "name")
+	})
+}
+
+func TestAudit_Pagination(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Pagination").Create()
+
+	for i := range 5 {
+		factory.NewAudit(owner, frameworkID).
+			WithName(fmt.Sprintf("Pagination Audit %d", i)).
+			Create()
+	}
+
+	t.Run("first/after pagination", func(t *testing.T) {
+		query := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Organization {
+						audits(first: 2) {
+							edges {
+								node { id name }
+								cursor
+							}
+							pageInfo {
+								hasNextPage
+								hasPreviousPage
+								startCursor
+								endCursor
+							}
+							totalCount
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			Node struct {
+				Audits struct {
+					Edges []struct {
+						Node struct {
+							ID   string `json:"id"`
+							Name string `json:"name"`
+						} `json:"node"`
+						Cursor string `json:"cursor"`
+					} `json:"edges"`
+					PageInfo   testutil.PageInfo `json:"pageInfo"`
+					TotalCount int               `json:"totalCount"`
+				} `json:"audits"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(
+			query,
+			map[string]any{
+				"id": owner.GetOrganizationID().String(),
+			},
+			&result,
+		)
+		require.NoError(t, err)
+
+		testutil.AssertFirstPage(t, len(result.Node.Audits.Edges), result.Node.Audits.PageInfo, 2, true)
+		assert.GreaterOrEqual(t, result.Node.Audits.TotalCount, 5)
+
+		testutil.AssertHasMorePages(t, result.Node.Audits.PageInfo)
+
+		queryAfter := `
+			query($id: ID!, $after: CursorKey) {
+				node(id: $id) {
+					... on Organization {
+						audits(first: 2, after: $after) {
+							edges {
+								node { id name }
+							}
+							pageInfo {
+								hasNextPage
+								hasPreviousPage
+							}
+						}
+					}
+				}
+			}
+		`
+
+		var resultAfter struct {
+			Node struct {
+				Audits struct {
+					Edges []struct {
+						Node struct {
+							ID   string `json:"id"`
+							Name string `json:"name"`
+						} `json:"node"`
+					} `json:"edges"`
+					PageInfo testutil.PageInfo `json:"pageInfo"`
+				} `json:"audits"`
+			} `json:"node"`
+		}
+
+		err = owner.Execute(queryAfter, map[string]any{
+			"id":    owner.GetOrganizationID().String(),
+			"after": *result.Node.Audits.PageInfo.EndCursor,
+		}, &resultAfter)
+		require.NoError(t, err)
+
+		testutil.AssertMiddlePage(t, len(resultAfter.Node.Audits.Edges), resultAfter.Node.Audits.PageInfo, 2)
+	})
+
+	t.Run("last/before pagination", func(t *testing.T) {
+		query := `
+			query($id: ID!) {
+				node(id: $id) {
+					... on Organization {
+						audits(last: 2) {
+							edges {
+								node { id name }
+							}
+							pageInfo {
+								hasNextPage
+								hasPreviousPage
+							}
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			Node struct {
+				Audits struct {
+					Edges []struct {
+						Node struct {
+							ID   string `json:"id"`
+							Name string `json:"name"`
+						} `json:"node"`
+					} `json:"edges"`
+					PageInfo testutil.PageInfo `json:"pageInfo"`
+				} `json:"audits"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"id": owner.GetOrganizationID().String(),
+		}, &result)
+		require.NoError(t, err)
+
+		testutil.AssertLastPage(t, len(result.Node.Audits.Edges), result.Node.Audits.PageInfo, 2, true)
+	})
+}
+
+func TestAudit_Ordering(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Ordering").Create()
+
+	factory.NewAudit(owner, frameworkID).WithName("AAA Order Test").Create()
+	factory.NewAudit(owner, frameworkID).WithName("ZZZ Order Test").Create()
+
+	t.Run("order by created_at descending", func(t *testing.T) {
+		query := `
+			query($id: ID!, $orderBy: AuditOrder) {
+				node(id: $id) {
+					... on Organization {
+						audits(first: 100, orderBy: $orderBy) {
+							edges {
+								node {
+									id
+									createdAt
+								}
+							}
+						}
+					}
+				}
+			}
+		`
+
+		var result struct {
+			Node struct {
+				Audits struct {
+					Edges []struct {
+						Node struct {
+							ID        string    `json:"id"`
+							CreatedAt time.Time `json:"createdAt"`
+						} `json:"node"`
+					} `json:"edges"`
+				} `json:"audits"`
+			} `json:"node"`
+		}
+
+		err := owner.Execute(query, map[string]any{
+			"id": owner.GetOrganizationID().String(),
+			"orderBy": map[string]any{
+				"field":     "CREATED_AT",
+				"direction": "DESC",
+			},
+		}, &result)
+		require.NoError(t, err)
+
+		times := make([]time.Time, len(result.Node.Audits.Edges))
+		for i, edge := range result.Node.Audits.Edges {
+			times[i] = edge.Node.CreatedAt
+		}
+
+		testutil.AssertTimesOrderedDescending(t, times, "createdAt")
+	})
+}
+
+func TestAudit_UploadReport(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Upload").Create()
+
+	t.Run("upload valid PDF report", func(t *testing.T) {
+		auditID := factory.NewAudit(owner, frameworkID).WithName("Upload Test").Create()
+
+		query := `
+			mutation UploadAuditReport($input: UploadAuditReportInput!) {
+				uploadAuditReport(input: $input) {
+					audit {
+						id
+						reportFile {
+							id
+							fileName
+							size
+						}
+					}
+				}
+			}
+		`
+
+		// Create a minimal valid PDF content
+		pdfContent := []byte("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF")
+
+		var result struct {
+			UploadAuditReport struct {
+				Audit struct {
+					ID         string `json:"id"`
+					ReportFile *struct {
+						ID       string `json:"id"`
+						FileName string `json:"fileName"`
+						Size     int64  `json:"size"`
+					} `json:"reportFile"`
+				} `json:"audit"`
+			} `json:"uploadAuditReport"`
+		}
+
+		err := owner.ExecuteWithFile(query, map[string]any{
+			"input": map[string]any{
+				"auditId": auditID,
+				"file":    nil, // Will be replaced by the file
+			},
+		}, "input.file", testutil.UploadFile{
+			Filename:    "audit-report.pdf",
+			ContentType: "application/pdf",
+			Content:     pdfContent,
+		}, &result)
+		require.NoError(t, err)
+
+		assert.Equal(t, auditID, result.UploadAuditReport.Audit.ID)
+		require.NotNil(t, result.UploadAuditReport.Audit.ReportFile)
+		assert.Equal(t, "audit-report.pdf", result.UploadAuditReport.Audit.ReportFile.FileName)
+		assert.Equal(t, int64(len(pdfContent)), result.UploadAuditReport.Audit.ReportFile.Size)
+	})
+
+	t.Run("upload replaces existing report", func(t *testing.T) {
+		auditID := factory.NewAudit(owner, frameworkID).WithName("Replace Report Test").Create()
+
+		query := `
+			mutation UploadAuditReport($input: UploadAuditReportInput!) {
+				uploadAuditReport(input: $input) {
+					audit {
+						id
+						reportFile {
+							id
+							fileName
+						}
+					}
+				}
+			}
+		`
+
+		// Upload first report
+		pdfContent1 := []byte("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF")
+
+		var result1 struct {
+			UploadAuditReport struct {
+				Audit struct {
+					ID         string `json:"id"`
+					ReportFile *struct {
+						ID       string `json:"id"`
+						FileName string `json:"fileName"`
+					} `json:"reportFile"`
+				} `json:"audit"`
+			} `json:"uploadAuditReport"`
+		}
+
+		err := owner.ExecuteWithFile(query, map[string]any{
+			"input": map[string]any{
+				"auditId": auditID,
+				"file":    nil,
+			},
+		}, "input.file", testutil.UploadFile{
+			Filename:    "first-report.pdf",
+			ContentType: "application/pdf",
+			Content:     pdfContent1,
+		}, &result1)
+		require.NoError(t, err)
+
+		firstReportID := result1.UploadAuditReport.Audit.ReportFile.ID
+
+		// Upload second report (should replace)
+		pdfContent2 := []byte("%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Version /1.4 >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF")
+
+		var result2 struct {
+			UploadAuditReport struct {
+				Audit struct {
+					ID         string `json:"id"`
+					ReportFile *struct {
+						ID       string `json:"id"`
+						FileName string `json:"fileName"`
+					} `json:"reportFile"`
+				} `json:"audit"`
+			} `json:"uploadAuditReport"`
+		}
+
+		err = owner.ExecuteWithFile(query, map[string]any{
+			"input": map[string]any{
+				"auditId": auditID,
+				"file":    nil,
+			},
+		}, "input.file", testutil.UploadFile{
+			Filename:    "second-report.pdf",
+			ContentType: "application/pdf",
+			Content:     pdfContent2,
+		}, &result2)
+		require.NoError(t, err)
+
+		assert.Equal(t, "second-report.pdf", result2.UploadAuditReport.Audit.ReportFile.FileName)
+		assert.NotEqual(t, firstReportID, result2.UploadAuditReport.Audit.ReportFile.ID, "Report file ID should change when replaced")
+	})
+}
+
+func TestAudit_UploadReport_Validation(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Upload Validation").Create()
+
+	t.Run("reject non document file", func(t *testing.T) {
+		auditID := factory.NewAudit(owner, frameworkID).WithName("Invalid File Test").Create()
+
+		query := `
+			mutation UploadAuditReport($input: UploadAuditReportInput!) {
+				uploadAuditReport(input: $input) {
+					audit {
+						id
+					}
+				}
+			}
+		`
+
+		// Try to upload a text file
+		textContent := []byte("This is not a document file")
+
+		err := owner.ExecuteWithFile(query, map[string]any{
+			"input": map[string]any{
+				"auditId": auditID,
+				"file":    nil,
+			},
+		}, "input.file", testutil.UploadFile{
+			Filename:    "not-a-document.txt",
+			ContentType: "text/plain",
+			Content:     textContent,
+		}, nil)
+		require.Error(t, err, "Should reject non-document file")
+	})
+
+	t.Run("reject file with wrong extension but document content-type", func(t *testing.T) {
+		auditID := factory.NewAudit(owner, frameworkID).WithName("Wrong Extension Test").Create()
+
+		query := `
+			mutation UploadAuditReport($input: UploadAuditReportInput!) {
+				uploadAuditReport(input: $input) {
+					audit {
+						id
+					}
+				}
+			}
+		`
+
+		// Try to upload with wrong extension
+		textContent := []byte("Not a real document")
+
+		err := owner.ExecuteWithFile(query, map[string]any{
+			"input": map[string]any{
+				"auditId": auditID,
+				"file":    nil,
+			},
+		}, "input.file", testutil.UploadFile{
+			Filename:    "fake.exe",
+			ContentType: "application/pdf",
+			Content:     textContent,
+		}, nil)
+		require.Error(t, err, "Should reject file with wrong extension")
+	})
+
+	t.Run("reject empty file", func(t *testing.T) {
+		auditID := factory.NewAudit(owner, frameworkID).WithName("Empty File Test").Create()
+
+		query := `
+			mutation UploadAuditReport($input: UploadAuditReportInput!) {
+				uploadAuditReport(input: $input) {
+					audit {
+						id
+					}
+				}
+			}
+		`
+
+		err := owner.ExecuteWithFile(query, map[string]any{
+			"input": map[string]any{
+				"auditId": auditID,
+				"file":    nil,
+			},
+		}, "input.file", testutil.UploadFile{
+			Filename:    "empty.pdf",
+			ContentType: "application/pdf",
+			Content:     []byte{},
+		}, nil)
+		require.Error(t, err, "Should reject empty file")
+	})
+
+	t.Run("reject invalid audit ID", func(t *testing.T) {
+		query := `
+			mutation UploadAuditReport($input: UploadAuditReportInput!) {
+				uploadAuditReport(input: $input) {
+					audit {
+						id
+					}
+				}
+			}
+		`
+
+		pdfContent := []byte("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF")
+
+		err := owner.ExecuteWithFile(query, map[string]any{
+			"input": map[string]any{
+				"auditId": "invalid-id",
+				"file":    nil,
+			},
+		}, "input.file", testutil.UploadFile{
+			Filename:    "report.pdf",
+			ContentType: "application/pdf",
+			Content:     pdfContent,
+		}, nil)
+		require.Error(t, err, "Should reject invalid audit ID")
+	})
+}
+
+func TestAudit_DeleteReport(t *testing.T) {
+	t.Parallel()
+	owner := testutil.NewClient(t, testutil.RoleOwner)
+
+	frameworkID := factory.NewFramework(owner).WithName("Framework for Delete Report").Create()
+
+	t.Run("delete existing report", func(t *testing.T) {
+		auditID := factory.NewAudit(owner, frameworkID).WithName("Delete Report Test").Create()
+
+		// First upload a report
+		uploadQuery := `
+			mutation UploadAuditReport($input: UploadAuditReportInput!) {
+				uploadAuditReport(input: $input) {
+					audit {
+						id
+						reportFile {
+							id
+						}
+					}
+				}
+			}
+		`
+
+		pdfContent := []byte("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF")
+
+		err := owner.ExecuteWithFile(uploadQuery, map[string]any{
+			"input": map[string]any{
+				"auditId": auditID,
+				"file":    nil,
+			},
+		}, "input.file", testutil.UploadFile{
+			Filename:    "report.pdf",
+			ContentType: "application/pdf",
+			Content:     pdfContent,
+		}, nil)
+		require.NoError(t, err)
+
+		// Now delete the report
+		deleteQuery := `
+			mutation DeleteAuditReport($input: DeleteAuditReportInput!) {
+				deleteAuditReport(input: $input) {
+					audit {
+						id
+						reportFile {
+							id
+						}
+					}
+				}
+			}
+		`
+
+		var deleteResult struct {
+			DeleteAuditReport struct {
+				Audit struct {
+					ID         string `json:"id"`
+					ReportFile *struct {
+						ID string `json:"id"`
+					} `json:"reportFile"`
+				} `json:"audit"`
+			} `json:"deleteAuditReport"`
+		}
+
+		err = owner.Execute(deleteQuery, map[string]any{
+			"input": map[string]any{
+				"auditId": auditID,
+			},
+		}, &deleteResult)
+		require.NoError(t, err)
+		assert.Equal(t, auditID, deleteResult.DeleteAuditReport.Audit.ID)
+		assert.Nil(t, deleteResult.DeleteAuditReport.Audit.ReportFile, "Report file should be nil after deletion")
+	})
+}

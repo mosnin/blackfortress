@@ -1,0 +1,135 @@
+import {
+  ADMIN_PERMISSIONS,
+  AUDITOR_PERMISSIONS,
+  mockHasPermission,
+  setMockPermissions,
+} from '@/test-utils/mocks/permissions';
+import { fireEvent, render, screen } from '@testing-library/react';
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Connection } from './connection-format';
+
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({ permissions: {}, hasPermission: mockHasPermission }),
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  // Never resolves, so the passed initialProfiles stay in state for the assertion.
+  apiClient: {
+    get: vi.fn(() => new Promise(() => undefined)),
+    post: vi.fn().mockResolvedValue({ data: {} }),
+    patch: vi.fn().mockResolvedValue({ data: {} }),
+    delete: vi.fn().mockResolvedValue({ data: {} }),
+  },
+}));
+
+vi.mock('@trycompai/design-system', () => ({
+  Button: ({
+    children,
+    iconLeft,
+    ...props
+  }: ButtonHTMLAttributes<HTMLButtonElement> & { iconLeft?: ReactNode; loading?: boolean }) => (
+    <button {...props}>
+      {iconLeft}
+      {children}
+    </button>
+  ),
+  Input: (props: InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
+  Spinner: () => <span data-testid="spinner" />,
+  Section: ({
+    title,
+    description,
+    actions,
+    children,
+  }: {
+    title?: ReactNode;
+    description?: ReactNode;
+    actions?: ReactNode;
+    children?: ReactNode;
+  }) => (
+    <section>
+      {title && <h2>{title}</h2>}
+      {description && <p>{description}</p>}
+      {actions}
+      {children}
+    </section>
+  ),
+}));
+
+vi.mock('@trycompai/design-system/icons', () => ({
+  Add: () => <span data-testid="add-icon" />,
+}));
+
+// Sub-components are covered on their own; stub them to focus on the client.
+vi.mock('./ConnectionsTable', () => ({
+  ConnectionsTable: ({ connections }: { connections: Connection[] }) => (
+    <div data-testid="table">{connections.length} rows</div>
+  ),
+}));
+vi.mock('./ManageConnectionSheet', () => ({ ManageConnectionSheet: () => null }));
+// The shared connect flow is covered by the task suite; stub it so we only test
+// that the client renders it (and doesn't pull the whole task subsystem).
+vi.mock(
+  '@/app/(app)/[orgId]/tasks/[taskId]/components/browser-automations/ConnectVendorLoginFlow',
+  () => ({ ConnectVendorLoginFlow: () => <div data-testid="connect-flow" /> }),
+);
+
+import { apiClient } from '@/lib/api-client';
+import { BrowserConnectionClient } from './BrowserConnectionClient';
+
+const profile: Connection = {
+  id: 'bap_1',
+  hostname: 'github.com',
+  loginIdentity: 'ci-bot@acme.com',
+  displayName: 'GitHub',
+  status: 'verified',
+  vaultExternalItemRef: 'op://vault/item',
+};
+
+describe('BrowserConnectionClient permission gating', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('shows "Connect a vendor" and the table when the user can create integrations', () => {
+    setMockPermissions(ADMIN_PERMISSIONS);
+    render(<BrowserConnectionClient organizationId="org-1" initialProfiles={[profile]} />);
+
+    expect(screen.getByRole('button', { name: /connect a vendor/i })).toBeInTheDocument();
+    expect(screen.getByTestId('table')).toHaveTextContent('1 rows');
+  });
+
+  it('hides "Connect a vendor" for a read-only user but still lists connections', () => {
+    setMockPermissions(AUDITOR_PERMISSIONS);
+    render(<BrowserConnectionClient organizationId="org-1" initialProfiles={[profile]} />);
+
+    expect(screen.queryByRole('button', { name: /connect a vendor/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('table')).toBeInTheDocument();
+  });
+
+  it('shows an empty state when there are no connections', () => {
+    setMockPermissions(ADMIN_PERMISSIONS);
+    render(<BrowserConnectionClient organizationId="org-1" initialProfiles={[]} />);
+
+    expect(screen.getByText(/no connections yet/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('table')).not.toBeInTheDocument();
+  });
+
+  it('keeps existing connections visible when the profiles refresh fails', async () => {
+    setMockPermissions(ADMIN_PERMISSIONS);
+    // A failed refresh (apiClient resolves with an error, it doesn't throw) must
+    // NOT blank the list to the "no connections" empty state.
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ error: 'boom' } as never);
+    render(<BrowserConnectionClient organizationId="org-1" initialProfiles={[profile]} />);
+
+    expect(await screen.findByTestId('table')).toHaveTextContent('1 rows');
+    expect(screen.queryByText(/no connections yet/i)).not.toBeInTheDocument();
+  });
+
+  it('opens the shared connect flow when "Connect a vendor" is clicked', () => {
+    setMockPermissions(ADMIN_PERMISSIONS);
+    render(<BrowserConnectionClient organizationId="org-1" initialProfiles={[profile]} />);
+
+    expect(screen.queryByTestId('connect-flow')).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: /connect a vendor/i })[0]);
+    expect(screen.getByTestId('connect-flow')).toBeInTheDocument();
+  });
+});

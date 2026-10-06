@@ -1,0 +1,190 @@
+services:
+  postgres:
+    image: "postgres@sha256:52e6ffd11fddd081ae63880b635b2a61c14008c17fc98cdc7ce5472265516dd0"
+    pull_policy: missing
+    shm_size: "1g"
+    command: >
+      postgres -c "shared_buffers=256MB"
+               -c "max_connections=200"
+               -c "log_statement=all"
+    ports:
+      - "5432:5432"
+    volumes:
+      - "./compose/postgres:/docker-entrypoint-initdb.d:ro"
+      - "postgres-data:/var/lib/postgresql:rw"
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  seaweedfs:
+    image: "chrislusf/seaweedfs@sha256:cea8339d21dad1b200adce581dd7434d254b8f5975f142c3b4c930ba78647eef"
+    pull_policy: missing
+    command: >
+      server
+      -s3
+      -s3.config=/etc/seaweedfs/s3.json
+      -s3.port=8333
+      -volume.max=100
+      -master.volumeSizeLimitMB=1024
+      -dir=/data
+    ports:
+      - "8333:8333"
+      - "9333:9333"
+      - "8888:8888"
+    volumes:
+      - "./compose/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro"
+      - "seaweedfs-data:/data:rw"
+
+  grafana:
+    image: "grafana/grafana@sha256:a03d9e604e4dba58c5e64458a879701f46ef64af1f596058aacfad9aacdcab34"
+    pull_policy: missing
+    ports:
+      - "3001:3000"
+    volumes:
+      - "./compose/grafana/provisioning:/etc/grafana/provisioning:ro"
+      - "grafana-data:/var/lib/grafana:rw"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: "light"
+
+  prometheus:
+    image: "prom/prometheus@sha256:5550dc63da361dc30f6fe02ac0e4dfc736ededfef3c8d12a634db04a67824d78"
+    pull_policy: missing
+    volumes:
+      - "./compose/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml"
+      - "prometheus-data:/prometheus"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+      - "--web.enable-remote-write-receiver"
+      - "--web.listen-address=:9191"
+    ports:
+      - "9191:9191"
+
+  loki:
+    image: "grafana/loki@sha256:73e905b51a7f917f7a1075e4be68759df30226e03dcb3cd2213b989cc0dc8eb4"
+    pull_policy: missing
+    ports:
+      - "3100:3100"
+    command:
+      - "-config.file=/etc/loki/local-config.yaml"
+
+  tempo:
+    image: "grafana/tempo@sha256:a6616c9d224770c883a67b50e4941e99c5df81b076ef05f516bb7cce5a96cec0"
+    pull_policy: missing
+    command:
+      - "-config.file=/etc/tempo.yaml"
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - "./compose/tempo/tempo.yaml:/etc/tempo.yaml:ro"
+      - "tempo-data:/var/tempo:rw"
+
+  mailpit:
+    image: "axllent/mailpit@sha256:0b5c5f7ffd3c93474baa7fd3869c1462e5a3d03256ed0933dfc0e7d81d794036"
+    pull_policy: missing
+    ports:
+      - "1025:1025" # SMTP server
+      - "8025:8025" # Web UI
+    environment:
+      - "MP_DISABLE_VERSION_CHECK=true"
+      - "MP_VERBOSE=false"
+      - "MP_SMTP_AUTH_ACCEPT_ANY=true"
+      - "MP_ENABLE_PROMETHEUS=true"
+      - "MP_SMTP_AUTH_ALLOW_INSECURE=true"
+
+  chrome:
+    image: "chromedp/headless-shell@sha256:b24482ae166e2c67135f5a8ba9575c257efdd8e2fd6b2e931f9d88ede3d72f3b"
+    pull_policy: missing
+    ports:
+      - "9222:9222"
+    command:
+      - "--headless"
+      - "--disable-gpu"
+      - "--disable-dev-shm-usage"
+      - "--hide-scrollbars"
+      - "--mute-audio"
+      - "--no-default-browser-check"
+      - "--no-first-run"
+      - "--disable-background-networking"
+      - "--disable-background-timer-throttling"
+      - "--disable-extensions"
+
+  # step-ca validates HTTP-01 on port 80; probod serves challenges on :10080.
+  # step-ca shares this service's network so loopback :80 hits Caddy, not an
+  # isolated container namespace (where *.localhost would miss the proxy).
+  acme-http-01-proxy:
+    image: "caddy:2.10.2@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb"
+    pull_policy: missing
+    ports:
+      - "80:80"
+      - "9000:9000" # step-ca ACME API (network_mode: service:… below)
+    volumes:
+      - "./compose/caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  step-ca:
+    image: "smallstep/step-ca:0.28.4@sha256:0f88382ac5af5c6b7bbba0c6e8fcefef52aee6f22ea364df8e02a09ffd0d22f3"
+    pull_policy: missing
+    network_mode: "service:acme-http-01-proxy"
+    depends_on:
+      - acme-http-01-proxy
+    environment:
+      DOCKER_STEPCA_INIT_NAME: "Probo Local CA"
+      DOCKER_STEPCA_INIT_DNS_NAMES: "localhost,127.0.0.1,step-ca"
+      DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT: "true"
+      DOCKER_STEPCA_INIT_ACME: "true"
+      DOCKER_STEPCA_INIT_PASSWORD: "probod-local-dev-ca"
+    volumes:
+      - "./compose/step-ca:/home/step:rw"
+
+  keycloak:
+    image: "quay.io/keycloak/keycloak:26.6.1@sha256:26ae26445475f7fac5f90ee138b1bdb64324f5815fb16133ffdbdb122d97c4d8"
+    pull_policy: missing
+    user: root
+    environment:
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8082
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+
+      KC_LOG_LEVEL: info
+      KC_METRICS_ENABLED: true
+      KC_HEALTH_ENABLED: true
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    command:
+      - "start-dev"
+      - "--import-realm"
+    ports:
+      - 8082:8080
+    volumes:
+      - "./compose/keycloak:/opt/keycloak/data/import:ro"
+      - "keycloak-data:/opt/keycloak/data/h2:rw"
+
+  fakecloud:
+    image: "ghcr.io/faiscadev/fakecloud@sha256:fef9be8a400c95c02cb8af894742558e6cb7987700d1acb2b0abbb4a4b916fdc"
+    pull_policy: missing
+    ports:
+      - "4566:4566"
+
+volumes:
+  postgres-data:
+  seaweedfs-data:
+  grafana-data:
+  prometheus-data:
+  tempo-data:
+  keycloak-data:

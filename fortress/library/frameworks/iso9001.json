@@ -1,0 +1,191 @@
+{
+  "id": "ISO9001-2015",
+  "name": "ISO 9001 (2015)",
+  "controls": [
+    {
+      "id": "QMS-4.1-01",
+      "name": "Understanding the organization and its context",
+      "description": "Determine internal and external issues relevant to purpose, strategic direction and ability to achieve intended QMS results."
+    },
+    {
+      "id": "QMS-4.2-01",
+      "name": "Understanding needs and expectations of interested parties",
+      "description": "Identify relevant interested parties (customers, regulators, partners, employees, investors) and their applicable requirements."
+    },
+    {
+      "id": "QMS-4.3-01",
+      "name": "Scope of the QMS",
+      "description": "Determine and document the scope of the QMS including products, services, locations and exclusions."
+    },
+    {
+      "id": "QMS-4.4-01",
+      "name": "QMS and its processes",
+      "description": "Establish, implement, maintain and continually improve the QMS, including processes, interactions, criteria, methods and resources."
+    },
+    {
+      "id": "QMS-5.1-01",
+      "name": "Leadership and commitment",
+      "description": "Top management demonstrates leadership and commitment to the QMS and customer focus."
+    },
+    {
+      "id": "QMS-5.2-01",
+      "name": "Quality policy – establishment",
+      "description": "Establish a quality policy appropriate to purpose and context, supporting strategic direction and continual improvement."
+    },
+    {
+      "id": "QMS-5.2-02",
+      "name": "Quality policy – communication",
+      "description": "Ensure the quality policy is communicated, understood, applied and available to interested parties."
+    },
+    {
+      "id": "QMS-5.3-01",
+      "name": "Organizational roles,responsibilities and authorities",
+      "description": "Assign and communicate responsibilities and authorities for QMS roles,including customer satisfaction and conformity."
+    },
+    {
+      "id": "QMS-6.1-01",
+      "name": "Actions to address risks and opportunities",
+      "description": "Determine risks and opportunities that need to be addressed to ensure the QMS can achieve intended results."
+    },
+    {
+      "id": "QMS-6.2-01",
+      "name": "Quality objectives",
+      "description": "Establish measurable quality objectives at relevant functions, levels and processes, consistent with the quality policy."
+    },
+    {
+      "id": "QMS-6.2-02",
+      "name": "Planning to achieve quality objectives",
+      "description": "Plan what will be done, resources, responsible persons, timelines and methods to achieve quality objectives."
+    },
+    {
+      "id": "QMS-6.3-01",
+      "name": "Planning of changes",
+      "description": "Carry out changes to the QMS in a planned manner, considering purpose, consequences, resources and integrity of the system."
+    },
+    {
+      "id": "QMS-7.1-01",
+      "name": "Resources, people, infrastructure and environment",
+      "description": "Determine and provide resources, people, infrastructure and work environment necessary for QMS and process operation."
+    },
+    {
+      "id": "QMS-7.1-02",
+      "name": "Monitoring and measuring resources",
+      "description": "Ensure suitability and maintenance of monitoring and measuring resources (including tools used to assess service and model performance)."
+    },
+    {
+      "id": "QMS-7.1-03",
+      "name": "Organizational knowledge",
+      "description": "Determine and maintain knowledge necessary for process operation and conformity of services."
+    },
+    {
+      "id": "QMS-7.2-01",
+      "name": "Competence",
+      "description": "Determine required competence, ensure personnel are competent, and retain appropriate evidence."
+    },
+    {
+      "id": "QMS-7.3-01",
+      "name": "Awareness",
+      "description": "Ensure persons are aware of quality policy, objectives, their contribution and implications of nonconformities."
+    },
+    {
+      "id": "QMS-7.4-01",
+      "name": "Communication",
+      "description": "Determine internal and external QMS-related communications (what, when, with whom, how)."
+    },
+    {
+      "id": "QMS-7.5-01",
+      "name": "Documented information",
+      "description": "Create, update and control documented information required by the QMS and ISO 9001."
+    },
+    {
+      "id": "QMS-8.1-01",
+      "name": "Operational planning and control",
+      "description": "Plan, implement and control processes to meet requirements, including criteria, resources and control of changes and outsourced processes."
+    },
+    {
+      "id": "QMS-8.2-01",
+      "name": "Customer communication and requirements determination",
+      "description": "Ensure effective communication with customers and clear determination of product and service requirements."
+    },
+    {
+      "id": "QMS-8.2-02",
+      "name": "Review of requirements for products and services",
+      "description": "Review customer requirements and ensure capability to meet them before committing."
+    },
+    {
+      "id": "QMS-8.3-01",
+      "name": "Design and development planning, inputs and controls",
+      "description": "Plan and control design and development of products and services, including stages, inputs, reviews, verification and validation."
+    },
+    {
+      "id": "QMS-8.3-02",
+      "name": "Design outputs and verification/validation",
+      "description": "Ensure design outputs meet input requirements and retain evidence of verification and validation."
+    },
+    {
+      "id": "QMS-8.3-03",
+      "name": "Design and development changes",
+      "description": "Identify, review and control changes made during or after design and development."
+    },
+    {
+      "id": "QMS-8.4-01",
+      "name": "Control of externally provided processes, products and services",
+      "description": "Ensure externally provided processes, products and services meet specified requirements."
+    },
+    {
+      "id": "QMS-8.5-01",
+      "name": "Control of production and service provision",
+      "description": "Implement controlled conditions for service provision, including documented information, suitable infrastructure, monitoring and competent people."
+    },
+    {
+      "id": "QMS-8.5-02",
+      "name": "Identification, traceability, customer property and preservation",
+      "description": "Where applicable, ensure identification/traceability, care of customer property and preservation of outputs."
+    },
+    {
+      "id": "QMS-8.5-03",
+      "name": "Control of changes in service provision",
+      "description": "Review and control changes affecting service provision to ensure continuing conformity."
+    },
+    {
+      "id": "QMS-8.6-01",
+      "name": "Release of products and services",
+      "description": "Implement planned arrangements to verify that requirements are met prior to release and retain evidence of release authorization."
+    },
+    {
+      "id": "QMS-8.7-01",
+      "name": "Control of nonconforming outputs",
+      "description": "Ensure nonconforming outputs are identified, controlled, corrected and recorded, including customer notification where relevant."
+    },
+    {
+      "id": "QMS-9.1-01",
+      "name": "Monitoring, measurement, analysis and evaluation",
+      "description": "Determine what needs to be monitored and measured, methods, timing and evaluation of QMS performance and effectiveness."
+    },
+    {
+      "id": "QMS-9.1-02",
+      "name": "Customer satisfaction",
+      "description": "Monitor customers’ perceptions of the degree to which their needs and expectations have been fulfilled."
+    },
+    {
+      "id": "QMS-9.2-01",
+      "name": "Internal audit",
+      "description": "Conduct internal audits at planned intervals to provide information on QMS conformity and effectiveness."
+    },
+    {
+      "id": "QMS-9.3-01",
+      "name": "Management review",
+      "description": "Top management reviews the QMS at planned intervals, considering specified inputs and ensuring outputs include decisions and actions."
+    },
+    {
+      "id": "QMS-10.2-01",
+      "name": "Nonconformity and corrective action",
+      "description": "React to nonconformities, evaluate causes and implement corrective actions; review effectiveness and update risks."
+    },
+    {
+      "id": "QMS-10.3-01",
+      "name": "Continual improvement",
+      "description": "Continually improve the suitability, adequacy and effectiveness of the QMS."
+    }
+  ]
+}

@@ -1,0 +1,1175 @@
+{
+  "id": "COMP-PCI-DSS",
+  "name": "PCI DSS Level 1 (Comp)",
+  "logo": {
+    "light": "<svg id=\"Layer_1\" data-name=\"Layer 1\" xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 60 60\"><defs><style>.cls-2{stroke:#fcfdfc;stroke-linecap:round;stroke-linejoin:round;}.cls-2,.cls-3{fill:none;}.cls-4{fill:#141e12;stroke-width:0px;}.cls-3{stroke:#141e12;}</style></defs><path class=\"cls-3\" d=\"M45.2334,13.1035c.6201-.0345,1.1977.3163,1.4521.8828l8.4258,18.7627c.3681.8196-.0627,1.7769-.9199,2.0459l-37.0576,11.6299c-.7637.2396-1.5814-.1627-1.8574-.9141L4.9111,17.292c-.3474-.946.318-1.9586,1.3242-2.0147l38.998-2.1738Z\"/><path class=\"cls-4\" d=\"M26.553,28.5203c0,.6231-.1557,1.1682-.4283,1.6745-.2726.4672-.662.8956-1.1682,1.2071-.5062.3115-1.1293.5452-1.8302.7009-.7009.1558-1.4797.2337-2.3754.2337h-.623v3.1931h-4.0498v-10.6307h4.7507c1.7913,0,3.1931.3115,4.2056.8956,1.0124.5841,1.5186,1.5187,1.5186,2.7258ZM22.659,28.5593c0-.9346-.7009-1.4019-2.0638-1.4019h-.5062v2.8427h.4672c.662,0,1.2072-.1169,1.5577-.3505.3504-.1947.5451-.5841.5451-1.0903ZM36.5996,35.5296c-.623.1168-1.324.1947-2.1417.1947-1.1293,0-2.1417-.1169-2.9984-.3894-.8956-.2726-1.6355-.6231-2.2585-1.0904-.6231-.4672-1.0904-1.0513-1.4019-1.7133-.3115-.701-.4673-1.4408-.4673-2.2586s.1558-1.5576.5063-2.2585c.3556-.6763.846-1.2726,1.4408-1.7523.623-.4673,1.3629-.8567,2.2195-1.1293.8567-.2725,1.7913-.3894,2.8037-.3894.7788,0,1.5187.039,2.1807.1558q.662.1558,1.1682.3505v2.8426c-.3894-.2337-.8567-.4284-1.3629-.5452-.5062-.1557-1.0514-.2336-1.5966-.2336-.9345,0-1.6744.2726-2.2585.7398-.5841.5063-.8567,1.2072-.8567,2.1807,0,.4673.0779.8956.2726,1.285.1947.3505.4283.662.7399.8957.3115.2336.6619.4283,1.0903.5451.4283.1168.8567.1947,1.324.1947s.9735-.0389,1.4407-.1557c.4673-.1169.9736-.2337,1.4798-.4673v2.6868l-1.324.3116ZM39.598,24.8989h4.0887v10.6696h-4.0887v-10.6696ZM44.1151,21.55c0,.701-.2337,1.2851-.701,1.6745-.4672.3894-1.0513.623-1.7523.623s-1.285-.1947-1.7523-.623c-.4673-.3894-.7009-.9735-.7009-1.6745,0-.7398.2336-1.285.7009-1.7133.4673-.4284,1.0514-.6231,1.7523-.6231s1.2851.1947,1.7523.6231c.4673.3894.701.9735.701,1.7133Z\"/><circle class=\"cls-4\" cx=\"46.4229\" cy=\"12.5273\" r=\"4\"/><path class=\"cls-2\" d=\"M44.7891,12.8784l.9803.9803,2.2874-2.2874\"/></svg>",
+    "dark": "<svg id=\"Layer_1\" data-name=\"Layer 1\" xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 60 60\"><defs><style>.cls-2{stroke:#151715;stroke-linecap:round;stroke-linejoin:round;}.cls-2,.cls-3{fill:none;}.cls-4{fill:#eceeec;stroke-width:0px;}.cls-3{stroke:#eceeec;}</style></defs><path class=\"cls-3\" d=\"M45.2334,13.1035c.6201-.0345,1.1977.3163,1.4521.8828l8.4258,18.7627c.3681.8196-.0627,1.7769-.9199,2.0459l-37.0576,11.6299c-.7637.2396-1.5814-.1627-1.8574-.9141L4.9111,17.292c-.3474-.946.318-1.9586,1.3242-2.0147l38.998-2.1738Z\"/><path class=\"cls-4\" d=\"M26.553,28.5203c0,.6231-.1557,1.1682-.4283,1.6745-.2726.4672-.662.8956-1.1682,1.2071-.5062.3115-1.1293.5452-1.8302.7009-.7009.1558-1.4797.2337-2.3754.2337h-.623v3.1931h-4.0498v-10.6307h4.7507c1.7913,0,3.1931.3115,4.2056.8956,1.0124.5841,1.5186,1.5187,1.5186,2.7258ZM22.659,28.5593c0-.9346-.7009-1.4019-2.0638-1.4019h-.5062v2.8427h.4672c.662,0,1.2072-.1169,1.5577-.3505.3504-.1947.5451-.5841.5451-1.0903ZM36.5996,35.5296c-.623.1168-1.324.1947-2.1417.1947-1.1293,0-2.1417-.1169-2.9984-.3894-.8956-.2726-1.6355-.6231-2.2585-1.0904-.6231-.4672-1.0904-1.0513-1.4019-1.7133-.3115-.701-.4673-1.4408-.4673-2.2586s.1558-1.5576.5063-2.2585c.3556-.6763.846-1.2726,1.4408-1.7523.623-.4673,1.3629-.8567,2.2195-1.1293.8567-.2725,1.7913-.3894,2.8037-.3894.7788,0,1.5187.039,2.1807.1558q.662.1558,1.1682.3505v2.8426c-.3894-.2337-.8567-.4284-1.3629-.5452-.5062-.1557-1.0514-.2336-1.5966-.2336-.9345,0-1.6744.2726-2.2585.7398-.5841.5063-.8567,1.2072-.8567,2.1807,0,.4673.0779.8956.2726,1.285.1947.3505.4283.662.7399.8957.3115.2336.6619.4283,1.0903.5451.4283.1168.8567.1947,1.324.1947s.9735-.0389,1.4407-.1557c.4673-.1169.9736-.2337,1.4798-.4673v2.6868l-1.324.3116ZM39.598,24.8989h4.0887v10.6696h-4.0887v-10.6696ZM44.1151,21.55c0,.701-.2337,1.2851-.701,1.6745-.4672.3894-1.0513.623-1.7523.623s-1.285-.1947-1.7523-.623c-.4673-.3894-.7009-.9735-.7009-1.6745,0-.7398.2336-1.285.7009-1.7133.4673-.4284,1.0514-.6231,1.7523-.6231s1.2851.1947,1.7523.6231c.4673.3894.701.9735.701,1.7133Z\"/><circle class=\"cls-4\" cx=\"46.4229\" cy=\"12.5273\" r=\"4\"/><path class=\"cls-2\" d=\"M44.7891,12.8784l.9803.9803,2.2874-2.2874\"/></svg>"
+  },
+  "controls": [
+    {
+      "id": "1.1.1",
+      "name": "Processes and mechanisms for managing all components of network security controls (NSCs) are documented, kept current, and operational.",
+      "description": "Evidence: Network security policy; NSC configuration standards; version history; review sign-offs"
+    },
+    {
+      "id": "1.1.2",
+      "name": "Roles and responsibilities for performing activities under Requirement 1 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or responsibility matrix; job descriptions; signed acknowledgment records"
+    },
+    {
+      "id": "1.2.1",
+      "name": "Configuration standards for NSCs address all applicable security risks.",
+      "description": "Evidence: NSC configuration standards; approved rule-set templates; risk justification records"
+    },
+    {
+      "id": "1.2.2",
+      "name": "All permitted services, protocols, and ports are identified, approved, and have a defined business justification.",
+      "description": "Evidence: Approved services/ports/protocols list; firewall rule justification log; change management tickets"
+    },
+    {
+      "id": "1.2.3",
+      "name": "An accurate network diagram showing all CDE connections to other networks is maintained and current.",
+      "description": "Evidence: Network diagram(s) with date; CDE boundary clearly marked; connection inventory"
+    },
+    {
+      "id": "1.2.4",
+      "name": "An accurate data-flow diagram showing all account data flows across systems and networks is maintained.",
+      "description": "Evidence: Data-flow diagram with CHD/SAD flows shown; review dates and approvals"
+    },
+    {
+      "id": "1.2.5",
+      "name": "All services, protocols, and ports in use are reviewed at least every six months.",
+      "description": "Evidence: Bi-annual review records; updated approved services list; reviewer sign-offs"
+    },
+    {
+      "id": "1.2.6",
+      "name": "Security features are defined and implemented for all insecure services, protocols, or ports in use.",
+      "description": "Evidence: Insecure protocol register; compensating controls documentation; TLS/SSH version configs"
+    },
+    {
+      "id": "1.2.7",
+      "name": "NSC configurations are reviewed at least every six months to confirm they are relevant and effective.",
+      "description": "Evidence: Bi-annual config review logs; review checklist; approver sign-offs"
+    },
+    {
+      "id": "1.2.8",
+      "name": "NSC configuration files are protected from unauthorized access and kept consistent with active network configurations.",
+      "description": "Evidence: Access controls on config files; FIM alerts; change management records comparing backup to live"
+    },
+    {
+      "id": "1.2.9",
+      "name": "Network and data-flow diagrams are kept current, reviewed at least every 12 months or on significant change.",
+      "description": "Evidence: 12-month or on-change review evidence; version history; change-triggered update records"
+    },
+    {
+      "id": "1.2.10",
+      "name": "All connections between the CDE and third-party/cloud environments are documented and reviewed.",
+      "description": "Evidence: Third-party connection register; cloud connectivity documentation; approved connection records"
+    },
+    {
+      "id": "1.3.1",
+      "name": "Inbound traffic to the CDE is restricted to only traffic that is necessary.",
+      "description": "Evidence: Firewall inbound rule-set; deny-all default rule evidence; approved inbound service list"
+    },
+    {
+      "id": "1.3.2",
+      "name": "Outbound traffic from the CDE is restricted to only traffic that is necessary.",
+      "description": "Evidence: Firewall outbound rule-set; egress filtering policy; approved outbound service list"
+    },
+    {
+      "id": "1.3.3",
+      "name": "NSCs are installed between all wireless networks and the CDE.",
+      "description": "Evidence: Network diagram showing wireless/CDE segmentation; wireless NSC config; segmentation test results"
+    },
+    {
+      "id": "1.4.1",
+      "name": "NSCs are implemented between trusted and untrusted networks.",
+      "description": "Evidence: Firewall/IPS configuration; trust zone documentation; placement diagrams"
+    },
+    {
+      "id": "1.4.2",
+      "name": "Inbound traffic from untrusted to trusted networks is restricted to necessary communications only.",
+      "description": "Evidence: Inbound firewall rules for untrusted-to-trusted flows; approved inbound services list"
+    },
+    {
+      "id": "1.4.3",
+      "name": "Anti-spoofing measures are implemented to detect and block forged source IP addresses.",
+      "description": "Evidence: uRPF/ingress ACL configuration; IPS anti-spoofing signatures; test evidence"
+    },
+    {
+      "id": "1.4.4",
+      "name": "System components storing cardholder data are not directly accessible from untrusted networks.",
+      "description": "Evidence: Segmentation test results; architecture diagram showing CHD storage system placement"
+    },
+    {
+      "id": "1.4.5",
+      "name": "Internal IP addresses and routing information are not disclosed to untrusted networks.",
+      "description": "Evidence: NAT configuration; route summarization policy; BGP/OSPF filtering configs"
+    },
+    {
+      "id": "1.5.1",
+      "name": "Security controls are implemented on devices that connect to both untrusted networks and the CDE.",
+      "description": "Evidence: MDM policy; endpoint firewall config; split-tunneling policy; VPN configuration"
+    },
+    {
+      "id": "2.1.1",
+      "name": "Processes and mechanisms for applying secure configurations to all components are documented, current, and in use.",
+      "description": "Evidence: Configuration hardening policy; secure baseline standards; version history"
+    },
+    {
+      "id": "2.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 2 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "2.2.1",
+      "name": "Configuration standards are developed, implemented, and kept current for all system components.",
+      "description": "Evidence: Hardening standards (CIS Benchmarks or equivalent); applicability matrix per OS/platform; version history"
+    },
+    {
+      "id": "2.2.2",
+      "name": "Vendor default accounts are managed: unused defaults removed or disabled; passwords changed before installation.",
+      "description": "Evidence: Default account inventory; commissioning checklist; change records confirming default credential changes"
+    },
+    {
+      "id": "2.2.3",
+      "name": "All non-console administrative access is encrypted using strong cryptography.",
+      "description": "Evidence: SSH/TLS configuration; disabled Telnet/plain HTTP configs; admin access method documentation"
+    },
+    {
+      "id": "2.2.4",
+      "name": "Only necessary services, protocols, daemons, and functions are enabled on system components.",
+      "description": "Evidence: Baseline OS build spec; enabled services list; port scans of in-scope systems"
+    },
+    {
+      "id": "2.2.5",
+      "name": "If insecure services, protocols, or daemons are present, business justification is documented and additional security features are implemented.",
+      "description": "Evidence: Insecure service register; business justification records; compensating control documentation"
+    },
+    {
+      "id": "2.2.6",
+      "name": "System security parameters are configured to prevent misuse.",
+      "description": "Evidence: System hardening configs; CIS benchmark scan results; SIEM security parameter alerts"
+    },
+    {
+      "id": "2.2.7",
+      "name": "All non-console administrative access is encrypted using strong cryptography.",
+      "description": "Evidence: SSH/HTTPS admin access configs; certificate management records"
+    },
+    {
+      "id": "2.3.1",
+      "name": "For wireless environments connected to or transmitting account data, all wireless vendor defaults are changed at installation.",
+      "description": "Evidence: Wireless device commissioning checklist; SSID naming; WPA2/3 config; default password change records"
+    },
+    {
+      "id": "2.3.2",
+      "name": "For wireless environments connected to the CDE, wireless encryption keys are changed on personnel departure and at least every 12 months.",
+      "description": "Evidence: Key rotation policy; change records for wireless keys; departure checklist including key rotation"
+    },
+    {
+      "id": "3.1.1",
+      "name": "Processes and mechanisms for protecting stored account data are documented, current, and in use.",
+      "description": "Evidence: Data protection policy; data retention/disposal policy; version history"
+    },
+    {
+      "id": "3.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 3 are documented, assigned, and understood.",
+      "description": "Evidence: RACI; job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "3.2.1",
+      "name": "Account data storage is minimized via a data retention and disposal policy covering all stored account data.",
+      "description": "Evidence: Data retention policy; data discovery scan results; disposal records; data minimization guidelines"
+    },
+    {
+      "id": "3.3.1",
+      "name": "SAD (full track data, CVV2, PIN) is not retained after authorization is complete.",
+      "description": "Evidence: Data discovery scan results showing no SAD post-auth; application data flow documentation; purge logs"
+    },
+    {
+      "id": "3.3.2",
+      "name": "SAD stored prior to authorization completion is encrypted using strong cryptography.",
+      "description": "Evidence: Encryption implementation documentation; key management records; application architecture showing pre-auth SAD handling"
+    },
+    {
+      "id": "3.4.1",
+      "name": "Full PAN is only displayed to those with a legitimate business need; masking is used otherwise (minimum first 6 / last 4 digits).",
+      "description": "Evidence: Application screenshots showing PAN masking; display policy; role-based access logs"
+    },
+    {
+      "id": "3.4.2",
+      "name": "Technical controls prevent copy or relocation of PAN when using remote-access technologies.",
+      "description": "Evidence: Remote access policy; clipboard restriction config (VDI/DLP); screen capture prevention settings"
+    },
+    {
+      "id": "3.5.1",
+      "name": "PAN is secured via strong one-way hashes, truncation, index tokens, or strong cryptography wherever it is stored.",
+      "description": "Evidence: Data protection implementation doc; encryption or tokenization design; key management records"
+    },
+    {
+      "id": "3.5.1.1",
+      "name": "Hashes used to render PAN unreadable are keyed cryptographic hashes (HMAC) of the entire PAN.",
+      "description": "Evidence: Hash implementation documentation; algorithm specification (HMAC-SHA256 or equivalent)"
+    },
+    {
+      "id": "3.5.1.2",
+      "name": "If disk-level or partition-level encryption is used to render PAN unreadable, it is only applied to removable electronic media.",
+      "description": "Evidence: Encryption implementation records; media inventory; OS encryption documentation"
+    },
+    {
+      "id": "3.5.1.3",
+      "name": "If disk-level or partition-level encryption is used, logical access must be managed separately from native OS authentication.",
+      "description": "Evidence: Access control documentation for encrypted media; separate credential management records"
+    },
+    {
+      "id": "3.6.1",
+      "name": "Procedures and processes for protecting cryptographic keys used to protect stored account data are documented and implemented.",
+      "description": "Evidence: Key management policy; key custodian assignment records; key ceremony documentation"
+    },
+    {
+      "id": "3.6.1.1",
+      "name": "A documented description of the cryptographic architecture is maintained, including all algorithms, protocols, and keys in use.",
+      "description": "Evidence: Cryptographic inventory / architecture document; algorithm register; key inventory"
+    },
+    {
+      "id": "3.6.1.2",
+      "name": "Secret and private keys used to protect stored account data are stored in secure forms at all times.",
+      "description": "Evidence: Key storage implementation records (HSM, encrypted key store); key wrapping documentation"
+    },
+    {
+      "id": "3.6.1.3",
+      "name": "Access to cleartext cryptographic key-encrypting keys is restricted to the fewest custodians necessary.",
+      "description": "Evidence: Key custodian list; access control records for key-encrypting keys; dual-control evidence"
+    },
+    {
+      "id": "3.6.1.4",
+      "name": "Cryptographic keys are stored in the fewest possible locations.",
+      "description": "Evidence: Key location inventory; key storage policy"
+    },
+    {
+      "id": "3.7.1",
+      "name": "Key management policies cover generation of strong cryptographic keys.",
+      "description": "Evidence: Key generation policy; algorithm and key-length specifications (AES-256, RSA-2048+)"
+    },
+    {
+      "id": "3.7.2",
+      "name": "Key management policies cover secure distribution of cryptographic keys.",
+      "description": "Evidence: Key distribution procedure; secure channel documentation (key ceremony, HSM transfer)"
+    },
+    {
+      "id": "3.7.3",
+      "name": "Key management policies cover secure storage of cryptographic keys.",
+      "description": "Evidence: Key storage policy; HSM or encrypted key store configuration"
+    },
+    {
+      "id": "3.7.4",
+      "name": "Key management policies cover key changes at the end of each cryptoperiod.",
+      "description": "Evidence: Cryptoperiod policy; key rotation schedule; rotation completion records"
+    },
+    {
+      "id": "3.7.5",
+      "name": "Key management policies cover retirement or replacement of keys.",
+      "description": "Evidence: Key retirement procedure; decommission records; key archival policy"
+    },
+    {
+      "id": "3.7.6",
+      "name": "Manual clear-text cryptographic key-management operations are managed using split knowledge and dual control.",
+      "description": "Evidence: Split knowledge and dual control policy; key ceremony records; custodian sign-off logs"
+    },
+    {
+      "id": "3.7.7",
+      "name": "Unauthorized substitution of cryptographic keys is prevented.",
+      "description": "Evidence: Key integrity verification procedures; FIM or key attestation records"
+    },
+    {
+      "id": "3.7.8",
+      "name": "Key custodians formally acknowledge their key-custodian responsibilities.",
+      "description": "Evidence: Signed key-custodian agreements; training records; acknowledgment logs"
+    },
+    {
+      "id": "4.1.1",
+      "name": "Processes and mechanisms for protecting account data in transit are documented, current, and in use.",
+      "description": "Evidence: Encryption in transit policy; TLS standards documentation; version history"
+    },
+    {
+      "id": "4.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 4 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "4.2.1",
+      "name": "Strong cryptography is used to safeguard PAN during transmission over open, public networks.",
+      "description": "Evidence: TLS configuration extracts (nginx/Apache/load balancer); Qualys SSL Labs or equivalent scan results; cipher suite documentation"
+    },
+    {
+      "id": "4.2.1.1",
+      "name": "An inventory of all trusted keys and certificates used to protect PAN in transit is maintained.",
+      "description": "Evidence: Certificate/key inventory with purpose, issuer, expiry, and renewal schedule"
+    },
+    {
+      "id": "4.2.1.2",
+      "name": "Certificates used for PAN transmission are confirmed as valid and not expired.",
+      "description": "Evidence: Certificate monitoring tool alerts; current certificate status report; renewal records"
+    },
+    {
+      "id": "4.2.2",
+      "name": "PAN is secured with strong cryptography whenever sent via end-user messaging technologies (email, SMS, chat).",
+      "description": "Evidence: Email DLP policy; secure messaging platform configs; DLP incident records for unencrypted PAN"
+    },
+    {
+      "id": "5.1.1",
+      "name": "Processes and mechanisms for protecting all systems against malware are documented, current, and in use.",
+      "description": "Evidence: Anti-malware policy; endpoint protection standard; version history"
+    },
+    {
+      "id": "5.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 5 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "5.2.1",
+      "name": "An anti-malware solution is deployed on all system components, except those confirmed as low-risk via periodic evaluation.",
+      "description": "Evidence: AV/EDR deployment report; system inventory with protection status; exception register with risk evaluations"
+    },
+    {
+      "id": "5.2.2",
+      "name": "Anti-malware solutions detect known types of malware and protect against or address the effects of malware.",
+      "description": "Evidence: AV/EDR product capabilities documentation; scan logs; quarantine/block records"
+    },
+    {
+      "id": "5.2.3",
+      "name": "Systems not at risk from malware are evaluated periodically to confirm that the risk assessment remains accurate.",
+      "description": "Evidence: Low-risk exception records; periodic review schedule; updated risk assessments"
+    },
+    {
+      "id": "5.2.3.1",
+      "name": "The frequency of periodic evaluations of systems not at risk from malware is defined in the entity's targeted risk analysis.",
+      "description": "Evidence: Risk analysis document; defined evaluation frequency; approval records"
+    },
+    {
+      "id": "5.3.1",
+      "name": "Anti-malware solution(s) are kept current via automatic updates.",
+      "description": "Evidence: AV/EDR update configuration; update logs showing recent definition/version updates"
+    },
+    {
+      "id": "5.3.2",
+      "name": "Anti-malware solution(s) perform periodic scans and active/real-time scanning.",
+      "description": "Evidence: Scheduled scan configuration; scan completion logs; real-time protection status"
+    },
+    {
+      "id": "5.3.2.1",
+      "name": "If periodic malware scans are performed, the frequency is defined in the entity's targeted risk analysis.",
+      "description": "Evidence: Risk analysis with defined scan frequency; scan schedule documentation; approval records"
+    },
+    {
+      "id": "5.3.3",
+      "name": "Anti-malware mechanisms cannot be disabled or altered by users.",
+      "description": "Evidence: Endpoint protection tamper-protection configuration; admin-only access controls; policy enforcement logs"
+    },
+    {
+      "id": "5.3.4",
+      "name": "Anti-malware solution logs are retained and available for review.",
+      "description": "Evidence: AV/EDR log retention policy; SIEM forwarding configuration; log samples"
+    },
+    {
+      "id": "5.3.5",
+      "name": "Anti-malware solution(s) cannot be disabled or altered without documented exceptions with management approval.",
+      "description": "Evidence: Exception records with management approval; temporary disable logs; reactivation evidence"
+    },
+    {
+      "id": "5.4.1",
+      "name": "Processes and automated mechanisms are in place to detect and protect against phishing attacks.",
+      "description": "Evidence: Email security gateway config; anti-phishing tool configuration; user awareness training records; phishing simulation results"
+    },
+    {
+      "id": "6.1.1",
+      "name": "Processes and mechanisms for developing and maintaining secure systems and software are documented, current, and in use.",
+      "description": "Evidence: SDLC policy; secure coding standards; version history"
+    },
+    {
+      "id": "6.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 6 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "6.2.1",
+      "name": "Bespoke and custom software are developed securely by following secure coding guidelines.",
+      "description": "Evidence: Secure coding standards document referencing OWASP or equivalent; developer training records; code review policy"
+    },
+    {
+      "id": "6.2.2",
+      "name": "Software development personnel working on bespoke/custom software are trained in secure coding techniques at least annually.",
+      "description": "Evidence: Annual training records; training curriculum; completion certificates"
+    },
+    {
+      "id": "6.2.3",
+      "name": "Bespoke and custom software is reviewed prior to release to identify and remediate potential vulnerabilities.",
+      "description": "Evidence: Code review records; SAST/DAST scan results; peer review sign-offs; security gates in CI/CD pipeline"
+    },
+    {
+      "id": "6.2.3.1",
+      "name": "If manual code reviews are performed, code changes are reviewed by someone other than the originating developer.",
+      "description": "Evidence: Code review records showing reviewer ≠ author; peer review policy; ticketing system evidence"
+    },
+    {
+      "id": "6.2.4",
+      "name": "Software engineering techniques or other methods are defined and in use to prevent or mitigate common software vulnerabilities.",
+      "description": "Evidence: Secure coding checklist; SAST/DAST tool configuration; OWASP Top 10 coverage; vulnerability management records"
+    },
+    {
+      "id": "6.3.1",
+      "name": "Security vulnerabilities are identified and managed via a process that includes subscribing to reputable security vulnerability information sources.",
+      "description": "Evidence: Threat intel subscriptions (NVD, CISA KEV, vendor advisories); vulnerability management policy; patch management records"
+    },
+    {
+      "id": "6.3.2",
+      "name": "An inventory of bespoke and custom software is maintained to facilitate vulnerability and patch management.",
+      "description": "Evidence: Software inventory with version numbers; SBOM where applicable; update tracking records"
+    },
+    {
+      "id": "6.3.3",
+      "name": "All system components are protected from known vulnerabilities by installing applicable security patches/updates.",
+      "description": "Evidence: Patch management policy with SLAs (critical: 1 month per v4.0.1); patch status reports; exception register"
+    },
+    {
+      "id": "6.4.1",
+      "name": "Public-facing web applications are protected against attacks.",
+      "description": "Evidence: WAF deployment records; WAF policy; penetration test report covering web apps; DAST scan results"
+    },
+    {
+      "id": "6.4.2",
+      "name": "An automated technical solution that detects and prevents web-based attacks is deployed for public-facing web applications.",
+      "description": "Evidence: WAF configuration; rule set; blocking mode configuration; false-positive management records"
+    },
+    {
+      "id": "6.4.3",
+      "name": "All payment page scripts loaded and executed in the consumer's browser are managed.",
+      "description": "Evidence: Payment page script inventory; script authorization records; SRI (subresource integrity) hashes; CSP headers; change management records"
+    },
+    {
+      "id": "6.5.1",
+      "name": "Changes to system components are made according to a defined change-control process.",
+      "description": "Evidence: Change management policy; change tickets; CAB records; emergency change procedures"
+    },
+    {
+      "id": "6.5.2",
+      "name": "After a change, all applicable PCI DSS requirements are confirmed to be in place and newly identified vulnerabilities are addressed.",
+      "description": "Evidence: Post-change verification checklists; re-test records; security sign-off on changes"
+    },
+    {
+      "id": "6.5.3",
+      "name": "Pre-production environments are separate from production and the separation is enforced with access controls.",
+      "description": "Evidence: Environment architecture documentation; access control records showing dev/test vs. prod separation"
+    },
+    {
+      "id": "6.5.4",
+      "name": "Roles and functions are separated between production and development/test environments.",
+      "description": "Evidence: Role assignment records; access control matrix showing separation of duties"
+    },
+    {
+      "id": "6.5.5",
+      "name": "Live PANs are not used in pre-production environments except where those environments are within the CDE scope.",
+      "description": "Evidence: Data masking policy; pre-production data management records; masking tool usage logs"
+    },
+    {
+      "id": "6.5.6",
+      "name": "Test data and accounts are removed before production systems become active.",
+      "description": "Evidence: Production launch checklist requiring removal of test accounts/data; production readiness review records"
+    },
+    {
+      "id": "7.1.1",
+      "name": "Processes and mechanisms for restricting access to system components and cardholder data are documented, current, and in use.",
+      "description": "Evidence: Access control policy; business-need-to-know policy; version history"
+    },
+    {
+      "id": "7.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 7 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "7.2.1",
+      "name": "An access control model is defined and includes granting access based on least privilege and need-to-know.",
+      "description": "Evidence: Access control model documentation; role definitions; least privilege policy"
+    },
+    {
+      "id": "7.2.2",
+      "name": "Access is assigned to users, including privileged users, based on job classification and function.",
+      "description": "Evidence: RBAC matrix; user account provisioning records; job function documentation"
+    },
+    {
+      "id": "7.2.3",
+      "name": "Required privileges are approved by authorized personnel.",
+      "description": "Evidence: Access request tickets with management approval; provisioning workflow records"
+    },
+    {
+      "id": "7.2.4",
+      "name": "All user accounts and access rights are reviewed at least once every six months.",
+      "description": "Evidence: Semi-annual user access review records; reviewer sign-offs; remediation records for excess access"
+    },
+    {
+      "id": "7.2.5",
+      "name": "All application and system accounts and related access privileges are assigned and managed per least privilege.",
+      "description": "Evidence: Service account inventory; access rights per service account; approval records"
+    },
+    {
+      "id": "7.2.5.1",
+      "name": "All application and system accounts and related access rights are reviewed at least once every six months.",
+      "description": "Evidence: Semi-annual service account review records; sign-offs; remediation records"
+    },
+    {
+      "id": "7.2.6",
+      "name": "All user access to query repositories of stored cardholder data is restricted to the minimum necessary.",
+      "description": "Evidence: Database access control records; query access logs; RBAC for database access"
+    },
+    {
+      "id": "7.3.1",
+      "name": "All access to system components and cardholder data is assigned and managed via an access control system.",
+      "description": "Evidence: IAM system documentation; access provisioning workflow; access control system configuration"
+    },
+    {
+      "id": "7.3.2",
+      "name": "The access control system(s) are configured to enforce access control settings after each login request.",
+      "description": "Evidence: IAM configuration; session control settings; re-authentication settings"
+    },
+    {
+      "id": "7.3.3",
+      "name": "The access control system(s) are set to 'deny all' by default.",
+      "description": "Evidence: Default-deny configuration evidence; IAM policy documentation; rule precedence documentation"
+    },
+    {
+      "id": "8.1.1",
+      "name": "Processes and mechanisms for identifying and authenticating access are documented, current, and in use.",
+      "description": "Evidence: Identity and access management policy; authentication standards; version history"
+    },
+    {
+      "id": "8.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 8 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "8.2.1",
+      "name": "All users are assigned a unique ID before allowing access to system components or cardholder data.",
+      "description": "Evidence: User provisioning records; Active Directory/IAM user listing; no-shared-account policy"
+    },
+    {
+      "id": "8.2.2",
+      "name": "Group, shared, or generic accounts or passwords are only used when necessary and managed per additional controls.",
+      "description": "Evidence: Shared account policy; shared account inventory; exception register with justification"
+    },
+    {
+      "id": "8.2.4",
+      "name": "Addition, deletion, and modification of user IDs and authentication factors are managed per formal processes.",
+      "description": "Evidence: User lifecycle management procedure; provisioning/deprovisioning tickets; JML process documentation"
+    },
+    {
+      "id": "8.2.5",
+      "name": "Access for terminated users is immediately revoked.",
+      "description": "Evidence: Termination procedure; HR-IT notification process; deprovisioning records with timestamps"
+    },
+    {
+      "id": "8.2.6",
+      "name": "Inactive user accounts are removed or disabled within 90 days.",
+      "description": "Evidence: Automated inactivity reports; 90-day review and disable records; IAM configuration showing 90-day threshold"
+    },
+    {
+      "id": "8.2.7",
+      "name": "Accounts used by third parties are managed per Requirement 8 controls.",
+      "description": "Evidence: Third-party account inventory; third-party access policy; just-in-time access records"
+    },
+    {
+      "id": "8.2.8",
+      "name": "If a user session has been idle for more than 15 minutes, re-authentication is required.",
+      "description": "Evidence: Session timeout configuration (≤15 minutes); system configuration screenshots"
+    },
+    {
+      "id": "8.3.1",
+      "name": "All user and admin passwords/passphrases meet a minimum length of at least 12 characters (or 8 if system does not support 12).",
+      "description": "Evidence: Password policy configuration; AD/IAM password policy settings screenshot"
+    },
+    {
+      "id": "8.3.2",
+      "name": "User and admin passwords/passphrases are properly secured during transmission and storage.",
+      "description": "Evidence: Password hashing implementation documentation; TLS for authentication screens; LDAP over TLS config"
+    },
+    {
+      "id": "8.3.4",
+      "name": "Invalid authentication attempts are limited to no more than 10 tries before locking the account.",
+      "description": "Evidence: Account lockout policy configuration; AD/IAM lockout threshold setting"
+    },
+    {
+      "id": "8.3.6",
+      "name": "If passwords are used as authentication factors, they meet minimum complexity requirements.",
+      "description": "Evidence: Password complexity policy configuration; enforcement evidence across all systems"
+    },
+    {
+      "id": "8.3.7",
+      "name": "Individuals are not allowed to submit a new password the same as any of their last four passwords.",
+      "description": "Evidence: Password history enforcement (minimum 4 history); IAM policy configuration"
+    },
+    {
+      "id": "8.3.9",
+      "name": "If passwords are the only authentication factor for user access, they must be changed at least every 90 days OR the system dynamically assesses account security posture.",
+      "description": "Evidence: Password expiry policy (≤90 days) OR dynamic assessment configuration; enforcement records"
+    },
+    {
+      "id": "8.4.1",
+      "name": "MFA is implemented for all non-console access into the CDE for personnel with administrative access.",
+      "description": "Evidence: MFA configuration for admin access; authentication logs showing MFA enforcement; MFA policy"
+    },
+    {
+      "id": "8.4.2",
+      "name": "MFA is implemented for all access into the CDE.",
+      "description": "Evidence: MFA configuration for all CDE access; VPN MFA config; authentication logs"
+    },
+    {
+      "id": "8.4.3",
+      "name": "MFA is implemented for all remote network access originating from outside the entity's network.",
+      "description": "Evidence: VPN/remote access MFA configuration; remote access policy; authentication logs"
+    },
+    {
+      "id": "8.5.1",
+      "name": "MFA systems are implemented securely to prevent MFA bypass.",
+      "description": "Evidence: MFA system configuration; replay attack prevention; out-of-band channel configuration; no-bypass configuration"
+    },
+    {
+      "id": "8.6.1",
+      "name": "If accounts used by systems or applications can be used for interactive login, they are managed and protected.",
+      "description": "Evidence: Service account inventory; interactive login restriction policy; service account access logs"
+    },
+    {
+      "id": "8.6.2",
+      "name": "Passwords for application and system accounts that can be used for interactive login are not hard-coded in scripts, applications, or configuration files.",
+      "description": "Evidence: Code review records; secrets scanning tool results; vault/secrets manager configuration"
+    },
+    {
+      "id": "8.6.3",
+      "name": "Passwords for any application and system accounts are protected against misuse.",
+      "description": "Evidence: Secrets management policy; vault configuration; rotation schedule for service account credentials"
+    },
+    {
+      "id": "9.1.1",
+      "name": "Processes and mechanisms for restricting physical access to cardholder data are documented, current, and in use.",
+      "description": "Evidence: Physical security policy; facility access procedure; version history"
+    },
+    {
+      "id": "9.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 9 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "9.2.1",
+      "name": "Appropriate facility entry controls are in place to limit and monitor physical access to systems in the CDE.",
+      "description": "Evidence: Access control system logs; badge reader configuration; CCTV records"
+    },
+    {
+      "id": "9.2.1.1",
+      "name": "Individual physical access to sensitive areas within the CDE is monitored with video cameras or physical access control mechanisms.",
+      "description": "Evidence: Camera coverage maps; access control log for sensitive areas; retention settings (minimum 3 months)"
+    },
+    {
+      "id": "9.2.2",
+      "name": "Physical and/or logical controls restrict use of publicly accessible network jacks.",
+      "description": "Evidence: Network jack policy; 802.1X or port security configuration; physical port lock/cover evidence"
+    },
+    {
+      "id": "9.2.3",
+      "name": "Physical access to wireless APs, gateways, handheld devices, networking hardware, and telecom lines in the CDE is restricted.",
+      "description": "Evidence: Physical security inventory for wireless/networking hardware; access restriction evidence (cages, cabinets)"
+    },
+    {
+      "id": "9.2.4",
+      "name": "Access to consoles in sensitive areas is restricted via locking when not in use.",
+      "description": "Evidence: Console lock policy; screen lock configuration; physical observation evidence"
+    },
+    {
+      "id": "9.3.1",
+      "name": "Procedures are implemented for authorizing and managing physical access of personnel to the CDE.",
+      "description": "Evidence: Personnel access authorization records; access list; access request/approval workflow"
+    },
+    {
+      "id": "9.3.2",
+      "name": "Procedures are implemented for managing visitor access to the CDE.",
+      "description": "Evidence: Visitor policy; visitor log; visitor badge procedure; escort policy"
+    },
+    {
+      "id": "9.3.3",
+      "name": "Visitor badges or identification are surrendered or deactivated before visitors leave the facility.",
+      "description": "Evidence: Visitor check-out records; badge return procedure; badge deactivation logs"
+    },
+    {
+      "id": "9.3.4",
+      "name": "A visitor log is used to maintain a physical audit trail of visitor access.",
+      "description": "Evidence: Visitor log (physical or electronic); log retention records (minimum 3 months)"
+    },
+    {
+      "id": "9.4.1",
+      "name": "All media with cardholder data is physically secured.",
+      "description": "Evidence: Media storage policy; locked storage evidence (cabinet logs); media inventory"
+    },
+    {
+      "id": "9.4.1.1",
+      "name": "Offline media backups with cardholder data are stored in a secure location.",
+      "description": "Evidence: Offline backup storage policy; off-site storage agreement; facility security assessment"
+    },
+    {
+      "id": "9.4.1.2",
+      "name": "The security of offline media backup locations is reviewed at least annually.",
+      "description": "Evidence: Annual security review records for off-site locations; review checklist; sign-offs"
+    },
+    {
+      "id": "9.4.2",
+      "name": "All media with cardholder data is classified in accordance with the sensitivity of the data.",
+      "description": "Evidence: Media classification policy; media labeling records; sensitivity classification scheme"
+    },
+    {
+      "id": "9.4.3",
+      "name": "Media with cardholder data sent outside the facility is secured.",
+      "description": "Evidence: Media transport policy; tracked courier/secure transport records; chain of custody documentation"
+    },
+    {
+      "id": "9.4.4",
+      "name": "Management approves all media with cardholder data moved outside the facility.",
+      "description": "Evidence: Management approval records for media transfers; transport authorization logs"
+    },
+    {
+      "id": "9.4.5",
+      "name": "Inventory logs of all electronic media with cardholder data are maintained.",
+      "description": "Evidence: Electronic media inventory log; periodic inventory review records"
+    },
+    {
+      "id": "9.4.5.1",
+      "name": "Inventories of electronic media with cardholder data are conducted at least annually.",
+      "description": "Evidence: Annual media inventory records; date of last inventory; discrepancy resolution records"
+    },
+    {
+      "id": "9.4.6",
+      "name": "Hard-copy materials with cardholder data are destroyed when no longer needed.",
+      "description": "Evidence: Hard-copy destruction policy; cross-cut shredder records; secure bin usage; certificate of destruction"
+    },
+    {
+      "id": "9.4.7",
+      "name": "Electronic media with cardholder data is destroyed when no longer needed.",
+      "description": "Evidence: Electronic media destruction policy; degaussing/secure wipe records; certificate of destruction"
+    },
+    {
+      "id": "9.5.1",
+      "name": "POI devices that capture payment card data via direct physical interaction are protected from tampering and unauthorized substitution.",
+      "description": "Evidence: POI device inventory; device inspection records; anti-tampering policy"
+    },
+    {
+      "id": "9.5.1.1",
+      "name": "POI device surfaces are periodically inspected to detect tampering and unauthorized substitution.",
+      "description": "Evidence: Inspection checklist; periodic inspection records; photo evidence of inspection"
+    },
+    {
+      "id": "9.5.1.2",
+      "name": "Personnel are trained to be aware of attempted tampering or substitution of POI devices.",
+      "description": "Evidence: Training records covering POI tampering awareness; training curriculum with tampering indicators"
+    },
+    {
+      "id": "9.5.1.3",
+      "name": "A list of POI devices is maintained, including device make, model, location, and serial or other identifier.",
+      "description": "Evidence: POI device register with make, model, serial, location; last-update date"
+    },
+    {
+      "id": "10.1.1",
+      "name": "Processes and mechanisms for logging and monitoring all access to system components are documented, current, and in use.",
+      "description": "Evidence: Logging and monitoring policy; log management standard; SIEM documentation; version history"
+    },
+    {
+      "id": "10.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 10 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "10.2.1",
+      "name": "Audit logs capture all individual user access to cardholder data.",
+      "description": "Evidence: SIEM configuration; log samples showing user access to CHD systems; log policy"
+    },
+    {
+      "id": "10.2.1.1",
+      "name": "Audit logs capture all actions taken by any individual with root or administrative privileges.",
+      "description": "Evidence: Log samples showing admin/root actions; SIEM alert configuration for privileged actions"
+    },
+    {
+      "id": "10.2.1.2",
+      "name": "Audit logs capture all access to audit trails.",
+      "description": "Evidence: Log samples showing audit trail access; SIEM configuration for log-read events"
+    },
+    {
+      "id": "10.2.1.3",
+      "name": "Audit logs capture all invalid logical access attempts.",
+      "description": "Evidence: Failed login log samples; SIEM failed authentication events; brute-force detection alerts"
+    },
+    {
+      "id": "10.2.1.4",
+      "name": "Audit logs capture all use of and changes to identification and authentication mechanisms.",
+      "description": "Evidence: Log samples for account creation, deletion, password changes, privilege escalation"
+    },
+    {
+      "id": "10.2.1.5",
+      "name": "Audit logs capture all changes to and deletions of audit log records.",
+      "description": "Evidence: Log samples showing log deletion/modification attempts; SIEM integrity alerts"
+    },
+    {
+      "id": "10.2.1.6",
+      "name": "Audit logs capture all initialization, stopping, or pausing of audit logging.",
+      "description": "Evidence: Log samples for audit log service start/stop events; SIEM configuration"
+    },
+    {
+      "id": "10.2.1.7",
+      "name": "Audit logs capture all creation and deletion of system-level objects.",
+      "description": "Evidence: Log samples for object creation/deletion; SIEM object change events"
+    },
+    {
+      "id": "10.2.2",
+      "name": "Audit logs capture: user ID, event type, date/time, success/failure, origin, and identity/name of affected data/component.",
+      "description": "Evidence: Log format documentation; sample log records showing all 6 required fields"
+    },
+    {
+      "id": "10.3.1",
+      "name": "Read access to audit log files is limited to those with a job-related need.",
+      "description": "Evidence: Access controls on log files; RBAC for log access; access review records"
+    },
+    {
+      "id": "10.3.2",
+      "name": "Audit log files are protected from unauthorized modifications by technical controls.",
+      "description": "Evidence: Log immutability configuration (WORM storage, append-only); FIM on log files; SIEM write protection"
+    },
+    {
+      "id": "10.3.3",
+      "name": "Audit log files, including those for external-facing technologies, are promptly backed up to a secure central log server or SIEM.",
+      "description": "Evidence: SIEM ingestion configuration; log forwarding config; backup evidence for log data"
+    },
+    {
+      "id": "10.3.4",
+      "name": "File integrity monitoring or change detection mechanisms are used on audit logs.",
+      "description": "Evidence: FIM configuration covering log files; FIM alert records"
+    },
+    {
+      "id": "10.4.1",
+      "name": "Automated mechanisms are used to perform audit log reviews.",
+      "description": "Evidence: SIEM alert rules; automated review schedule; SIEM dashboard"
+    },
+    {
+      "id": "10.4.1.1",
+      "name": "Automated log review processes cover all defined auditable events.",
+      "description": "Evidence: SIEM use case list; mapping of use cases to required audit events (per Req 10.2.1)"
+    },
+    {
+      "id": "10.4.2",
+      "name": "Logs of all other system components are reviewed periodically.",
+      "description": "Evidence: Log review schedule; review records for non-automated systems; reviewer sign-offs"
+    },
+    {
+      "id": "10.4.2.1",
+      "name": "The frequency of periodic log reviews is defined in the entity's targeted risk analysis.",
+      "description": "Evidence: Targeted risk analysis defining log review frequency; management approval"
+    },
+    {
+      "id": "10.4.3",
+      "name": "Exceptions and anomalies identified during log review are addressed.",
+      "description": "Evidence: Incident/exception tracking records; follow-up evidence; escalation records"
+    },
+    {
+      "id": "10.5.1",
+      "name": "Audit log history is retained for at least 12 months, with at least the most recent three months available for immediate analysis.",
+      "description": "Evidence: Log retention policy; SIEM or log archive configuration; test retrieval of 3-month and 12-month-old logs"
+    },
+    {
+      "id": "10.6.1",
+      "name": "System clocks and time are synchronized using accepted time-keeping technology.",
+      "description": "Evidence: NTP configuration on all in-scope systems; NTP server documentation; time synchronization logs"
+    },
+    {
+      "id": "10.6.2",
+      "name": "Systems are configured to prevent unauthorized modifications of time.",
+      "description": "Evidence: NTP ACL configuration; admin-only access to time settings; audit records for time changes"
+    },
+    {
+      "id": "10.6.3",
+      "name": "Time synchronization settings and data are protected from unauthorized access and tampering.",
+      "description": "Evidence: NTP authentication configuration; time server access controls; monitoring for time discrepancies"
+    },
+    {
+      "id": "10.7.2",
+      "name": "Failures of critical security controls (IDS/IPS, FIM, AV, access controls, audit logging, firewalls) are detected, alerted, and addressed promptly.",
+      "description": "Evidence: SIEM alert rules for critical control failures; incident/alert records for control failures"
+    },
+    {
+      "id": "10.7.3",
+      "name": "Failures of any critical security control are responded to promptly; root cause is identified, documented, and resolved.",
+      "description": "Evidence: Incident records with root cause analysis (RCA); RCA documentation; remediation evidence"
+    },
+    {
+      "id": "11.1.1",
+      "name": "Processes and mechanisms for regularly testing security of systems and networks are documented, current, and in use.",
+      "description": "Evidence: Security testing policy; penetration testing standard; vulnerability management policy; version history"
+    },
+    {
+      "id": "11.1.2",
+      "name": "Roles and responsibilities for activities under Requirement 11 are documented, assigned, and understood.",
+      "description": "Evidence: RACI or job descriptions; signed acknowledgments"
+    },
+    {
+      "id": "11.2.1",
+      "name": "Authorized and unauthorized wireless access points are managed.",
+      "description": "Evidence: Wireless scanning tool (WIPS/WIDS) configuration; quarterly wireless scan reports; unauthorized AP detection/response records"
+    },
+    {
+      "id": "11.2.2",
+      "name": "An inventory of authorized wireless access points is maintained.",
+      "description": "Evidence: Wireless AP inventory with make, model, location, and MAC address; last-updated date"
+    },
+    {
+      "id": "11.3.1",
+      "name": "Internal vulnerability scans are performed at least once every three months.",
+      "description": "Evidence: Quarterly internal scan reports; scan schedule; authenticated (credentialed) scan configuration and evidence"
+    },
+    {
+      "id": "11.3.1.1",
+      "name": "Internal vulnerability scans are performed after significant changes.",
+      "description": "Evidence: Change-triggered scan records; scan reports linked to change tickets"
+    },
+    {
+      "id": "11.3.1.2",
+      "name": "Internal vulnerability scans are performed by a qualified internal resource or qualified external third party.",
+      "description": "Evidence: Scanner qualifications; internal resource training/certification; third-party scanner credentials"
+    },
+    {
+      "id": "11.3.1.3",
+      "name": "Internal vulnerability scan findings are remediated and a rescan is performed to confirm resolution.",
+      "description": "Evidence: Remediation records for high/critical findings; rescan reports confirming resolution; exception register for accepted risks"
+    },
+    {
+      "id": "11.3.2",
+      "name": "External vulnerability scans are performed at least once every three months by an Approved Scanning Vendor (ASV).",
+      "description": "Evidence: ASV scan reports (passing status); ASV certification evidence; quarterly scan schedule"
+    },
+    {
+      "id": "11.3.2.1",
+      "name": "External vulnerability scan findings are remediated and passing scans are achieved.",
+      "description": "Evidence: Remediation records; re-scan reports showing passing status; ASV dispute process records if applicable"
+    },
+    {
+      "id": "11.4.1",
+      "name": "A penetration testing methodology is defined, documented, and implemented.",
+      "description": "Evidence: Penetration testing methodology document covering network and application layers, exploitation, and reporting requirements"
+    },
+    {
+      "id": "11.4.2",
+      "name": "Internal penetration testing is performed at least annually and after significant changes.",
+      "description": "Evidence: Annual internal pen test reports; on-change pen test records; testing scope documentation"
+    },
+    {
+      "id": "11.4.3",
+      "name": "External penetration testing is performed at least annually and after significant changes.",
+      "description": "Evidence: Annual external pen test reports; tester qualifications (CREST/OSCP or equivalent); on-change pen test records"
+    },
+    {
+      "id": "11.4.4",
+      "name": "Exploitable vulnerabilities and security weaknesses found during penetration testing are corrected.",
+      "description": "Evidence: Remediation records for pen test findings; re-test evidence confirming resolution; risk acceptance for accepted findings with management sign-off"
+    },
+    {
+      "id": "11.4.5",
+      "name": "If segmentation is used to isolate the CDE, segmentation controls are verified at least every six months and after significant change.",
+      "description": "Evidence: Bi-annual segmentation test reports; methodology documentation; on-change test records"
+    },
+    {
+      "id": "11.4.6",
+      "name": "Additional requirement for service providers: Pen testing of segmentation controls is performed at least every six months. (SP)",
+      "description": "Evidence: Bi-annual segmentation pen test reports; scoping documentation showing all service provider testing boundaries"
+    },
+    {
+      "id": "11.4.7",
+      "name": "Additional requirement for multi-tenant service providers: Support customers for external penetration testing. (SP)",
+      "description": "Evidence: Customer pen test support policy; customer access provision records; evidence of customer test facilitation"
+    },
+    {
+      "id": "11.5.1",
+      "name": "Intrusion-detection and/or intrusion-prevention techniques are used to detect and/or prevent intrusions into the network.",
+      "description": "Evidence: IDS/IPS deployment evidence; signature update logs; alert records; tuning documentation"
+    },
+    {
+      "id": "11.5.2",
+      "name": "A change-detection mechanism (FIM) is deployed to alert personnel to unauthorized modification of critical files.",
+      "description": "Evidence: FIM tool deployment evidence; critical file baseline; FIM alert records; response procedure"
+    },
+    {
+      "id": "11.6.1",
+      "name": "A change- and tamper-detection mechanism is deployed to alert on unauthorized modifications to HTTP headers and payment page contents.",
+      "description": "Evidence: Payment page monitoring tool deployment evidence; alert records; scope documentation covering all payment pages"
+    },
+    {
+      "id": "12.1.1",
+      "name": "An overall information security policy is established, published, maintained, and disseminated to all relevant personnel and applicable vendors.",
+      "description": "Evidence: Information security policy document; distribution records; vendor/partner acknowledgment records"
+    },
+    {
+      "id": "12.1.2",
+      "name": "The information security policy is reviewed at least annually and updated when the environment changes.",
+      "description": "Evidence: Annual review records; version history; change-triggered review records"
+    },
+    {
+      "id": "12.1.3",
+      "name": "The information security policy clearly defines information security roles and responsibilities for all personnel.",
+      "description": "Evidence: IS policy sections defining roles; RACI; job descriptions"
+    },
+    {
+      "id": "12.1.4",
+      "name": "Responsibility for information security is formally assigned to a CISO or another information-security-knowledgeable member of executive management.",
+      "description": "Evidence: CISO appointment documentation; executive security accountability records; organization chart"
+    },
+    {
+      "id": "12.2.1",
+      "name": "Acceptable use policies for end-user technologies are documented and implemented.",
+      "description": "Evidence: Acceptable use policy; signed acknowledgments; technology inventory covered by AUP"
+    },
+    {
+      "id": "12.3.1",
+      "name": "A targeted risk analysis is performed for each PCI DSS requirement that allows flexibility in activity frequency.",
+      "description": "Evidence: Targeted risk analysis documents per applicable requirement; management approval records"
+    },
+    {
+      "id": "12.3.2",
+      "name": "A targeted risk analysis is performed for each PCI DSS requirement specified as needing a customized approach.",
+      "description": "Evidence: Customized approach risk analyses; control design documentation; independent review evidence"
+    },
+    {
+      "id": "12.3.3",
+      "name": "All cryptographic cipher suites and protocols in use are documented and reviewed at least annually.",
+      "description": "Evidence: Cryptographic inventory; annual review records; cipher suite deprecation tracking"
+    },
+    {
+      "id": "12.3.4",
+      "name": "Hardware and software technologies in use are reviewed at least annually to confirm that they continue to receive security fixes and support.",
+      "description": "Evidence: Technology lifecycle inventory; annual vendor support status review; EOL/EOS tracking register"
+    },
+    {
+      "id": "12.4.1",
+      "name": "Additional requirement for service providers: Executive management establishes responsibility for protection of cardholder data and a PCI DSS compliance program. (SP)",
+      "description": "Evidence: Executive charter for PCI DSS compliance; management acknowledgment; named executive accountability"
+    },
+    {
+      "id": "12.4.2",
+      "name": "Additional requirement for service providers: Reviews confirming that personnel follow security policies and procedures are performed at least quarterly. (SP)",
+      "description": "Evidence: Quarterly compliance review records; review scope and methodology; sign-offs"
+    },
+    {
+      "id": "12.5.1",
+      "name": "An inventory of system components that are in scope for PCI DSS is maintained, including a description of function/use for each.",
+      "description": "Evidence: CDE scope inventory with component type, function, owner, and location"
+    },
+    {
+      "id": "12.5.2",
+      "name": "PCI DSS scope is documented and confirmed at least once every 12 months and upon significant changes.",
+      "description": "Evidence: Annual scope confirmation documentation; significant-change scope review records; QSA confirmation (if applicable)"
+    },
+    {
+      "id": "12.5.2.1",
+      "name": "Additional requirement for service providers: PCI DSS scope is confirmed at least every six months and upon significant changes. (SP)",
+      "description": "Evidence: Bi-annual scope confirmation records; sign-offs; on-change scope review records"
+    },
+    {
+      "id": "12.6.1",
+      "name": "A formal security awareness program is implemented to make all personnel aware of the information security policy and procedures.",
+      "description": "Evidence: Security awareness program documentation; training schedule; completion records"
+    },
+    {
+      "id": "12.6.2",
+      "name": "The security awareness program is reviewed at least annually and updated as needed.",
+      "description": "Evidence: Annual review records; version history; update log"
+    },
+    {
+      "id": "12.6.3",
+      "name": "Personnel receive security awareness training upon hire and at least annually.",
+      "description": "Evidence: New hire training records; annual re-training records; LMS completion reports"
+    },
+    {
+      "id": "12.6.3.1",
+      "name": "Security awareness training includes awareness of threats and vulnerabilities that could impact the CDE.",
+      "description": "Evidence: Training curriculum covering phishing, social engineering, CHD handling, password security, physical security"
+    },
+    {
+      "id": "12.6.3.2",
+      "name": "Security awareness training includes awareness about the acceptable use of end-user technologies.",
+      "description": "Evidence: Training content referencing AUP; AUP acknowledgment post-training"
+    },
+    {
+      "id": "12.7.1",
+      "name": "Potential personnel who will have access to the CDE are screened prior to hire, within the constraints of local laws.",
+      "description": "Evidence: Background check policy; background check records for CDE-access personnel; screening scope documentation"
+    },
+    {
+      "id": "12.8.1",
+      "name": "A list of all third-party service providers (TPSPs) with whom account data is shared or that could affect security of account data is maintained.",
+      "description": "Evidence: TPSP register with service type, data shared, and contact details"
+    },
+    {
+      "id": "12.8.2",
+      "name": "Written agreements with all TPSPs acknowledge their responsibility for the security of account data they possess or could affect.",
+      "description": "Evidence: TPSP agreements with PCI DSS clauses; responsibility acknowledgments"
+    },
+    {
+      "id": "12.8.3",
+      "name": "An established process for engaging TPSPs includes proper due diligence prior to engagement.",
+      "description": "Evidence: TPSP onboarding policy; due diligence questionnaire; pre-engagement security assessment records"
+    },
+    {
+      "id": "12.8.4",
+      "name": "A program to monitor TPSPs' PCI DSS compliance status is implemented at least annually.",
+      "description": "Evidence: Annual TPSP compliance review records; AOC/SAQ collection; compliance register with expiry dates"
+    },
+    {
+      "id": "12.8.5",
+      "name": "Information is maintained about which PCI DSS requirements are managed by each TPSP and which are managed by the entity.",
+      "description": "Evidence: Responsibility matrix per TPSP (shared responsibility matrix); contractual documentation of responsibility split"
+    },
+    {
+      "id": "12.9.1",
+      "name": "Additional requirement for service providers: TPSPs provide written acknowledgment/assurance to customers about PCI DSS requirements they are responsible for. (SP)",
+      "description": "Evidence: Responsibility acknowledgment letters; AOC shared with customers; contract clauses detailing SP scope"
+    },
+    {
+      "id": "12.9.2",
+      "name": "Additional requirement for service providers: TPSPs support customers' requests for information related to their PCI DSS compliance. (SP)",
+      "description": "Evidence: Customer request handling process; records of customer inquiries and responses"
+    },
+    {
+      "id": "12.10.1",
+      "name": "An incident response plan exists and is ready to be activated in the event of a system breach.",
+      "description": "Evidence: Incident response plan (IRP) covering CHD breach scenarios; contact list; escalation procedures; breach notification procedures"
+    },
+    {
+      "id": "12.10.2",
+      "name": "At least once every 12 months, the incident response plan is reviewed and tested.",
+      "description": "Evidence: Annual IRP test records (tabletop exercise or live drill); review sign-offs; lessons-learned documentation"
+    },
+    {
+      "id": "12.10.3",
+      "name": "Specific personnel are designated to be available on a 24/7 basis to respond to suspected or confirmed security incidents.",
+      "description": "Evidence: 24/7 on-call roster; escalation contact list; documented on-call procedures"
+    },
+    {
+      "id": "12.10.4",
+      "name": "Personnel responsible for responding to suspected and confirmed security incidents are appropriately and regularly trained.",
+      "description": "Evidence: IR team training records; tabletop exercise participation records; IR-specific training curriculum"
+    },
+    {
+      "id": "12.10.5",
+      "name": "The incident response plan includes monitoring and responding to alerts from security monitoring systems.",
+      "description": "Evidence: IRP sections covering SIEM/IDS/FIM alerts; playbooks for common alert types; escalation procedures"
+    },
+    {
+      "id": "12.10.6",
+      "name": "The incident response plan is modified and evolved according to lessons learned and industry developments.",
+      "description": "Evidence: IRP version history; lessons-learned records from incidents and tests; review schedule"
+    },
+    {
+      "id": "12.10.7",
+      "name": "Incident response procedures are in place for detection of stored PAN where it should not be.",
+      "description": "Evidence: IRP section covering unauthorized PAN discovery; data classification and remediation procedures"
+    }
+  ]
+}

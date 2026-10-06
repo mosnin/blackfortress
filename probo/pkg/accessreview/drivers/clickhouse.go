@@ -1,0 +1,236 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package drivers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+const (
+	clickhouseOrganizationsPath = "organizations"
+	clickhouseMembersPath       = "members"
+)
+
+// ClickHouseDriver lists the members of a single ClickHouse Cloud
+// organization. A key/secret pair (HTTP Basic) is scoped to exactly one
+// organization, so the driver discovers that organization via
+// GET /v1/organizations and then lists its members — no org ID needs to be
+// configured. The Basic credential is applied by the connection transport.
+type ClickHouseDriver struct {
+	httpClient *http.Client
+	baseURL    string
+}
+
+var _ Driver = (*ClickHouseDriver)(nil)
+
+type clickhouseOrgsResponse struct {
+	Result []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"result"`
+}
+
+type clickhouseMembersResponse struct {
+	Result []clickhouseMember `json:"result"`
+}
+
+type clickhouseMember struct {
+	UserID        string `json:"userId"`
+	Name          string `json:"name"`
+	Email         string `json:"email"`
+	Role          string `json:"role"`
+	JoinedAt      string `json:"joinedAt"`
+	AssignedRoles []struct {
+		RoleName string `json:"roleName"`
+	} `json:"assignedRoles"`
+}
+
+// NewClickHouseDriver builds a driver against baseURL, the versioned
+// ClickHouse Cloud control-plane origin (e.g. https://api.clickhouse.cloud/v1).
+func NewClickHouseDriver(httpClient *http.Client, baseURL string) *ClickHouseDriver {
+	return &ClickHouseDriver{httpClient: httpClient, baseURL: baseURL}
+}
+
+func (d *ClickHouseDriver) ListAccounts(ctx context.Context) ([]AccountRecord, error) {
+	organizationID, err := d.resolveOrganizationID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	members, err := d.fetchMembers(ctx, organizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	records := make([]AccountRecord, 0, len(members))
+
+	for _, m := range members {
+		email := strings.TrimSpace(m.Email)
+		if email == "" {
+			continue
+		}
+
+		record := AccountRecord{
+			Email:       email,
+			FullName:    clickhouseFullName(m, email),
+			Roles:       clickhouseRoles(m),
+			IsAdmin:     new(clickhouseIsAdmin(m)),
+			MFAStatus:   coredata.MFAStatusUnknown,
+			AuthMethod:  coredata.AccessReviewEntryAuthMethodUnknown,
+			AccountType: coredata.AccessReviewEntryAccountTypeUser,
+			ExternalID:  strings.TrimSpace(m.UserID),
+		}
+
+		if m.JoinedAt != "" {
+			if t, err := time.Parse(time.RFC3339, m.JoinedAt); err == nil {
+				record.CreatedAt = &t
+			}
+		}
+
+		records = append(records, record)
+	}
+
+	return records, nil
+}
+
+func (d *ClickHouseDriver) resolveOrganizationID(ctx context.Context) (string, error) {
+	endpoint, err := url.JoinPath(d.baseURL, clickhouseOrganizationsPath)
+	if err != nil {
+		return "", fmt.Errorf("cannot build clickhouse organizations URL: %w", err)
+	}
+
+	var resp clickhouseOrgsResponse
+	if err := d.getJSON(ctx, endpoint, "clickhouse organizations", &resp); err != nil {
+		return "", err
+	}
+
+	if len(resp.Result) == 0 || strings.TrimSpace(resp.Result[0].ID) == "" {
+		return "", fmt.Errorf("cannot determine clickhouse organization: API key is not associated with any organization")
+	}
+
+	return strings.TrimSpace(resp.Result[0].ID), nil
+}
+
+func (d *ClickHouseDriver) fetchMembers(ctx context.Context, organizationID string) ([]clickhouseMember, error) {
+	endpoint, err := url.JoinPath(d.baseURL, clickhouseOrganizationsPath, url.PathEscape(organizationID), clickhouseMembersPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build clickhouse members URL: %w", err)
+	}
+
+	var resp clickhouseMembersResponse
+	if err := d.getJSON(ctx, endpoint, "clickhouse members", &resp); err != nil {
+		return nil, err
+	}
+
+	return resp.Result, nil
+}
+
+func (d *ClickHouseDriver) getJSON(ctx context.Context, endpoint, what string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("cannot create %s request: %w", what, err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	httpResp, err := d.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot execute %s request: %w", what, err)
+	}
+
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return fmt.Errorf("cannot fetch %s: unexpected status %d", what, httpResp.StatusCode)
+	}
+
+	if err := json.NewDecoder(httpResp.Body).Decode(out); err != nil {
+		return fmt.Errorf("cannot decode %s response: %w", what, err)
+	}
+
+	return nil
+}
+
+func clickhouseFullName(m clickhouseMember, fallback string) string {
+	if name := strings.TrimSpace(m.Name); name != "" {
+		return name
+	}
+
+	return fallback
+}
+
+// clickhouseRoles prefers the custom/system roles in assignedRoles (the live
+// source of truth) and falls back to the deprecated `role` field, which is
+// frozen for organizations migrated to custom roles.
+func clickhouseRoles(m clickhouseMember) []string {
+	names := make([]string, 0, len(m.AssignedRoles))
+
+	for _, r := range m.AssignedRoles {
+		if name := strings.TrimSpace(r.RoleName); name != "" {
+			names = append(names, name)
+		}
+	}
+
+	if len(names) > 0 {
+		return names
+	}
+
+	switch strings.ToLower(strings.TrimSpace(m.Role)) {
+	case "admin":
+		return []string{"Admin"}
+	case "developer":
+		return []string{"Developer"}
+	default:
+		if r := strings.TrimSpace(m.Role); r != "" {
+			return []string{r}
+		}
+
+		return []string{}
+	}
+}
+
+func clickhouseIsAdmin(m clickhouseMember) bool {
+	// assignedRoles is the live source of truth. The deprecated role field is
+	// frozen at its pre-migration value for organizations that moved to custom
+	// roles, so consult it only when there are no assigned roles — otherwise a
+	// stale "admin" could misclassify a since-demoted member.
+	if len(m.AssignedRoles) > 0 {
+		for _, r := range m.AssignedRoles {
+			if strings.EqualFold(strings.TrimSpace(r.RoleName), "admin") {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	return strings.EqualFold(strings.TrimSpace(m.Role), "admin")
+}

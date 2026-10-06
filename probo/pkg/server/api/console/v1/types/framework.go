@@ -1,0 +1,90 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package types
+
+import (
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/page"
+)
+
+type (
+	FrameworkOrderBy OrderBy[coredata.FrameworkOrderField]
+
+	FrameworkConnection struct {
+		TotalCount int
+		Edges      []*FrameworkEdge
+		PageInfo   PageInfo
+
+		Resolver any
+		ParentID gid.GID
+	}
+)
+
+func NewFrameworkConnection(
+	p *page.Page[*coredata.Framework, coredata.FrameworkOrderField],
+	parentType any,
+	parentID gid.GID,
+) *FrameworkConnection {
+	var edges = make([]*FrameworkEdge, len(p.Data))
+
+	for i := range edges {
+		edges[i] = NewFrameworkEdge(p.Data[i], p.Cursor.OrderBy.Field)
+	}
+
+	return &FrameworkConnection{
+		Edges:    edges,
+		PageInfo: *NewPageInfo(p),
+
+		Resolver: parentType,
+		ParentID: parentID,
+	}
+}
+
+func NewFrameworkEdge(f *coredata.Framework, orderBy coredata.FrameworkOrderField) *FrameworkEdge {
+	return &FrameworkEdge{
+		Cursor: f.CursorKey(orderBy),
+		Node:   NewFramework(f),
+	}
+}
+
+func NewFramework(f *coredata.Framework) *Framework {
+	framework := &Framework{
+		ID:   f.ID,
+		Name: f.Name,
+		Organization: &Organization{
+			ID: f.OrganizationID,
+		},
+		Description: f.Description,
+		CreatedAt:   f.CreatedAt,
+		UpdatedAt:   f.UpdatedAt,
+	}
+
+	if f.LightLogoFileID != nil {
+		framework.LightLogo = &File{ID: *f.LightLogoFileID}
+	}
+
+	if f.DarkLogoFileID != nil {
+		framework.DarkLogo = &File{ID: *f.DarkLogoFileID}
+	}
+
+	return framework
+}

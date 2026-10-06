@@ -1,0 +1,394 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Patch,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBody,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
+import { AuthContext, OrganizationId } from '../auth/auth-context.decorator';
+import { HybridAuthGuard } from '../auth/hybrid-auth.guard';
+import { PermissionGuard } from '../auth/permission.guard';
+import { RequirePermission } from '../auth/require-permission.decorator';
+import { ApiKeyService } from '../auth/api-key.service';
+import type { AuthContext as AuthContextType } from '../auth/types';
+import { UpdateOrganizationDto } from './dto/update-organization.dto';
+import type { TransferOwnershipDto } from './dto/transfer-ownership.dto';
+import { OrganizationService } from './organization.service';
+import { GET_ORGANIZATION_RESPONSES } from './schemas/get-organization.responses';
+import { UPDATE_ORGANIZATION_RESPONSES } from './schemas/update-organization.responses';
+import { DELETE_ORGANIZATION_RESPONSES } from './schemas/delete-organization.responses';
+import { TRANSFER_OWNERSHIP_RESPONSES } from './schemas/transfer-ownership.responses';
+import { GET_ORGANIZATION_PRIMARY_COLOR_RESPONSES } from './schemas/get-organization-primary-color';
+import {
+  UPDATE_ORGANIZATION_BODY,
+  TRANSFER_OWNERSHIP_BODY,
+} from './schemas/organization-api-bodies';
+import { ORGANIZATION_OPERATIONS } from './schemas/organization-operations';
+
+@ApiTags('Organization')
+@Controller({ path: 'organization', version: '1' })
+@UseGuards(HybridAuthGuard, PermissionGuard)
+@ApiSecurity('apikey') // Still document API key for external customers
+export class OrganizationController {
+  constructor(
+    private readonly organizationService: OrganizationService,
+    private readonly apiKeyService: ApiKeyService,
+  ) {}
+
+  @Get()
+  @RequirePermission('organization', 'read')
+  @ApiOperation(ORGANIZATION_OPERATIONS.getOrganization)
+  @ApiQuery({
+    name: 'includeOwnership',
+    required: false,
+    description: 'Include ownership data for transfer UI',
+  })
+  @ApiResponse(GET_ORGANIZATION_RESPONSES[200])
+  @ApiResponse(GET_ORGANIZATION_RESPONSES[401])
+  async getOrganization(
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Query('includeOwnership') includeOwnership?: string,
+  ) {
+    const org = await this.organizationService.findById(organizationId);
+    const logoUrl = await this.organizationService.getLogoSignedUrl({
+      logoKey: org.logo,
+      organizationId,
+    });
+
+    const result: Record<string, unknown> = {
+      ...org,
+      logoUrl,
+      authType: authContext.authType,
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+
+    if (includeOwnership === 'true' && authContext.userId) {
+      const ownership = await this.organizationService.getOwnershipData(
+        organizationId,
+        authContext.userId,
+      );
+      result.isOwner = ownership.isOwner;
+      result.eligibleMembers = ownership.eligibleMembers;
+    }
+
+    return result;
+  }
+
+  @Get('onboarding')
+  @RequirePermission('organization', 'read')
+  @ApiOperation({ summary: 'Get organization onboarding status' })
+  async getOnboarding(@OrganizationId() organizationId: string) {
+    return this.organizationService.findOnboarding(organizationId);
+  }
+
+  @Patch()
+  @RequirePermission('organization', 'update')
+  @ApiOperation(ORGANIZATION_OPERATIONS.updateOrganization)
+  @ApiBody(UPDATE_ORGANIZATION_BODY)
+  @ApiResponse(UPDATE_ORGANIZATION_RESPONSES[200])
+  @ApiResponse(UPDATE_ORGANIZATION_RESPONSES[400])
+  @ApiResponse(UPDATE_ORGANIZATION_RESPONSES[401])
+  @ApiResponse(UPDATE_ORGANIZATION_RESPONSES[404])
+  async updateOrganization(
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Body() updateData: UpdateOrganizationDto,
+  ) {
+    const updatedOrg = await this.organizationService.updateById(
+      organizationId,
+      updateData,
+    );
+
+    return {
+      ...updatedOrg,
+      authType: authContext.authType,
+      // Include user context for session auth (helpful for debugging)
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post('transfer-ownership')
+  @RequirePermission('organization', 'update')
+  @ApiOperation(ORGANIZATION_OPERATIONS.transferOwnership)
+  @ApiBody(TRANSFER_OWNERSHIP_BODY)
+  @ApiResponse(TRANSFER_OWNERSHIP_RESPONSES[200])
+  @ApiResponse(TRANSFER_OWNERSHIP_RESPONSES[400])
+  @ApiResponse(TRANSFER_OWNERSHIP_RESPONSES[401])
+  @ApiResponse(TRANSFER_OWNERSHIP_RESPONSES[403])
+  @ApiResponse(TRANSFER_OWNERSHIP_RESPONSES[404])
+  async transferOwnership(
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Body() transferData: TransferOwnershipDto,
+  ) {
+    // For API key auth, userId must be provided in the request body
+    // For JWT auth, userId comes from the authenticated session
+    let userId: string;
+    if (authContext.isApiKey) {
+      // For API key auth, userId must be provided in the DTO
+      if (!transferData.userId) {
+        throw new BadRequestException(
+          'User ID is required when using API key authentication. Provide userId in the request body.',
+        );
+      }
+      userId = transferData.userId;
+    } else {
+      // For JWT auth, use the authenticated user's ID
+      if (!authContext.userId) {
+        throw new BadRequestException(
+          'User ID is required for this operation. This endpoint requires session authentication.',
+        );
+      }
+      userId = authContext.userId;
+    }
+
+    const result = await this.organizationService.transferOwnership(
+      organizationId,
+      userId,
+      transferData.newOwnerId,
+    );
+
+    return {
+      ...result,
+      authType: authContext.authType,
+      // Include user context (helpful for debugging)
+      authenticatedUser: {
+        id: userId,
+        ...(authContext.userEmail && { email: authContext.userEmail }),
+      },
+    };
+  }
+
+  @Delete()
+  @RequirePermission('organization', 'delete')
+  @ApiOperation(ORGANIZATION_OPERATIONS.deleteOrganization)
+  @ApiResponse(DELETE_ORGANIZATION_RESPONSES[200])
+  @ApiResponse(DELETE_ORGANIZATION_RESPONSES[401])
+  @ApiResponse(DELETE_ORGANIZATION_RESPONSES[404])
+  async deleteOrganization(
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+  ) {
+    const result = await this.organizationService.deleteById(organizationId);
+
+    return {
+      ...result,
+      authType: authContext.authType,
+      // Include user context for session auth (helpful for debugging)
+      ...(authContext.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Put('role-notifications')
+  @RequirePermission('organization', 'update')
+  @ApiOperation({ summary: 'Update role notification settings' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['settings'],
+      properties: {
+        settings: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: [
+              'role',
+              'policyNotifications',
+              'taskReminders',
+              'taskAssignments',
+              'taskMentions',
+              'weeklyTaskDigest',
+              'findingNotifications',
+            ],
+            properties: {
+              role: { type: 'string' },
+              policyNotifications: { type: 'boolean' },
+              taskReminders: { type: 'boolean' },
+              taskAssignments: { type: 'boolean' },
+              taskMentions: { type: 'boolean' },
+              weeklyTaskDigest: { type: 'boolean' },
+              findingNotifications: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+  })
+  async updateRoleNotifications(
+    @OrganizationId() organizationId: string,
+    @Body()
+    body: {
+      settings: Array<{
+        role: string;
+        policyNotifications: boolean;
+        taskReminders: boolean;
+        taskAssignments: boolean;
+        taskMentions: boolean;
+        weeklyTaskDigest: boolean;
+        findingNotifications: boolean;
+      }>;
+    },
+  ) {
+    if (!body?.settings || !Array.isArray(body.settings)) {
+      throw new BadRequestException(
+        'settings is required and must be an array',
+      );
+    }
+
+    return this.organizationService.updateRoleNotifications(
+      organizationId,
+      body.settings,
+    );
+  }
+
+  @Get('api-keys')
+  @RequirePermission('apiKey', 'read')
+  @ApiOperation({ summary: 'List active API keys' })
+  async listApiKeys(@OrganizationId() organizationId: string) {
+    return this.organizationService.listApiKeys(organizationId);
+  }
+
+  @Get('api-keys/available-scopes')
+  @RequirePermission('apiKey', 'read')
+  @ApiOperation({ summary: 'Get available API key scopes' })
+  async getAvailableScopes() {
+    return { data: this.apiKeyService.getAvailableScopes() };
+  }
+
+  @Get('role-notifications')
+  @RequirePermission('organization', 'read')
+  @ApiOperation({ summary: 'Get role notification settings' })
+  async getRoleNotifications(@OrganizationId() organizationId: string) {
+    return this.organizationService.getRoleNotificationSettings(organizationId);
+  }
+
+  @Get('primary-color')
+  @UseGuards() // Override class-level guards — public endpoint for trust portal (uses token or auth)
+  @ApiOperation(ORGANIZATION_OPERATIONS.getPrimaryColor)
+  @ApiQuery({
+    name: 'token',
+    required: false,
+    description:
+      'Access token for public access (alternative to authentication). When provided, authentication is not required.',
+    example: 'tok_abc123def456',
+  })
+  @ApiResponse(GET_ORGANIZATION_PRIMARY_COLOR_RESPONSES[200])
+  @ApiResponse(GET_ORGANIZATION_PRIMARY_COLOR_RESPONSES[401])
+  @ApiResponse(GET_ORGANIZATION_PRIMARY_COLOR_RESPONSES[404])
+  async getPrimaryColor(
+    @Query('token') token: string | undefined,
+    @OrganizationId() organizationId?: string,
+    @AuthContext() authContext?: AuthContextType,
+  ) {
+    // If token is provided, use it to resolve organization
+    // Otherwise, require organizationId from auth
+    if (!token && !organizationId) {
+      throw new BadRequestException(
+        'Either authentication or access token is required',
+      );
+    }
+
+    const primaryColor = await this.organizationService.getPrimaryColor(
+      organizationId || '',
+      token,
+    );
+
+    return {
+      ...primaryColor,
+      authType: token ? 'access-token' : authContext?.authType,
+      // Include user context for session auth (helpful for debugging)
+      ...(authContext?.userId && {
+        authenticatedUser: {
+          id: authContext.userId,
+          email: authContext.userEmail,
+        },
+      }),
+    };
+  }
+
+  @Post('logo')
+  @RequirePermission('organization', 'update')
+  @ApiOperation({ summary: 'Upload organization logo' })
+  async uploadLogo(
+    @OrganizationId() organizationId: string,
+    @Body() body: { fileName: string; fileType: string; fileData: string },
+  ) {
+    return this.organizationService.uploadLogo(
+      organizationId,
+      body.fileName,
+      body.fileType,
+      body.fileData,
+    );
+  }
+
+  @Delete('logo')
+  @RequirePermission('organization', 'update')
+  @ApiOperation({ summary: 'Remove organization logo' })
+  async removeLogo(@OrganizationId() organizationId: string) {
+    return this.organizationService.removeLogo(organizationId);
+  }
+
+  @Post('api-keys')
+  @RequirePermission('apiKey', 'create')
+  @ApiOperation({ summary: 'Create a new API key' })
+  async createApiKey(
+    @OrganizationId() organizationId: string,
+    @AuthContext() authContext: AuthContextType,
+    @Body() body: { name: string; expiresAt?: string; scopes?: string[] },
+  ) {
+    if (!body.name) {
+      throw new BadRequestException('Name is required');
+    }
+    return this.apiKeyService.create(
+      organizationId,
+      body.name,
+      body.expiresAt,
+      body.scopes,
+      // Attribute the key to the member creating it (session auth). Null when
+      // created via API key/service token — falls back to org owner at use time.
+      authContext.memberId ?? null,
+    );
+  }
+
+  @Post('api-keys/revoke')
+  @RequirePermission('apiKey', 'delete')
+  @ApiOperation({ summary: 'Revoke an API key' })
+  async revokeApiKey(
+    @OrganizationId() organizationId: string,
+    @Body() body: { id: string },
+  ) {
+    if (!body.id) {
+      throw new BadRequestException('API key ID is required');
+    }
+    return this.apiKeyService.revoke(body.id, organizationId);
+  }
+}

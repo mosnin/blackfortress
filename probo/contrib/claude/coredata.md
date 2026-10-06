@@ -1,0 +1,574 @@
+# Coredata — Data Access Layer
+
+All raw SQL lives in `pkg/coredata` — never in service, handler, or resolver packages. One file per entity, with companion `*_filter.go` and `*_order_field.go` files when needed.
+
+- Database: `go.gearno.de/kit/pg`
+- UUID: `go.gearno.de/crypto/uuid` (never use `github.com/google/uuid`)
+
+## Entity struct pattern
+
+Every entity uses `gid.GID` for its ID, `db` tags for pgx mapping, and `CreatedAt`/`UpdatedAt` timestamps. The `tenant_id` column exists in the database but is **never** stored on the Go struct — it is injected at query time via `Scoper`.
+
+```go
+type (
+	Asset struct {
+		ID             gid.GID   `db:"id"`
+		Name           string    `db:"name"`
+		OrganizationID gid.GID   `db:"organization_id"`
+		AssetType      AssetType `db:"asset_type"`
+		CreatedAt      time.Time `db:"created_at"`
+		UpdatedAt      time.Time `db:"updated_at"`
+	}
+
+	Assets []*Asset
+)
+```
+
+Use pointer types (`*T`) for nullable database columns.
+
+## Denormalized `organization_id`
+
+Every entity that belongs to an organization carries its own `organization_id` column and Go field — even when the organization can be inferred by walking a foreign key chain. This avoids JOIN queries in `AuthorizationAttributes`, which is called on every authorized request.
+
+When creating a child entity, copy `OrganizationID` from its parent (e.g. from the banner when creating a category or version). The `AuthorizationAttributes` method then returns the field directly without any database query:
+
+```go
+func (c *CookieCategory) AuthorizationAttributes(ctx context.Context, conn pg.Querier) (map[string]string, error) {
+	return map[string]string{"organization_id": c.OrganizationID.String()}, nil
+}
+```
+
+## Scoper interface
+
+`Scoper` provides tenant isolation. Two implementations:
+
+
+| Type      | Constructor                                         | `SQLFragment()`            | `GetTenantID()`         | Use case                              |
+| --------- | --------------------------------------------------- | -------------------------- | ----------------------- | ------------------------------------- |
+| `Scope`   | `NewScope(tenantID)` or `NewScopeFromObjectID(gid)` | `"tenant_id = @tenant_id"` | Returns tenant ID       | Multi-tenant queries (default)        |
+| `NoScope` | `NewNoScope()`                                      | `"TRUE"`                   | **Panics** — never call | Cross-tenant / administrative queries |
+
+
+Always inject `tenant_id` at INSERT time using `scope.GetTenantID()`, never from the struct.
+
+## SQL query composition
+
+All queries use `fmt.Sprintf` to inject scope/filter/cursor fragments, then `pgx.StrictNamedArgs` for parameters. Merge args with `maps.Copy`.
+
+```go
+q := `
+SELECT id, name, created_at, updated_at
+FROM assets
+WHERE
+    %s
+    AND organization_id = @organization_id
+    AND %s
+    AND %s
+LIMIT %d;
+`
+
+q = fmt.Sprintf(q, scope.SQLFragment(), filter.SQLFragment(), cursor.SQLFragment(), cursor.Limit())
+
+args := pgx.StrictNamedArgs{"organization_id": organizationID}
+maps.Copy(args, scope.SQLArguments())
+maps.Copy(args, filter.SQLArguments())
+maps.Copy(args, cursor.SQLArguments())
+```
+
+**All SQL must be static** after `fmt.Sprintf()` injection — no conditional string building. Use `CASE WHEN` in SQL for optional filter logic.
+
+**Use Go enum constants as named parameters** — never hardcode string literals like `'ACTIVE'` or `'PUBLISHED'` in SQL. Use a named parameter (`@state`) and pass the Go constant via `pgx.StrictNamedArgs`:
+
+```go
+// Good — Go constant as named parameter
+q := `SELECT ... FROM cookie_banners WHERE id = @id AND state = @state;`
+args := pgx.StrictNamedArgs{
+    "id":    bannerID,
+    "state": CookieBannerStateActive,
+}
+
+// Bad — hardcoded string literal in SQL
+q := `SELECT ... FROM cookie_banners WHERE id = @id AND state = 'ACTIVE';`
+```
+
+This ensures the compiler catches renamed or removed enum values instead of silently producing wrong results at runtime.
+
+## Standard method signatures
+
+
+| Method                                                   | Receiver    | Returns                      | Purpose                              |
+| -------------------------------------------------------- | ----------- | ---------------------------- | ------------------------------------ |
+| `LoadByID(ctx, conn, scope, id)`                         | `*Entity`   | `error`                      | Single entity by ID                  |
+| `LoadBy*(ctx, conn, scope, key)`                         | `*Entity`   | `error`                      | Single entity by unique key          |
+| `LoadBy*(ctx, conn, scope, parentID, cursor, filter)`    | `*Entities` | `error`                      | Paginated list (cursor provides limit) |
+| `Load(ctx, conn, limit, filter)`                         | `*Entities` | `error`                      | Filtered list with explicit limit    |
+| `LoadAllBy*(ctx, conn, scope, parentID)`                 | `*Entities` | `error`                      | Legacy unbounded loader — do not add new ones (use `LoadBy*` + `page.LoadAll`) |
+| `LoadAll(ctx, conn, filter)`                             | `*Entities` | `error`                      | Legacy unbounded loader — do not add new ones (use `LoadBy*` + `page.LoadAll`) |
+| `CountBy*(ctx, conn, scope, parentID, filter)`           | `*Entities` | `(int, error)`               | Count matching rows                  |
+| `Insert(ctx, conn, scope)`                               | `*Entity`   | `error`                      | Insert, uses `scope.GetTenantID()`   |
+| `Update(ctx, conn, scope)`                               | `*Entity`   | `error`                      | Update via `Exec` (no `RETURNING`)   |
+| `Delete(ctx, conn, scope)`                               | `*Entity`   | `error`                      | Delete entity                        |
+| `CursorKey(orderField)`                                  | `*Entity`   | `page.CursorKey`             | Cursor for pagination                |
+| `AuthorizationAttributes(ctx, conn)`                     | `*Entity`   | `(map[string]string, error)` | Attributes for IAM policy evaluation |
+
+### Load vs LoadAll naming
+
+The method name signals whether the result set is bounded:
+
+- **`LoadBy*` with a `cursor` param** — paginated list tied to a GraphQL connection; the cursor provides the limit and ordering. Example: `Assets.LoadByOrganizationID(ctx, conn, scope, orgID, cursor)`. This is the primary list shape; prefer it.
+- **`Load` / `LoadBy*` with a `limit int` param** — filtered list with an explicit, hard-capped limit (e.g. `... LIMIT 20`), used when the caller controls a small bounded result count. Example: `CommonThirdPartyDomains.Load(ctx, conn, 1, filter)`.
+- **`LoadAllBy*` / `LoadAll`** — legacy unbounded loaders. **Do not add new ones.** They run one query with no ceiling, so a table that is small in dev can blow up memory and query time in production. The few that remain are deliberate exceptions: tiny per-parent sets, `[]gid.GID` / map projections, or hard-`LIMIT` search helpers.
+
+`LoadAll*` methods must **never** accept a cursor or limit parameter — the `All` suffix means the entire matching set is returned.
+
+### Loading every row without an unbounded query
+
+When a caller genuinely needs all rows, expose a cursor-paginated `LoadBy*` and walk it with the generic `page.LoadAll` / `page.WalkAll` helpers ([`pkg/page/load_all.go`](../../pkg/page/load_all.go)). They repeatedly fetch forward pages of `MaxCursorSize` until the result is exhausted. `LoadAll` materialises the concatenated slice and errors past `MaxLoadAllPages` pages so a genuinely unbounded set fails loudly instead of exhausting memory. `WalkAll` streams each page to a callback with no page cap — use it when you can process rows as they arrive (e.g. streaming an export).
+
+```go
+things, err := page.LoadAll(
+	ctx,
+	page.OrderBy[coredata.ThingOrderField]{
+		Field:     coredata.ThingOrderFieldCreatedAt,
+		Direction: page.OrderDirectionAsc,
+	},
+	func(ctx context.Context, cursor *page.Cursor[coredata.ThingOrderField]) ([]*coredata.Thing, error) {
+		var batch coredata.Things
+		if err := batch.LoadByParentID(ctx, conn, scope, parentID, cursor); err != nil {
+			return nil, err
+		}
+
+		return batch, nil
+	},
+)
+```
+
+```go
+err := page.WalkAll(
+	ctx,
+	page.OrderBy[coredata.ThingOrderField]{
+		Field:     coredata.ThingOrderFieldCreatedAt,
+		Direction: page.OrderDirectionAsc,
+	},
+	func(ctx context.Context, cursor *page.Cursor[coredata.ThingOrderField]) ([]*coredata.Thing, error) {
+		var batch coredata.Things
+		if err := batch.LoadByParentID(ctx, conn, scope, parentID, cursor); err != nil {
+			return nil, err
+		}
+
+		return batch, nil
+	},
+	func(things []*coredata.Thing) error {
+		// process one page
+		return nil
+	},
+)
+```
+
+The order field passed to `page.LoadAll` / `page.WalkAll` must have a `CursorKey` case on the entity. `CursorKey` panics at runtime (not compile time) on an unhandled field, so add the case when introducing the order field.
+
+## No cross-entity JOINs
+
+Each entity file queries only its own table. When data from multiple entities is needed, the caller orchestrates separate calls. Never write a JOIN between two entity tables inside an entity method, and never return a raw ID belonging to a different entity — return the full entity and let the caller read the foreign key field.
+
+## Row collection
+
+Use `conn.Query` + `pgx.Collect*` only for `SELECT` and `INSERT … RETURNING` statements that return rows. For `UPDATE` and `DELETE`, use `conn.Exec` — there is no need for `RETURNING` since the caller already owns all the field values.
+
+**Delete must not check `RowsAffected()`.** A DELETE that affects zero rows is not an error — the resource may have already been deleted (idempotent deletes). Only `Update` checks `RowsAffected() == 0` to return `ErrResourceNotFound`.
+
+```go
+// Single row (SELECT / INSERT … RETURNING)
+rows, err := conn.Query(ctx, q, args)
+asset, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[Asset])
+if errors.Is(err, pgx.ErrNoRows) {
+    return ErrResourceNotFound
+}
+*a = asset
+
+// Multiple rows (SELECT)
+rows, err := conn.Query(ctx, q, args)
+assets, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[Asset])
+*a = assets
+
+// Update — no RETURNING, check RowsAffected
+result, err := conn.Exec(ctx, q, args)
+if err != nil {
+    return err
+}
+if result.RowsAffected() == 0 {
+    return ErrResourceNotFound
+}
+
+// Delete — no RETURNING, do NOT check RowsAffected
+_, err := conn.Exec(ctx, q, args)
+if err != nil {
+    return err
+}
+```
+
+## Upsert with insert detection and receiver sync
+
+When an upsert needs to report whether a row was inserted or already existed, `RETURNING` all struct columns and scan the full row back into the receiver. Save the original ID before the query; on a fresh insert the returned ID matches, on a conflict/update the existing row's ID is returned. The receiver is a **pointer** so the caller always sees the actual DB state after the upsert.
+
+Do **not** use `RETURNING (xmax = 0) AS inserted` — `xmax` is a PostgreSQL internal system column and is fragile.
+
+```go
+// Good — RETURNING full row, sync receiver, compare original ID
+func (t *Thing) Upsert(ctx context.Context, conn pg.Tx) (inserted bool, err error) {
+    q := `
+INSERT INTO things (id, name, created_at, updated_at)
+VALUES (@id, @name, @created_at, @updated_at)
+ON CONFLICT (name) DO UPDATE
+SET
+    name       = EXCLUDED.name,
+    updated_at = EXCLUDED.updated_at
+RETURNING
+    id,
+    name,
+    created_at,
+    updated_at
+`
+    originalID := t.ID
+    args := pgx.StrictNamedArgs{...}
+
+    rows, err := conn.Query(ctx, q, args)
+    if err != nil {
+        return false, fmt.Errorf("cannot upsert thing: %w", err)
+    }
+    defer rows.Close()
+
+    row, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[Thing])
+    if err != nil {
+        return false, fmt.Errorf("cannot collect upsert result: %w", err)
+    }
+
+    *t = row
+    return originalID == t.ID, nil
+}
+
+// Bad — xmax trick: relies on PostgreSQL internal column
+RETURNING (xmax = 0) AS inserted
+```
+
+## Sentinel errors
+
+```go
+var (
+    ErrResourceNotFound      = errors.New("resource not found")
+    ErrResourceAlreadyExists = errors.New("resource already exists")
+    ErrResourceInUse         = errors.New("resource is in use")
+)
+```
+
+Map `pgx.ErrNoRows` to `ErrResourceNotFound`. Check unique constraint violations for `ErrResourceAlreadyExists`, foreign key violations for `ErrResourceInUse`.
+
+**Always check both `pgErr.Code` and `pgErr.ConstraintName`** when mapping PostgreSQL errors to sentinel errors. Checking only the error code (e.g. `"23505"`) is not enough — a table may have multiple unique constraints, and a blind code-only check maps unrelated constraint violations to the wrong sentinel error.
+
+```go
+// Good — checks both code and constraint name
+if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+    if pgErr.Code == "23505" && pgErr.ConstraintName == "controls_framework_ref_unique" {
+        return ErrResourceAlreadyExists
+    }
+}
+
+// Good — multiple constraints on the same table
+if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+    if pgErr.Code == "23505" {
+        switch pgErr.ConstraintName {
+        case "document_versions_document_id_major_minor_key",
+            "document_one_active_version_idx":
+            return ErrResourceAlreadyExists
+        }
+    }
+}
+
+// Bad — code-only check; any unique violation silently becomes ErrResourceAlreadyExists
+if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+    if pgErr.Code == "23505" {
+        return ErrResourceAlreadyExists
+    }
+}
+```
+
+The same applies to foreign key violations (`"23503"`) mapped to `ErrResourceInUse` — always verify the constraint name.
+
+**Primary key handling:** Do not add a 23505 check for a single-column GID primary key (`id TEXT PRIMARY KEY`). GIDs are generated and cannot realistically collide — such a check is dead code. Only check the primary key constraint on **composite-PK junction tables** where the PK represents a business uniqueness constraint (e.g. linking a scenario to a threat).
+
+```go
+// Good — composite PK on junction table (real business constraint)
+if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" && pgErr.ConstraintName == "risk_analysis_scenario_threats_pkey" {
+    return ErrResourceAlreadyExists
+}
+
+// Bad — single GID PK (cannot collide, dead code)
+if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" && pgErr.ConstraintName == "risk_analyses_pkey" {
+    return ErrResourceAlreadyExists
+}
+```
+
+## Filters
+
+Filters implement `SQLFragment() string` and `SQLArguments() pgx.NamedArgs`. Use double pointers for three-state filtering: `nil` = no filter, `*nil` = IS NULL, `*val` = equals.
+
+```go
+type CookieBannerFilter struct {
+    state *CookieBannerState
+}
+
+func NewCookieBannerFilter(state *CookieBannerState) *CookieBannerFilter {
+    return &CookieBannerFilter{state: state}
+}
+
+func (f *CookieBannerFilter) SQLFragment() string {
+    return `(
+        CASE
+            WHEN @filter_state::text IS NOT NULL THEN
+                state = @filter_state::cookie_banner_state
+            ELSE TRUE
+        END
+    )`
+}
+
+func (f *CookieBannerFilter) SQLArguments() pgx.StrictNamedArgs {
+    args := pgx.StrictNamedArgs{"filter_state": nil}
+    if f.state != nil {
+        args["filter_state"] = string(*f.state)
+    }
+    return args
+}
+```
+
+For complex multi-field filters, use `CASE WHEN` in SQL and always declare all argument keys in every code path (use `nil` for inactive ones).
+
+## Enums
+
+Coredata enums are always `type X string` with a single validation source of truth (`IsValid`) and text marshalling support for pgx/JSON wiring.
+
+```go
+type XXXType string
+
+const (
+    XXXTypeAlpha XXXType = "ALPHA"
+    XXXTypeBeta  XXXType = "BETA"
+)
+
+var (
+    _ fmt.Stringer             = XXXType("")
+    _ encoding.TextMarshaler   = XXXType("")
+    _ encoding.TextUnmarshaler = (*XXXType)(nil)
+)
+
+func XXXTypes() []XXXType {
+    return []XXXType{
+        XXXTypeAlpha,
+        XXXTypeBeta,
+    }
+}
+
+func (v XXXType) IsValid() bool {
+    switch v {
+    case XXXTypeAlpha, XXXTypeBeta:
+        return true
+    }
+
+    return false
+}
+
+func (v XXXType) String() string { return string(v) }
+
+func (v XXXType) MarshalText() ([]byte, error) {
+    return []byte(v.String()), nil
+}
+
+func (v *XXXType) UnmarshalText(text []byte) error {
+    val := XXXType(text)
+    if !val.IsValid() {
+        return fmt.Errorf("invalid XXXType value: %q", string(text))
+    }
+
+    *v = val
+    return nil
+}
+```
+
+Rules:
+
+- Keep enums as string types only (no iota/int enums).
+- `UnmarshalText` must validate via `IsValid`; do not duplicate validation switches in `Scan`/`Value`.
+- Do not implement `database/sql` `Scan`/`Value` on singular enums in coredata; pgx uses `MarshalText` / `UnmarshalText`.
+- Add compile-time interface checks in a `var` block for every enum (`fmt.Stringer`, `encoding.TextMarshaler`, `encoding.TextUnmarshaler`).
+- Keep a `Values()` helper named as the pluralized enum type when there is no naming conflict.
+
+Collection enum wrappers (`OAuth2Scopes`, `CountryCodes`, etc.) may keep custom parsing/encoding methods when wire format differs from a single enum token.
+
+## Order fields
+
+Order-field enums follow the same enum rules and additionally implement `Column()` and `page.OrderField`. Shared `IsValid` / `UnmarshalText` logic lives in `order_field.go` — do not copy a validation switch into each file:
+
+```go
+type XXXOrderField string
+
+const (
+    XXXOrderFieldCreatedAt XXXOrderField = "CREATED_AT"
+    XXXOrderFieldName      XXXOrderField = "NAME"
+)
+
+var (
+    _ page.OrderField          = XXXOrderField("")
+    _ fmt.Stringer             = XXXOrderField("")
+    _ encoding.TextMarshaler   = XXXOrderField("")
+    _ encoding.TextUnmarshaler = (*XXXOrderField)(nil)
+)
+
+func XXXOrderFields() []XXXOrderField {
+    return []XXXOrderField{
+        XXXOrderFieldCreatedAt,
+        XXXOrderFieldName,
+    }
+}
+
+func (v XXXOrderField) IsValid() bool {
+    return isValidOrderField(v, XXXOrderFields())
+}
+
+func (v XXXOrderField) String() string {
+    return string(v)
+}
+
+func (v XXXOrderField) MarshalText() ([]byte, error) {
+    return []byte(v.String()), nil
+}
+
+func (v *XXXOrderField) UnmarshalText(text []byte) error {
+    return unmarshalOrderField(v, text, XXXOrderFields())
+}
+
+func (f XXXOrderField) Column() string {
+    return string(f)
+}
+```
+
+Each entity implements `CursorKey(field)` returning `page.NewCursorKey(entity.ID, sortValue)`, with a `panic` on unknown fields.
+
+## Entity type registry
+
+Each entity gets a unique `uint16` constant in `entity_type_reg.go`. **Never reuse** removed type numbers — use `_` placeholder. Register new entities in the `NewEntityFromID` switch statement.
+
+## Migrations
+
+- Files in `pkg/coredata/migrations/` use timestamp naming: `YYYYMMDDTHHMMSSZ.sql` (UTC).
+- Run `date -u +"%Y%m%dT%H%M%SZ.sql"` to get the name of the new migration file.
+- One logical change per file.
+
+**No indexes by default.** Only add indexes when justified by observed query latency in production environments. Do not speculatively create indexes on new tables or columns. This rule does not apply to indexes that enforce constraints, such as unique indexes.
+
+**Avoid default values.** Columns should not have `DEFAULT` clauses. When adding a non-nullable column to an existing table, use a `DEFAULT` to backfill existing rows, then drop it in the same migration.
+
+## Sensitive data protection
+
+Every column that stores a secret, credential, or private key **must** be protected at rest in the application layer. Never store sensitive values as plaintext in the database. There are three protection strategies depending on the data's nature.
+
+### Strategy 1 — SHA-256 hash (high-entropy tokens)
+
+Use for values generated by the application with guaranteed entropy: bearer tokens, API keys, SCIM tokens, one-time tokens, SAML relay state tokens. These values are random and never chosen by a human, so a fast non-reversible hash is sufficient.
+
+- Package: `pkg/crypto/hash` → `hash.SHA256Hex([]byte) string`
+- DB column type: `BYTEA` (store the raw hash bytes) or `TEXT` (store hex-encoded hash)
+- Go field name: `Hashed*` (e.g. `HashedToken`, `HashedValue`)
+- Lookup: compute SHA-256 of the presented token, then `WHERE hashed_token = @hashed_token`
+- The plaintext token is returned to the caller **once** at creation time and never stored
+
+Existing examples: `Token.HashedValue`, `SCIMConfiguration.HashedToken`.
+
+```go
+// At creation time — hash before insert
+hashedValue := hash.SHA256Hex([]byte(rawToken))
+token.HashedValue = []byte(hashedValue)
+
+// At verification time — hash the presented value, then query
+hashedValue := hash.SHA256Hex([]byte(presentedToken))
+token.LoadByHashedValueForUpdate(ctx, conn, []byte(hashedValue))
+```
+
+### Strategy 2 — PBKDF2 (human-chosen passwords)
+
+Use for values chosen by humans with low or unpredictable entropy: passwords, passphrases, PINs. PBKDF2 with HMAC-SHA256 pepper provides brute-force resistance.
+
+- Package: `pkg/crypto/passwdhash`
+- DB column type: `BYTEA NOT NULL`
+- Go field name: `HashedPassword`
+- Hash on write: `profile.HashPassword([]byte(password))`
+- Compare on read: `profile.ComparePasswordAndHash([]byte(password), storedHash)`
+- Parameters: minimum 600 000 iterations, 32-byte salt, 32-byte pepper
+
+Existing example: `Identity.HashedPassword`.
+
+```go
+// At registration / password change
+hashed, err := passwdProfile.HashPassword([]byte(plainPassword))
+identity.HashedPassword = hashed
+
+// At login
+ok, err := passwdProfile.ComparePasswordAndHash([]byte(inputPassword), identity.HashedPassword)
+```
+
+### Strategy 3 — AES-256-GCM encryption (secrets that must be read back)
+
+Use for values the application needs to decrypt later: OAuth `access_token` / `refresh_token`, `client_secret`, API keys for third-party services, TLS private keys, webhook signing secrets.
+
+- Package: `pkg/crypto/cipher`
+- DB column type: `BYTEA NOT NULL`
+- Go field name: `Encrypted*` (e.g. `EncryptedConnection`, `EncryptedSigningSecret`)
+- Encrypt on write: `cipher.Encrypt(plaintext, encryptionKey)`
+- Decrypt on read: `cipher.Decrypt(ciphertext, encryptionKey)`
+- The `cipher.EncryptionKey` is a 32-byte key loaded from configuration — never stored in the database
+
+Existing examples: `Connector.EncryptedConnection`, `WebhookSubscription.EncryptedSigningSecret`, `CustomDomain.EncryptedSSLPrivateKey`.
+
+```go
+// On insert / update — encrypt before writing
+connection, _ := json.Marshal(c.Connection)
+encrypted, err := cipher.Encrypt(connection, encryptionKey)
+c.EncryptedConnection = encrypted
+
+// On load — decrypt after reading
+plaintext, err := cipher.Decrypt(c.EncryptedConnection, encryptionKey)
+json.Unmarshal(plaintext, &c.Connection)
+```
+
+### Decision table
+
+| Data kind | Entropy source | Needs decryption? | Strategy | Go field prefix | Package |
+|-----------|---------------|-------------------|----------|----------------|---------|
+| Bearer / API / SCIM / one-time tokens | Application CSPRNG | No — compare by hash | SHA-256 | `Hashed*` | `pkg/crypto/hash` |
+| Passwords, passphrases | Human | No — compare with constant-time check | PBKDF2 | `HashedPassword` | `pkg/crypto/passwdhash` |
+| OAuth tokens, client secrets, private keys, signing secrets | External provider or application | Yes — must read back | AES-256-GCM | `Encrypted*` | `pkg/crypto/cipher` |
+
+### Rules
+
+- **Never store a plaintext secret** in a `TEXT` or `VARCHAR` column. If a column holds a secret, it must be `BYTEA` with one of the three strategies above.
+- **Never log sensitive values.** Do not pass raw tokens, passwords, or decrypted secrets to `slog` or `fmt.Errorf` messages.
+- **Name columns and fields consistently.** Use `hashed_` prefix for hashed values and `encrypted_` prefix for encrypted values. The Go struct field must mirror this (e.g. `HashedToken`, `EncryptedConnection`).
+- **Return plaintext tokens once.** For SHA-256-hashed tokens, return the raw token to the caller at creation time only. After that, the application only ever sees the hash.
+- **Migration columns.** When adding a new sensitive column, always use `BYTEA`. Never add `DEFAULT` on sensitive columns.
+
+## Resource ownership
+
+Org-scoped owners are stored as `owner_profile_id` → `iam_membership_profiles`,
+not identity GIDs. GraphQL uses `ownerId`; resolvers load `owner: Profile` via
+dataloader. Employee self-service resolves identity → profile at the API
+boundary; IAM may bridge profile storage back to identity in
+`AuthorizationAttributes`.
+
+See [`ownership.md`](ownership.md) for the full pattern (provisional — pending
+team review).
+
+## New entity checklist
+
+1. **Entity file** (`entity.go`) — struct with `db` tags, slice type alias, `LoadByID`, `Insert`, `Update`, `Delete`, `CursorKey`, `AuthorizationAttributes`
+2. **Filter file** (`entity_filter.go`) — filter struct, `NewEntityFilter`, `SQLFragment`, `SQLArguments`
+3. **Order field file** (`entity_order_field.go`) — order field type, constants, `Column`, `IsValid`, marshaling
+4. **Entity type constant** — add to `entity_type_reg.go` and `NewEntityFromID`
+5. **Migration** — `YYYYMMDDTHHMMSSZ.sql` with CREATE TABLE

@@ -1,0 +1,478 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package agent_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.probo.inc/probo/pkg/agent"
+)
+
+func TestFunctionTool_Name(t *testing.T) {
+	t.Parallel()
+
+	type Params struct{}
+
+	tool := agent.FunctionTool(
+		"my_tool",
+		"does things",
+		func(_ context.Context, _ Params) (agent.ToolResult, error) {
+			return agent.ToolResult{}, nil
+		},
+	)
+
+	assert.Equal(t, "my_tool", tool.Name())
+}
+
+func TestFunctionTool_Definition(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"returns name and description",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				Query string `json:"query"`
+			}
+
+			tool := agent.FunctionTool(
+				"search",
+				"Search for items",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					return agent.ToolResult{}, nil
+				},
+			)
+
+			def := tool.Definition()
+			assert.Equal(t, "search", def.Name)
+			assert.Equal(t, "Search for items", def.Description)
+		},
+	)
+
+	t.Run(
+		"generates valid JSON schema from params type",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				Name  string `json:"name" jsonschema:"The item name"`
+				Count int    `json:"count"`
+			}
+
+			tool := agent.FunctionTool(
+				"create",
+				"Create items",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					return agent.ToolResult{}, nil
+				},
+			)
+
+			def := tool.Definition()
+			require.NotNil(t, def.Parameters)
+
+			var schema map[string]any
+			require.NoError(t, json.Unmarshal(def.Parameters, &schema))
+
+			assert.Equal(t, "object", schema["type"])
+
+			props := schema["properties"].(map[string]any)
+			assert.Contains(t, props, "name")
+			assert.Contains(t, props, "count")
+
+			nameProp := props["name"].(map[string]any)
+			assert.Equal(t, "string", nameProp["type"])
+			assert.Equal(t, "The item name", nameProp["description"])
+
+			countProp := props["count"].(map[string]any)
+			assert.Equal(t, "integer", countProp["type"])
+		},
+	)
+
+	t.Run(
+		"empty struct produces object schema with no properties",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct{}
+
+			tool := agent.FunctionTool(
+				"noop",
+				"No-op",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					return agent.ToolResult{}, nil
+				},
+			)
+
+			var schema map[string]any
+			require.NoError(t, json.Unmarshal(tool.Definition().Parameters, &schema))
+			assert.Equal(t, "object", schema["type"])
+		},
+	)
+
+	t.Run(
+		"omitempty fields are nullable and in required",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				Title *string `json:"title,omitempty"`
+			}
+
+			tool := agent.FunctionTool(
+				"update",
+				"Update",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					return agent.ToolResult{}, nil
+				},
+			)
+
+			var schema map[string]any
+			require.NoError(t, json.Unmarshal(tool.Definition().Parameters, &schema))
+
+			// OpenAI requires all properties to be in required; optional
+			// fields are represented as nullable.
+			required := schema["required"].([]any)
+			assert.Contains(t, required, "title")
+
+			props := schema["properties"].(map[string]any)
+			titleProp := props["title"].(map[string]any)
+			titleType := titleProp["type"].([]any)
+			assert.Contains(t, titleType, "string")
+			assert.Contains(t, titleType, "null")
+		},
+	)
+}
+
+func TestFunctionTool_Execute(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"unmarshals params and calls function",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				X int `json:"x"`
+				Y int `json:"y"`
+			}
+
+			tool := agent.FunctionTool(
+				"add",
+				"Add two numbers",
+				func(_ context.Context, p Params) (agent.ToolResult, error) {
+					return agent.ToolResult{Content: "42"}, nil
+				},
+			)
+
+			result, err := tool.Execute(context.Background(), `{"x": 1, "y": 2}`)
+			require.NoError(t, err)
+			assert.Equal(t, "42", result.Content)
+			assert.False(t, result.IsError)
+		},
+	)
+
+	t.Run(
+		"passes received params to function",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				City string `json:"city"`
+			}
+
+			var received string
+
+			tool := agent.FunctionTool(
+				"weather",
+				"Get weather",
+				func(_ context.Context, p Params) (agent.ToolResult, error) {
+					received = p.City
+					return agent.ToolResult{Content: "sunny"}, nil
+				},
+			)
+
+			_, err := tool.Execute(context.Background(), `{"city":"Paris"}`)
+			require.NoError(t, err)
+			assert.Equal(t, "Paris", received)
+		},
+	)
+
+	t.Run(
+		"invalid JSON returns tool error not Go error",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct{}
+
+			tool := agent.FunctionTool(
+				"noop",
+				"No-op",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					return agent.ToolResult{Content: "ok"}, nil
+				},
+			)
+
+			result, err := tool.Execute(context.Background(), `{invalid`)
+			require.NoError(t, err)
+			assert.True(t, result.IsError)
+			assert.Contains(t, result.Content, "Invalid parameters")
+		},
+	)
+
+	t.Run(
+		"infrastructure error propagated as Go error",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct{}
+
+			tool := agent.FunctionTool(
+				"fail",
+				"Always fails",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					return agent.ToolResult{}, errors.New("db down")
+				},
+			)
+
+			_, err := tool.Execute(context.Background(), `{}`)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "db down")
+		},
+	)
+
+	t.Run(
+		"context is forwarded to function",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type ctxKey struct{}
+
+			type Params struct{}
+
+			tool := agent.FunctionTool(
+				"ctx_check",
+				"Check context",
+				func(ctx context.Context, _ Params) (agent.ToolResult, error) {
+					val := ctx.Value(ctxKey{}).(string)
+					return agent.ToolResult{Content: val}, nil
+				},
+			)
+
+			ctx := context.WithValue(context.Background(), ctxKey{}, "hello")
+			result, err := tool.Execute(ctx, `{}`)
+			require.NoError(t, err)
+			assert.Equal(t, "hello", result.Content)
+		},
+	)
+
+	t.Run(
+		"missing single required field returns tool error",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				City string `json:"city"`
+			}
+
+			tool := agent.FunctionTool(
+				"weather",
+				"Get weather",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					t.Fatal("function should not be called")
+					return agent.ToolResult{}, nil
+				},
+			)
+
+			result, err := tool.Execute(context.Background(), `{}`)
+			require.NoError(t, err)
+			assert.True(t, result.IsError)
+			assert.Contains(t, result.Content, "city")
+		},
+	)
+
+	t.Run(
+		"missing multiple required fields lists all of them",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				City    string `json:"city"`
+				Country string `json:"country"`
+			}
+
+			tool := agent.FunctionTool(
+				"weather",
+				"Get weather",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					t.Fatal("function should not be called")
+					return agent.ToolResult{}, nil
+				},
+			)
+
+			result, err := tool.Execute(context.Background(), `{}`)
+			require.NoError(t, err)
+			assert.True(t, result.IsError)
+			assert.Contains(t, result.Content, "city")
+			assert.Contains(t, result.Content, "country")
+		},
+	)
+
+	t.Run(
+		"partially missing required fields detected",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				City    string `json:"city"`
+				Country string `json:"country"`
+			}
+
+			tool := agent.FunctionTool(
+				"weather",
+				"Get weather",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					t.Fatal("function should not be called")
+					return agent.ToolResult{}, nil
+				},
+			)
+
+			result, err := tool.Execute(context.Background(), `{"city":"Paris"}`)
+			require.NoError(t, err)
+			assert.True(t, result.IsError)
+			assert.Contains(t, result.Content, "country")
+		},
+	)
+
+	t.Run(
+		"optional fields may be empty but must be present",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				City  string  `json:"city"`
+				Units *string `json:"units,omitempty"`
+			}
+
+			tool := agent.FunctionTool(
+				"weather",
+				"Get weather",
+				func(_ context.Context, p Params) (agent.ToolResult, error) {
+					return agent.ToolResult{Content: "sunny in " + p.City}, nil
+				},
+			)
+
+			result, err := tool.Execute(context.Background(), `{"city":"Paris","units":""}`)
+			require.NoError(t, err)
+			assert.False(t, result.IsError)
+			assert.Equal(t, "sunny in Paris", result.Content)
+		},
+	)
+
+	t.Run(
+		"extra JSON fields are ignored",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct {
+				Name string `json:"name"`
+			}
+
+			tool := agent.FunctionTool(
+				"greet",
+				"Greet",
+				func(_ context.Context, p Params) (agent.ToolResult, error) {
+					return agent.ToolResult{Content: "hi " + p.Name}, nil
+				},
+			)
+
+			result, err := tool.Execute(context.Background(), `{"name":"Alice","extra":"ignored"}`)
+			require.NoError(t, err)
+			assert.Equal(t, "hi Alice", result.Content)
+			assert.False(t, result.IsError)
+		},
+	)
+
+	t.Run(
+		"empty JSON object works for empty params",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct{}
+
+			tool := agent.FunctionTool(
+				"ping",
+				"Ping",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					return agent.ToolResult{Content: "pong"}, nil
+				},
+			)
+
+			result, err := tool.Execute(context.Background(), `{}`)
+			require.NoError(t, err)
+			assert.Equal(t, "pong", result.Content)
+		},
+	)
+
+	t.Run(
+		"function can return IsError true",
+		func(t *testing.T) {
+			t.Parallel()
+
+			type Params struct{}
+
+			tool := agent.FunctionTool(
+				"validate",
+				"Validate input",
+				func(_ context.Context, _ Params) (agent.ToolResult, error) {
+					return agent.ToolResult{Content: "validation failed", IsError: true}, nil
+				},
+			)
+
+			result, err := tool.Execute(context.Background(), `{}`)
+			require.NoError(t, err)
+			assert.True(t, result.IsError)
+			assert.Equal(t, "validation failed", result.Content)
+		},
+	)
+}
+
+func TestFunctionTool_InterfaceSatisfaction(t *testing.T) {
+	t.Parallel()
+
+	type Params struct{}
+
+	tool := agent.FunctionTool(
+		"test",
+		"test tool",
+		func(_ context.Context, _ Params) (agent.ToolResult, error) {
+			return agent.ToolResult{}, nil
+		},
+	)
+
+	assert.Implements(t, (*agent.Tool)(nil), tool)
+	assert.Implements(t, (*agent.ToolDescriptor)(nil), tool)
+}

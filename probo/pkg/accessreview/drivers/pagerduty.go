@@ -1,0 +1,200 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package drivers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+// PagerDuty path element joined onto the driver's base URL.
+const pagerdutyUsersPath = "users"
+
+// PagerDutyDriver fetches users from the PagerDuty REST API using a
+// pre-authenticated HTTP client (Bearer token from the Scoped OAuth
+// PKCE flow). Pagination is offset / limit based.
+type PagerDutyDriver struct {
+	httpClient *http.Client
+	baseURL    string
+}
+
+var _ Driver = (*PagerDutyDriver)(nil)
+
+// NewPagerDutyDriver builds a driver against baseURL, the PagerDuty REST API
+// origin (e.g. https://api.pagerduty.com).
+func NewPagerDutyDriver(httpClient *http.Client, baseURL string) *PagerDutyDriver {
+	return &PagerDutyDriver{
+		httpClient: &http.Client{
+			Transport: &retryRoundTripper{
+				next:       httpClient.Transport,
+				maxRetries: 3,
+			},
+		},
+		baseURL: baseURL,
+	}
+}
+
+type pagerdutyUser struct {
+	ID             string `json:"id"`
+	Email          string `json:"email"`
+	Name           string `json:"name"`
+	Role           string `json:"role"`
+	InvitationSent bool   `json:"invitation_sent"`
+	CreatedAt      string `json:"created_at"`
+}
+
+type pagerdutyUsersPage struct {
+	Users []pagerdutyUser `json:"users"`
+	More  bool            `json:"more"`
+	Limit int             `json:"limit"`
+}
+
+func (d *PagerDutyDriver) ListAccounts(ctx context.Context) ([]AccountRecord, error) {
+	var records []AccountRecord
+
+	const limit = 100
+
+	offset := 0
+
+	for range maxPaginationPages {
+		page, err := d.queryUsers(ctx, offset, limit)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, u := range page.Users {
+			isAdmin := u.Role == "admin" || u.Role == "owner"
+
+			role := strings.TrimSpace(u.Role)
+
+			roles := []string{}
+			if role != "" {
+				roles = []string{role}
+			}
+
+			record := AccountRecord{
+				Email:       u.Email,
+				FullName:    u.Name,
+				Roles:       roles,
+				IsAdmin:     new(isAdmin),
+				MFAStatus:   coredata.MFAStatusUnknown,
+				AuthMethod:  coredata.AccessReviewEntryAuthMethodUnknown,
+				AccountType: coredata.AccessReviewEntryAccountTypeUser,
+				ExternalID:  u.ID,
+			}
+
+			// invitation_sent=true means the invitation is still pending,
+			// so the account is not yet active. Once accepted the field
+			// flips to false; we cannot tell active-vs-deactivated apart
+			// in that case and leave Active nil.
+			if u.InvitationSent {
+				active := false
+				record.Active = &active
+			}
+
+			if u.CreatedAt != "" {
+				if t, err := time.Parse(time.RFC3339, u.CreatedAt); err == nil {
+					record.CreatedAt = &t
+				}
+			}
+
+			records = append(records, record)
+		}
+
+		if !page.More {
+			return records, nil
+		}
+
+		pageSize := page.Limit
+		if pageSize <= 0 {
+			pageSize = limit
+		}
+
+		offset += pageSize
+	}
+
+	return nil, fmt.Errorf("cannot list all pagerduty accounts: %w", ErrPaginationLimitReached)
+}
+
+func (d *PagerDutyDriver) queryUsers(ctx context.Context, offset, limit int) (*pagerdutyUsersPage, error) {
+	endpoint, err := url.JoinPath(d.baseURL, pagerdutyUsersPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build pagerduty users URL: %w", err)
+	}
+
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse pagerduty users URL: %w", err)
+	}
+
+	q := url.Values{}
+	q.Set("limit", strconv.Itoa(limit))
+	q.Set("offset", strconv.Itoa(offset))
+	parsed.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create pagerduty users request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/vnd.pagerduty+json;version=2")
+
+	httpResp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot execute pagerduty users request: %w", err)
+	}
+
+	defer func() { _ = httpResp.Body.Close() }()
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("cannot fetch pagerduty users: unexpected status %d", httpResp.StatusCode)
+	}
+
+	var page pagerdutyUsersPage
+	if err := json.NewDecoder(httpResp.Body).Decode(&page); err != nil {
+		return nil, fmt.Errorf("cannot decode pagerduty users response: %w", err)
+	}
+
+	return &page, nil
+}
+
+// pagerdutyNameResolver returns the PagerDuty subdomain stored in connector
+// settings. The subdomain is captured during the OAuth callback (see
+// handleConnectorComplete) so no HTTP call is required.
+type pagerdutyNameResolver struct {
+	subdomain string
+}
+
+func NewPagerDutyNameResolver(subdomain string) NameResolver {
+	return &pagerdutyNameResolver{subdomain: subdomain}
+}
+
+func (r *pagerdutyNameResolver) ResolveInstanceName(_ context.Context) (string, error) {
+	return r.subdomain, nil
+}

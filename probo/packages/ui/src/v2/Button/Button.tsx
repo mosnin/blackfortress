@@ -1,0 +1,59 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { SpinnerGapIcon } from "@phosphor-icons/react";
+import type { ComponentProps, ReactNode } from "react";
+import type { VariantProps } from "tailwind-variants/lite";
+
+import { button } from "./variants";
+
+export type ButtonProps
+  = Omit<ComponentProps<"button">, "color">
+    & VariantProps<typeof button>
+    & {
+      iconStart?: ReactNode;
+      iconEnd?: ReactNode;
+      // Shows a spinner in place of the leading icon and disables the button.
+      loading?: boolean;
+    };
+
+// Clickable action (Radix "Button"). Renders a <button>; button-styled
+// navigation uses ButtonLink / ButtonAnchor, underlined text uses Link /
+// Anchor. See contrib/claude/ui.md.
+export function Button(props: ButtonProps) {
+  const {
+    size, variant, color, highContrast, active, className,
+    iconStart, iconEnd, loading = false, disabled, type = "button", children, ...rest
+  } = props;
+
+  return (
+    <button
+      type={type}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      className={button({ size, variant, color, highContrast, active, className })}
+      {...rest}
+    >
+      {loading ? <SpinnerGapIcon className="animate-spin" aria-hidden /> : iconStart}
+      {children}
+      {iconEnd}
+    </button>
+  );
+}

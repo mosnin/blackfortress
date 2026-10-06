@@ -1,0 +1,160 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import { Option, Select } from "@probo/ui";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { type PreloadedQuery, usePreloadedQuery } from "react-relay";
+import { graphql } from "relay-runtime";
+
+import type { CookieBannerTranslationsPageQuery } from "#/__generated__/core/CookieBannerTranslationsPageQuery.graphql";
+
+import { TranslationEditor } from "./_components/TranslationEditor";
+import { SUPPORTED_LANGUAGES } from "./_lib/translationDefaults";
+
+export const cookieBannerTranslationsPageQuery = graphql`
+  query CookieBannerTranslationsPageQuery($cookieBannerId: ID!) {
+    node(id: $cookieBannerId) {
+      __typename
+      ... on CookieBanner {
+        id
+        defaultLanguage
+        showBranding
+        translations {
+          id
+          language
+          translations
+        }
+        categories(first: 50, orderBy: { field: RANK, direction: ASC }, filter: { excludeKind: UNCATEGORISED }) @required(action: THROW) {
+          edges {
+            node {
+              id
+              name
+              slug
+              description
+              kind
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface CookieBannerTranslationsPageProps {
+  queryRef: PreloadedQuery<CookieBannerTranslationsPageQuery>;
+}
+
+export default function CookieBannerTranslationsPage({
+  queryRef,
+}: CookieBannerTranslationsPageProps) {
+  const { t } = useTranslation("organizations/cookie-banners");
+  const data = usePreloadedQuery<CookieBannerTranslationsPageQuery>(cookieBannerTranslationsPageQuery, queryRef);
+
+  if (data.node.__typename !== "CookieBanner") {
+    throw new Error("invalid type for node");
+  }
+
+  const banner = data.node;
+
+  const [selectedLanguage, setSelectedLanguage] = useState(
+    () => banner.defaultLanguage,
+  );
+
+  const selectedTranslation = banner.translations.find(
+    t => t.language === selectedLanguage,
+  );
+
+  const { uiStrings, categoryTranslations } = useMemo(() => {
+    if (!selectedTranslation) {
+      return { uiStrings: null, categoryTranslations: null };
+    }
+    try {
+      const raw = JSON.parse(selectedTranslation.translations) as Record<string, unknown>;
+      const ui: Record<string, string> = {};
+      let cats: Record<string, { name: string; description: string }> | null = null;
+
+      for (const [k, v] of Object.entries(raw)) {
+        if (k === "categories" && typeof v === "object" && v !== null) {
+          cats = v as Record<string, { name: string; description: string }>;
+        } else if (typeof v === "string") {
+          ui[k] = v;
+        }
+      }
+
+      return { uiStrings: ui, categoryTranslations: cats };
+    } catch {
+      return { uiStrings: null, categoryTranslations: null };
+    }
+  }, [selectedTranslation]);
+
+  const categories = useMemo(
+    () =>
+      banner.categories.edges.map(e => ({
+        id: e.node.id,
+        name: e.node.name,
+        slug: e.node.slug,
+        description: e.node.description,
+        kind: e.node.kind,
+      })),
+    [banner.categories],
+  );
+
+  const necessaryCategoryName = useMemo(
+    () => categories.find(c => c.kind === "NECESSARY")?.name ?? t("translationsPage.necessaryFallback"),
+    [categories, t],
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Select
+          value={selectedLanguage}
+          onValueChange={setSelectedLanguage}
+        >
+          {SUPPORTED_LANGUAGES.map(l => (
+            <Option key={l.code} value={l.code}>
+              {l.code === banner.defaultLanguage
+                ? t("translationsPage.languageDefault", { language: l.label })
+                : l.label}
+            </Option>
+          ))}
+        </Select>
+      </div>
+
+      <TranslationEditor
+        key={selectedLanguage}
+        cookieBannerId={banner.id}
+        language={selectedLanguage}
+        existingTranslations={uiStrings}
+        existingCategoryTranslations={categoryTranslations}
+        showBranding={banner.showBranding}
+        categories={categories}
+        necessaryCategoryName={necessaryCategoryName}
+      />
+
+      {selectedLanguage === banner.defaultLanguage && (
+        <p className="text-sm text-txt-secondary">
+          {t("translationsPage.defaultLanguageDescription")}
+        </p>
+      )}
+    </div>
+  );
+}

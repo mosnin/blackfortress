@@ -1,0 +1,108 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+// Package version provides build version information and user agent generation
+package version
+
+import (
+	"fmt"
+	"runtime"
+	"runtime/debug"
+	"strings"
+)
+
+// BuildInfo contains version and build information
+type BuildInfo struct {
+	Version   string
+	Commit    string
+	BuildDate string
+	GoVersion string
+}
+
+// GetBuildInfo returns the current build information
+func GetBuildInfo() BuildInfo {
+	info := BuildInfo{
+		Version:   "dev",
+		Commit:    "unknown",
+		BuildDate: "unknown",
+		GoVersion: runtime.Version(),
+	}
+
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return info
+	}
+
+	// Get module version
+	if bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		info.Version = bi.Main.Version
+	}
+
+	// Extract VCS information from build settings
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			info.Commit = s.Value
+			// Truncate commit hash to 7 characters for brevity
+			if len(info.Commit) > 7 {
+				info.Commit = info.Commit[:7]
+			}
+		case "vcs.time":
+			info.BuildDate = s.Value
+		case "vcs.modified":
+			// If working tree is modified, append -dirty to commit
+			if s.Value == "true" && info.Commit != "unknown" {
+				info.Commit += "-dirty"
+			}
+		}
+	}
+
+	return info
+}
+
+// UserAgent returns a formatted user agent string for the given component
+func UserAgent(component string) string {
+	info := GetBuildInfo()
+
+	if info.Version == "dev" && info.Commit == "unknown" {
+		// Simple format for development builds without VCS info
+		return fmt.Sprintf("Probo/dev (%s) Go/%s", component, info.GoVersion)
+	}
+
+	// Full format with all available information
+	parts := []string{
+		fmt.Sprintf("Probo/%s", info.Version),
+	}
+
+	// Add component and metadata
+	metadata := []string{component}
+	if info.Commit != "unknown" {
+		metadata = append(metadata, fmt.Sprintf("commit=%s", info.Commit))
+	}
+
+	if info.BuildDate != "unknown" {
+		metadata = append(metadata, fmt.Sprintf("built=%s", info.BuildDate))
+	}
+
+	parts = append(parts, fmt.Sprintf("(%s)", strings.Join(metadata, "; ")))
+	parts = append(parts, fmt.Sprintf("Go/%s", info.GoVersion))
+
+	return strings.Join(parts, " ")
+}

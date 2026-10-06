@@ -1,0 +1,62 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+    compress: 'true'
+
+services:
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    env_file:
+      - packages/db/.env
+    logging: *default-logging
+  seeder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    env_file:
+      - packages/db/.env
+    command: sh -lc "bunx prisma generate --schema=node_modules/@trycompai/db/dist/schema.prisma && bun packages/db/prisma/seed/seed.js"
+    logging: *default-logging
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: app
+      args:
+        NEXT_PUBLIC_BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+    ports:
+      - '3000:3000'
+    env_file:
+      - apps/app/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:3000/api/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: sh -lc "node apps/app/server.js"
+    logging: *default-logging
+  portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: portal
+      args:
+        NEXT_PUBLIC_BETTER_AUTH_URL: ${BETTER_AUTH_URL_PORTAL}
+    ports:
+      - '3002:3000'
+    env_file:
+      - apps/portal/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:3000/ || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging

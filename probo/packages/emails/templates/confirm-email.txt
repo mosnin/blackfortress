@@ -1,0 +1,12 @@
+Probo
+
+Hi {{.RecipientFullName}},
+
+Thanks for joining Probo! Please confirm your email address by clicking the link below:
+
+{{.ConfirmationUrl}}
+
+If you did not sign up for Probo, please ignore this email.
+
+{{.SenderCompanyHeadquarterAddress}}
+Powered By Probo

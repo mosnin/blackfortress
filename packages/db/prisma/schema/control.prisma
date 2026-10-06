@@ -1,0 +1,46 @@
+model Control {
+  // Metadata
+  id          String @id @default(dbgenerated("generate_prefixed_cuid('ctl'::text)"))
+  name          String
+  description   String
+
+  // Review dates
+  lastReviewDate DateTime?
+  nextReviewDate DateTime?
+
+  // Sync-driven archive (set by FrameworkSyncOperation when the control
+  // template is removed from the framework's latest version and no other
+  // framework instance in the org still references it). Distinct from user
+  // archive (no user archive exists on Control today).
+  archivedAt DateTime?
+
+  // Relationships
+  organization           Organization                       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId         String
+  requirementsMapped     RequirementMap[]
+  tasks                  Task[]
+  policies               Policy[]
+  controlTemplateId      String?
+  controlTemplate        FrameworkEditorControlTemplate?    @relation(fields: [controlTemplateId], references: [id])
+  controlDocumentTypes   ControlDocumentType[]
+  frameworkPolicyLinks   FrameworkControlPolicyLink[]
+  frameworkTaskLinks     FrameworkControlTaskLink[]
+  frameworkDocumentLinks FrameworkControlDocumentTypeLink[]
+  ismsDocumentLinks      IsmsDocumentControlLink[]
+  frameworkControlFamilies FrameworkControlFamily[]
+
+  @@index([organizationId])
+  @@index([organizationId, archivedAt])
+}
+
+model FrameworkControlFamily {
+  frameworkInstanceId String
+  frameworkInstance   FrameworkInstance @relation(fields: [frameworkInstanceId], references: [id], onDelete: Cascade)
+  controlId          String
+  control            Control @relation(fields: [controlId], references: [id], onDelete: Cascade)
+  controlFamily      String
+
+  @@unique([frameworkInstanceId, controlId])
+  @@index([frameworkInstanceId])
+  @@index([controlId])
+}

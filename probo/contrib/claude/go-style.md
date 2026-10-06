@@ -1,0 +1,341 @@
+# Go Style
+
+## Project and dependencies
+
+- HTTP server: `go.gearno.de/kit/httpserver`
+- HTTP client: `go.gearno.de/kit/httpclient`
+- Tracing: OpenTelemetry (`go.opentelemetry.io/otel`)
+- Pointers: use `new(expr)` to create pointers to values (e.g. `new(1)`, `new("foo")`, `new(time.Now())`). Use `go.gearno.de/x/ref` only for dereference helpers (`ref.UnrefOrZero`, etc.)
+
+## Grouped declarations
+
+Use `type ()`, `const ()`, and `var ()` blocks to group related declarations. Use explicit typed values for string enums, not `iota`.
+
+```go
+type (
+	CreateFooRequest struct {
+		Name   string
+		Active bool
+	}
+
+	UpdateFooRequest struct {
+		ID     gid.GID
+		Name   *string
+		Active *bool
+	}
+)
+
+const (
+	NameMaxLength    = 100
+	ContentMaxLength = 5000
+)
+
+var (
+	_ Reader = (*FileReader)(nil)
+	_ Writer = (*FileWriter)(nil)
+)
+```
+
+## Multiline parameter and argument lists
+
+The same single-line-or-multiline rule applies to **both** function/method **definitions** (parameter lists) and **call expressions** (argument lists). Never mix — if any parameter or argument breaks onto another line, put every one on its own line.
+
+### Function and method definitions
+
+- **Single-line signature** — the entire `func` line (name, parameters, return types) fits on one source line.
+- **Multiline signature** — if it doesn't fit on one line, each parameter goes on its own indented line with a trailing comma. The closing `)` sits on its own line, followed by the return types.
+
+```go
+// Good — fits on one line
+func (s *Service) GetFoo(ctx context.Context, id gid.GID) (*Foo, error) {
+
+// Good — multiline: each parameter on its own line
+func (s *Service) CreateFoo(
+	ctx context.Context,
+	tenantID gid.TenantID,
+	req CreateFooRequest,
+) (*Foo, error) {
+
+// Bad — mixed: some params on the func line, rest on the next
+func (s *Service) CreateFoo(ctx context.Context, tenantID gid.TenantID,
+	req CreateFooRequest) (*Foo, error) {
+
+// Bad — closing paren on the last param line
+func (s *Service) CreateFoo(
+	ctx context.Context,
+	tenantID gid.TenantID,
+	req CreateFooRequest) (*Foo, error) {
+```
+
+### Call expressions
+
+In the [Go spec](https://go.dev/ref/spec#Calls), a **call** is a primary expression `f(a1, a2, … an)` where `f` is the **function value** (or **method value**) and `a1` … `an` are **arguments** passed to the matching parameters.
+
+Treat the **argument list** as either single-line or multiline — never mixed:
+
+- **Single-line call** — the entire call, from the callee through the closing `)`, fits on one source line. Any argument may be a short expression (including a one-line composite literal or conversion).
+- **Multiline call** — if any argument is written across multiple lines (e.g. a multi-line **composite literal**, **function literal**, or other expression that contains a line break), then **every** argument must start on its own line: one argument per line at the top level of that argument list. The closing `)` is on its own line after the last argument (with a trailing comma after the final argument when the list is multiline).
+
+Do not place some arguments on the same line as the opening `(` while others continue on following lines.
+
+```go
+// Good — entire call on one line
+id := gid.New(tenantID, "Foo")
+
+// Good — multiline argument list; each argument on its own line
+svc, err := foo.NewService(
+	ctx,
+	db,
+	logger,
+	foo.Config{
+		Interval: 10 * time.Second,
+		MaxRetry: 3,
+	},
+)
+
+// Good — function literal argument is multiline, so the name argument is on its own line too
+t.Run(
+	"handoff with custom tool name",
+	func(t *testing.T) {
+		t.Parallel()
+		// ...
+	},
+)
+
+// Bad — mixed: first arguments on the callee line, last argument is a multiline composite literal
+svc, err := foo.NewService(ctx, db, logger, foo.Config{
+	Interval: 10 * time.Second,
+})
+
+// Bad — single multiline argument starts on the opening ( line
+body, err := json.Marshal(firecrawlRequest{
+	Query: query,
+	Limit: maxResults,
+})
+
+// Good — single multiline argument: break after (, trailing comma, ) alone
+body, err := json.Marshal(
+	firecrawlRequest{
+		Query: query,
+		Limit: maxResults,
+	},
+)
+
+// Bad — function literal starts on the opening ( line
+sort.Slice(items, func(i, j int) bool {
+	return items[i].Name < items[j].Name
+})
+
+// Good — function literal on its own line
+sort.Slice(
+	items,
+	func(i, j int) bool {
+		return items[i].Name < items[j].Name
+	},
+)
+```
+
+The same rule applies to **method calls** `x.M(a1, …)` — the receiver is already bound; the rule applies to the **argument list** after the method name.
+
+## Import ordering
+
+Two groups separated by a blank line: stdlib, then everything else (third-party and internal sorted together alphabetically).
+
+```go
+import (
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"go.gearno.de/kit/httpserver"
+	"go.gearno.de/kit/log"
+	"go.probo.inc/probo/pkg/iam"
+	"go.probo.inc/probo/pkg/probo"
+	complianceportal_v1 "go.probo.inc/probo/pkg/server/api/complianceportal/v1"
+)
+```
+
+## Receiver names
+
+Short receivers: usually single-letter matching the type (`s` for Service, `c` for Client, `p` for Provider).
+
+## Error handling
+
+Always name error variables `err`. When a function can return errors from multiple call sites, every error must be wrapped so the caller can distinguish them. Wrap with `fmt.Errorf` using lowercase messages starting with `cannot`:
+
+```go
+return nil, fmt.Errorf("cannot load trust center: %w", err)
+return nil, fmt.Errorf("cannot create SAML service: %w", err)
+```
+
+When multiple errors can come from the same function, each must have a distinct wrap message:
+
+```go
+func (s *Service) DoSomething(ctx context.Context) error {
+	foo, err := s.loadFoo(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot load foo: %w", err)
+	}
+
+	bar, err := s.loadBar(ctx, foo.ID)
+	if err != nil {
+		return fmt.Errorf("cannot load bar: %w", err)
+	}
+
+	err = s.save(ctx, bar)
+	if err != nil {
+		return fmt.Errorf("cannot save bar: %w", err)
+	}
+
+	return nil
+}
+```
+
+Do **not** return a defensive error for a broken invariant that cannot happen on the real call path (for example a claimed agent execution with no `ProcessingOwnerToken`). That is a programming error: **panic**. Return errors for recoverable operational failures (not found, lease lost, upstream, validation). Panic when continuing would mean the program is in an impossible state.
+
+```go
+// Good — Claim always sets the token; a nil token is unrecoverable
+ownerToken := *execution.ProcessingOwnerToken
+
+// Bad — pretends an impossible state is a normal failure
+if execution.ProcessingOwnerToken == nil || *execution.ProcessingOwnerToken == "" {
+	return fmt.Errorf("claimed agent execution has no owner token")
+}
+```
+
+Sentinel errors in grouped `var ()` blocks. Custom error types implement `Unwrap() error`. Use `errors.Is` for sentinel checks. Use `errors.AsType[T](err)` (generic form) instead of `errors.As(err, &ptr)` for type assertions:
+
+```go
+// Good
+if e, ok := errors.AsType[*ValidationError](err); ok {
+	// use e
+}
+
+// Bad — avoid the two-argument form
+var ve *ValidationError
+if errors.As(err, &ve) {
+	// use ve
+}
+```
+
+## Naming
+
+- Constructors: `New*` (e.g. `NewService`, `NewServer`, `NewBridge`)
+- Config structs: `*Config` suffix (e.g. `APIConfig`, `PgConfig`, `TrustCenterConfig`)
+- Request structs: `*Request` suffix (e.g. `UpdateTrustCenterRequest`)
+- Unexported types for internal data: lowercase (e.g. `thirdPartyInfo`, `ctxKey`)
+
+## Functional options and Config structs
+
+Use `Config` structs when a constructor has many required parameters. Use functional options (`With*` functions) for optional configuration.
+
+```go
+type Option func(*Bridge)
+
+func WithDryRun(dryRun bool) Option {
+	return func(s *Bridge) {
+		s.dryRun = dryRun
+	}
+}
+
+func NewBridge(provider provider.Provider, client *scimclient.Client, opts ...Option) *Bridge {
+	s := &Bridge{provider: provider, scimClient: client}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+```
+
+## Interfaces
+
+Define interfaces in the consumer package. Keep them small. Verify satisfaction at compile time:
+
+```go
+var (
+	_ unit.Configurable = (*Implm)(nil)
+	_ unit.Runnable     = (*Implm)(nil)
+)
+```
+
+## Context
+
+Always first parameter. Private struct keys for context values:
+
+```go
+type ctxKey struct{ name string }
+var compliancePortalIDKey = &ctxKey{name: "compliance_portal_id"}
+```
+
+## URL and query parameter construction
+
+**Never** build URLs with `fmt.Sprintf`, string concatenation, or any form of string formatting. Always use the `net/url` package to construct URLs safely.
+
+- Use `url.URL` struct to build full URLs (scheme, host, path, query).
+- Use `url.Values` to build query parameters, then call `.Encode()`.
+- **Always** wrap user-supplied path segments with `url.PathEscape` before passing them to `url.JoinPath`. `url.JoinPath` does **not** percent-encode slashes or reserved characters — a value like `parent/child` silently adds an extra path segment.
+- Use the `pkg/baseurl.URLBuilder` when constructing URLs from configured base URLs.
+
+```go
+// Bad — fmt.Sprintf
+endpoint := fmt.Sprintf("https://api.example.com/users/%s?active=%t", userID, active)
+
+// Bad — string concatenation
+endpoint := "https://api.example.com/orgs/" + orgID + "/members"
+
+// Bad — user-supplied value without PathEscape
+u, err := url.JoinPath("https://api.example.com", "groups", groupID, "members")
+
+// Good — url.JoinPath with PathEscape on user-supplied segments
+u, err := url.JoinPath("https://api.example.com", "groups", url.PathEscape(groupID), "members")
+if err != nil {
+	return fmt.Errorf("cannot build URL: %w", err)
+}
+
+parsed, err := url.Parse(u)
+if err != nil {
+	return fmt.Errorf("cannot parse URL: %w", err)
+}
+
+q := parsed.Query()
+q.Set("active", strconv.FormatBool(active))
+parsed.RawQuery = q.Encode()
+
+// Good — URLBuilder from pkg/baseurl
+u, err := baseURL.URL("/users", userID).
+	Query("active", strconv.FormatBool(active)).
+	Build()
+```
+
+The same rule applies to query parameters specifically: never concatenate `"?key=" + val + "&other=" + val2`. Always use `url.Values` and assign via `RawQuery`:
+
+```go
+// Bad
+raw := baseEndpoint + "?domain=" + domain + "&limit=100"
+
+// Good
+u, err := url.Parse(baseEndpoint)
+if err != nil {
+	return fmt.Errorf("cannot parse endpoint: %w", err)
+}
+
+q := u.Query()
+q.Set("domain", domain)
+q.Set("limit", "100")
+u.RawQuery = q.Encode()
+```
+
+## Logging
+
+`go.gearno.de/kit/log` — named, context-aware structured logging with typed fields. **Never log PII, PHI, or other sensitive data** (e.g. emails, names, passwords, tokens, health records). Log opaque identifiers (IDs, request IDs) instead. See [`contrib/claude/logging.md`](logging.md) for the full guide (allowed/forbidden data, field helpers, wiring patterns).
+
+```go
+l.InfoCtx(
+	ctx,
+	"HTTP request to trust center custom domain, redirecting to HTTPS",
+	log.String("domain", domain),
+	log.String("path", r.URL.Path),
+	log.String("to", httpsURL),
+)
+```

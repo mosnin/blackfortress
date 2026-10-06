@@ -1,0 +1,218 @@
+import { structuredPatch, diffWords } from 'diff';
+import type { DiffSegment, PositionMap, SuggestionRange } from './suggestion-types';
+
+export function computeSuggestionRanges(
+  positionMap: PositionMap,
+  proposedMarkdown: string,
+): SuggestionRange[] {
+  const { markdown: currentMarkdown, lineToPos } = positionMap;
+
+  if (normalizeContent(currentMarkdown) === normalizeContent(proposedMarkdown)) {
+    return [];
+  }
+
+  // Ensure both inputs end with a newline so the diff library
+  // never generates "\ No newline at end of file" markers
+  const normalizedCurrent = currentMarkdown.endsWith('\n') ? currentMarkdown : `${currentMarkdown}\n`;
+  const normalizedProposed = proposedMarkdown.endsWith('\n') ? proposedMarkdown : `${proposedMarkdown}\n`;
+
+  const patch = structuredPatch('policy', 'policy', normalizedCurrent, normalizedProposed, '', '', {
+    context: 0,
+  });
+
+  const ranges: SuggestionRange[] = [];
+
+  for (const hunk of patch.hunks) {
+    const oldLines: string[] = [];
+    const newLines: string[] = [];
+
+    for (const line of hunk.lines) {
+      if (line.startsWith('-')) {
+        oldLines.push(line.slice(1));
+      } else if (line.startsWith('+')) {
+        newLines.push(line.slice(1));
+      } else {
+        oldLines.push(line.startsWith(' ') ? line.slice(1) : line);
+        newLines.push(line.startsWith(' ') ? line.slice(1) : line);
+      }
+    }
+
+    const oldText = oldLines.join('\n');
+    const newText = newLines.join('\n');
+
+    // Skip hunks where the only difference is whitespace, punctuation tweaks,
+    // or list marker formatting
+    if (normalizeContent(oldText) === normalizeContent(newText)) {
+      continue;
+    }
+
+    const positions = resolveHunkPositions(hunk.oldStart, hunk.oldLines, lineToPos);
+    if (!positions) continue;
+
+    const rangeType = classifyHunk(oldLines, newLines);
+    const segments = rangeType === 'modify' ? computeWordDiff(oldText, newText) : [];
+
+    ranges.push({
+      id: `suggestion-${hunk.oldStart}-${hunk.newStart}`,
+      type: rangeType,
+      from: positions.from,
+      to: positions.to,
+      segments,
+      proposedText: newText.trim(),
+      originalText: oldText.trim(),
+      decision: 'pending',
+    });
+  }
+
+  return mergeOverlappingRanges(ranges);
+}
+
+/**
+ * Merge ranges that overlap, are adjacent, or are close together.
+ * The diff library splits section deletions into multiple hunks when
+ * blank lines between them match as "unchanged context". Merging
+ * nearby ranges of the same type fixes this.
+ */
+function mergeOverlappingRanges(ranges: SuggestionRange[]): SuggestionRange[] {
+  if (ranges.length <= 1) return ranges;
+
+  const sorted = [...ranges].sort((a, b) => a.from - b.from);
+  const merged: SuggestionRange[] = [];
+
+  for (const range of sorted) {
+    const prev = merged[merged.length - 1];
+
+    if (!prev) {
+      merged.push({ ...range });
+      continue;
+    }
+
+    // Merge only when it can't drop unchanged content between the ranges:
+    //  - overlapping ranges (any type), or
+    //  - adjacent deletes split by blank-line context (one logical section).
+    // Do NOT merge two modifies across a gap — the unchanged content in the gap
+    // (e.g. a heading between two edited paragraphs) is absent from the merged
+    // proposedText and would be deleted on apply.
+    const gap = range.from - prev.to;
+    const shouldMerge =
+      gap <= 0 || // overlapping
+      (gap <= 20 && prev.type === 'delete' && range.type === 'delete'); // adjacent deletes
+
+    if (shouldMerge) {
+      prev.to = Math.max(prev.to, range.to);
+      prev.type = prev.type === range.type ? prev.type : 'modify';
+      prev.originalText = prev.originalText + '\n' + range.originalText;
+      prev.proposedText = prev.proposedText + '\n' + range.proposedText;
+      prev.segments = [];
+      prev.id = `suggestion-merged-${prev.from}-${prev.to}`;
+    } else {
+      merged.push({ ...range });
+    }
+  }
+
+  return merged;
+}
+
+function classifyHunk(oldLines: string[], newLines: string[]): SuggestionRange['type'] {
+  const hasOld = oldLines.some((l) => l.trim().length > 0);
+  const hasNew = newLines.some((l) => l.trim().length > 0);
+  if (hasOld && hasNew) return 'modify';
+  if (!hasOld && hasNew) return 'insert';
+  return 'delete';
+}
+
+function resolveHunkPositions(
+  oldStart: number,
+  oldLines: number,
+  lineToPos: Map<number, { from: number; to: number }>,
+): { from: number; to: number } | null {
+  if (oldLines === 0) {
+    // Pure insertion: collapse to a zero-width point at the right boundary.
+    // jsdiff's oldStart is the old line the new content is inserted BEFORE, so
+    // anchor to that line's start; otherwise insert after the previous line.
+    const before = lineToPos.get(oldStart);
+    if (before) return { from: before.from, to: before.from };
+    const after = lineToPos.get(oldStart - 1);
+    if (after) return { from: after.to, to: after.to };
+    // Fallback: anchor to the nearest mapped line, choosing the side by its
+    // position relative to the insertion point. If the nearest line is at/after
+    // oldStart, insert BEFORE it (.from); otherwise insert AFTER it (.to).
+    // Using .to unconditionally would drop content on the wrong side.
+    const near = findNearestEntry(oldStart, lineToPos);
+    if (!near) return null;
+    return near.line >= oldStart
+      ? { from: near.from, to: near.from }
+      : { from: near.to, to: near.to };
+  }
+
+  let from: number | null = null;
+  let to: number | null = null;
+
+  for (let line = oldStart; line < oldStart + oldLines; line++) {
+    const pos = lineToPos.get(line);
+    if (pos) {
+      if (from === null || pos.from < from) from = pos.from;
+      if (to === null || pos.to > to) to = pos.to;
+    }
+  }
+
+  if (from === null || to === null) {
+    return findNearestPosition(oldStart, lineToPos);
+  }
+
+  return { from, to };
+}
+
+function findNearestEntry(
+  targetLine: number,
+  lineToPos: Map<number, { from: number; to: number }>,
+): { line: number; from: number; to: number } | null {
+  let closest: { line: number; from: number; to: number } | null = null;
+  let closestDist = Infinity;
+  for (const [line, pos] of lineToPos) {
+    const dist = Math.abs(line - targetLine);
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest = { line, from: pos.from, to: pos.to };
+    }
+  }
+  return closest;
+}
+
+function findNearestPosition(
+  targetLine: number,
+  lineToPos: Map<number, { from: number; to: number }>,
+): { from: number; to: number } | null {
+  const entry = findNearestEntry(targetLine, lineToPos);
+  return entry ? { from: entry.from, to: entry.to } : null;
+}
+
+function computeWordDiff(oldText: string, newText: string): DiffSegment[] {
+  const changes = diffWords(oldText, newText);
+  return changes.map((change) => ({
+    text: change.value,
+    type: change.added ? 'insert' : change.removed ? 'delete' : 'unchanged',
+  }));
+}
+
+/**
+ * Normalize text for comparison:
+ * - Strip block markers (list - / * , heading #, blockquote >) so the AI
+ *   reformatting a block marker isn't treated as a content change.
+ * - Collapse all whitespace + lowercase.
+ *
+ * NOTE: inline marks (bold/italic/code/link) are deliberately NOT stripped.
+ * The markdown encoder is mark-aware and symmetric with the model's output, so
+ * unchanged formatted content already compares equal — while a user explicitly
+ * adding/removing formatting (e.g. "make this bold") still produces an
+ * accept-able suggestion instead of being silently swallowed (CS-265).
+ */
+function normalizeContent(text: string): string {
+  return text
+    .replace(/^[\s]*[-*]\s+/gm, '')    // strip list markers
+    .replace(/^[\s]*#{1,6}\s+/gm, '')  // strip heading markers
+    .replace(/^[\s]*>\s+/gm, '')       // strip blockquote markers
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}

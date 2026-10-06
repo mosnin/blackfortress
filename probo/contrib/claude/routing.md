@@ -1,0 +1,255 @@
+# Routing, navigation, and auth
+
+Probo frontends route with [React Router](https://reactrouter.com/) (`react-router` v8), wrapped by the **`@probo/routes`** helpers and lazy-loaded with **`@probo/react-lazy`**. This guide covers how routes are declared, how to navigate and read params, how to use the URL as state, and how authenticated/protected routes are composed. Folder placement of route files is covered in [`app-arborescence.md`](app-arborescence.md); this guide is about the routing API itself.
+
+## Related guides
+
+| Topic | Guide |
+|-------|--------|
+| Where `routes.ts` lives, route-segment folders | [`contrib/claude/app-arborescence.md`](app-arborescence.md) |
+| Loaders, `queryRef`, preloading | [`contrib/claude/relay.md`](relay.md) |
+| Route error boundaries | [`contrib/claude/error-handling.md`](error-handling.md) |
+| Permission-gated UI within a route | [`contrib/claude/permissions.md`](permissions.md) |
+| `Link` vs `ButtonLink` | [`contrib/claude/ui.md`](ui.md#no-structure-changing-variants) |
+
+## `AppRoute` and the route tree
+
+Routes are declared as `AppRoute[]` and converted with `routeFromAppRoute` before being handed to `createBrowserRouter`. `AppRoute` extends React Router's `RouteObject` with a `Fallback` component; `routeFromAppRoute` wraps the `Component` in a `Suspense` boundary using that `Fallback` automatically.
+
+```ts
+// routes.ts — one per resource folder (see app-arborescence.md)
+import { lazy } from "@probo/react-lazy";
+import { type AppRoute } from "@probo/routes";
+
+import { MeasuresPageSkeleton } from "./MeasuresPageSkeleton";
+
+export const measureRoutes = [
+  {
+    path: "measures",
+    Fallback: MeasuresPageSkeleton,
+    Component: lazy(() => import("./MeasuresPageLoader")),
+  },
+  {
+    path: "measures/:measureId",
+    Component: lazy(() => import("./MeasureDetailLayoutLoader")),
+    children: [
+      { path: "overview", Component: lazy(() => import("./overview/MeasureOverviewPage")) },
+    ],
+  },
+] satisfies AppRoute[];
+```
+
+The app root spreads each resource's routes and maps them once:
+
+```tsx
+import { routeFromAppRoute } from "@probo/routes";
+import { measureRoutes } from "./pages/organizations/measures/routes";
+
+const routes = [
+  { path: "/", Component: lazy(() => import("./pages/MainLayout")), children: [...measureRoutes] },
+] satisfies AppRoute[];
+
+export const router = createBrowserRouter(routes.map(routeFromAppRoute));
+```
+
+Rules:
+- Routes declare only `path`, `Fallback`, `Component` (a lazy loader), `ErrorBoundary`, and `children` — **no Relay logic in the route object** (that lives in the `*Loader`; see [`relay.md`](relay.md)).
+- Use `lazy()` from `@probo/react-lazy` for the `Component` so every page is code-split.
+- `Fallback` is the route-level skeleton; reuse the page's `*Skeleton`.
+
+## Navigation
+
+Navigate **declaratively** with `Link` for anything the user clicks, and **imperatively** with `useNavigate` only after an effect (e.g. post-submit redirect).
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// Declarative — preferred
+<Link to={`measures/${measureId}`}>{t("measures.view")}</Link>
+
+// Imperative — only when navigation follows an action
+const navigate = useNavigate();
+navigate(`measures/${newId}`);
+```
+
+Build paths from segments; never hand-concatenate query strings (see [`ts-style.md`](ts-style.md) — use `URL` / `URLSearchParams`).
+
+### Back to the list
+
+A detail page’s “back to the list” control is a **text `Link`**, not a `Button` or `ButtonLink`. `ButtonLink` is for button-looking navigation (Create, New, primary CTAs). See [`ui.md`](ui.md#no-structure-changing-variants).
+
+React Router does not copy the current search string onto a `Link` or `navigate` target unless `search` is set. When the list stores filters, sort, or a search term in the URL, the list-to-detail link and the back link must both pass `search: location.search` (or the list-owned subset of those params). `location.search` already includes the leading `?`.
+
+```tsx
+import { CaretLeftIcon } from "@phosphor-icons/react";
+import { Link } from "@probo/ui/src/v2/Link/Link";
+import { useLocation } from "react-router";
+
+const location = useLocation();
+
+// GOOD — child of the list route; detail owns no extra params
+<Link
+  to={{ pathname: "..", search: location.search }}
+  size={2}
+  color="neutral"
+  underline={false}
+  iconStart={<CaretLeftIcon />}
+  className={back()}
+>
+  {t("userPage.back")}
+</Link>
+```
+
+`to=".."` is correct only when the detail route is a **child** of the list route. When the detail is a **sibling** of the list (for example `trackers` and `trackers/:id` under the same parent), `..` climbs to that parent — not the list. Point `pathname` at the list path explicitly and still pass `search`.
+
+```tsx
+// BAD — sibling detail; ".." leaves the feature and drops filters
+<Link to=".." …>{t("trackerProperties.actions.back")}</Link>
+
+// GOOD — explicit list path, same search the list owns
+<Link
+  to={{
+    pathname: `${cookieBannerPath(organizationId, cookieBannerId)}/trackers`,
+    search: location.search,
+  }}
+  …
+>
+  {t("trackerProperties.actions.back")}
+</Link>
+```
+
+When the detail page owns extra search params the list does not (for example a visitor’s document-access `status`), copy only the list keys back onto the list URL with `URLSearchParams`. Do not concatenate a query string by hand (see [`ts-style.md`](ts-style.md)).
+
+```tsx
+const [searchParams] = useSearchParams();
+const listSearch = visitorsListSearch(searchParams);
+
+<Link
+  to={{ pathname: "..", search: listSearch }}
+  size={2}
+  color="neutral"
+  underline={false}
+  iconStart={<CaretLeftIcon />}
+  className={back()}
+>
+  {t("visitorPage.back")}
+</Link>
+```
+
+## Register every new console page in the nav
+
+A new page in `apps/console` is not finished when `routes.ts` exists. It must also be reachable from the organization shell. The side panel and the Cmd+K list are **separate catalogs**. Updating only one of them hides the page from the other.
+
+Tasks, Webhooks, and Devices are this kind of page. Add the entry in **both** places, with the same group, path, label key, and permission:
+
+| Surface | Where |
+|---------|--------|
+| Side panel | A `NavPanelItem` in the product group's `*NavPanel` under [`apps/console/src/pages/iam/organizations/_components/shell/`](../../apps/console/src/pages/iam/organizations/_components/shell/) |
+| Cmd+K | One object in `NAV_DESTINATIONS` in [`apps/console/src/pages/iam/organizations/_lib/navDestinations.ts`](../../apps/console/src/pages/iam/organizations/_lib/navDestinations.ts) |
+
+Build the href with `navHref`. Gate both copies with the same `isVisible` / `permission(action:)` check.
+
+Also update:
+
+- The `nav.<key>` label in [`apps/console/src/_locales/`](../../apps/console/src/_locales/) for `en-US`, `fr-FR`, and `nl-NL`. Group names live at `nav.groups.<key>`.
+- When the page introduces a permission: `NavPermission` in [`navigation.ts`](../../apps/console/src/pages/iam/organizations/_lib/navigation.ts), the `navPermissions_organization` fragment, **and** the panel query. Panels do not read the shared fragment, so a permission added to only one of them disagrees.
+- When that permission should reveal the product icon: the group's visibility helper in [`NavRail.tsx`](../../apps/console/src/pages/iam/organizations/_components/shell/NavRail.tsx). When the page can be the first page of the group, the group's landing href in the same file.
+- When the page starts a **new product group**: `NAV_GROUPS` in `navigation.ts`, `navPanels` in [`navPanels.ts`](../../apps/console/src/pages/iam/organizations/_components/shell/navPanels.ts), and a rail item.
+
+Do not put a record-scoped path (a chosen banner, third party, or portal) in `NAV_DESTINATIONS`. Those URLs need an id the Cmd+K list does not have. A detail page of a single record (one risk, one document, one audit) does not get a nav entry either. The list page already links to it.
+
+## Route params
+
+Read params with `useParams` **inside the component that needs them** — do not drill them as props from a parent that only read the URL to pass them down (see [`react-components.md`](react-components.md#props-are-for-configuration-and-composition-not-data)). Params are always `string | undefined`; narrow before use.
+
+```tsx
+const { measureId } = useParams<{ measureId: string }>();
+if (measureId == null) {
+  return null;
+}
+```
+
+Prefer a small dedicated hook (`useOrganizationId()`-style) when the same param is read across many components.
+
+## URL as state (search params)
+
+State that should survive reload, be shareable, or be linkable — the active tab, a filter, a sort, a search term, pagination cursors — belongs in the **URL**, not `useState`. Use `useSearchParams`.
+
+```tsx
+import { useSearchParams } from "react-router";
+
+const [searchParams, setSearchParams] = useSearchParams();
+const status = searchParams.get("status") ?? "OPEN";
+
+function onStatusChange(next: string) {
+  setSearchParams((prev) => {
+    prev.set("status", next);
+    return prev;
+  });
+}
+```
+
+See [`state-management.md`](state-management.md) for when to choose the URL over local/global state.
+
+## Redirects
+
+Redirect from a route `loader` (throwing `redirect`) for canonical/index redirects, and with `<Navigate>` for render-time redirects (e.g. role-based landing).
+
+```tsx
+// Index redirect from a loader
+{ index: true, loader: () => { throw redirect("general"); } }
+
+// Render-time redirect
+<Navigate to="login" replace />
+```
+
+## Auth and protected routes
+
+Authentication state lives in a **provider** near the root (a viewer / current-user context), not in route objects. Protected subtrees are composed by nesting routes under a layout/provider that loads the viewer; unauthenticated access is handled by the **route error boundary**, which redirects to login.
+
+```tsx
+// RootErrorBoundary — redirect to login on an auth error, render the error page otherwise
+export function RootErrorBoundary() {
+  const error = useRouteError();
+  if (error instanceof UnAuthenticatedError) {
+    const search = new URLSearchParams({ continue: window.location.href });
+    return <Navigate to={{ pathname: "/auth/login", search: `?${search}` }} />;
+  }
+  return <PageError error={error instanceof Error ? error : new Error("unknown error")} />;
+}
+```
+
+```tsx
+// Role-based landing — redirect at render time based on the viewer's role
+function OrganizationIndex() {
+  const { role } = use(CurrentUser);
+  switch (role) {
+    case Role.EMPLOYEE: return <Navigate to="employee" />;
+    case Role.AUDITOR:  return <Navigate to="measures" />;
+    case Role.COMPLIANCE_PORTAL_MANAGER: return <Navigate to="compliance-portals" />;
+    case Role.COMPLIANCE_PORTAL_ACCESS_MANAGER: return <Navigate to="compliance-portals" />;
+    default:            return <Navigate to="tasks" />;
+  }
+}
+```
+
+Rules:
+- The **server** authorizes every request; the client redirects on `UnAuthenticatedError` purely for UX.
+- Per-action gating inside an authenticated page uses `permission(action:)` booleans (see [`permissions.md`](permissions.md)), not role checks.
+- Attach `ErrorBoundary` at the boundary you want auth failures to bubble to (root for whole-app, a section boundary for embedded widgets — see [`error-handling.md`](error-handling.md)).
+
+## No domain data through `Outlet` context
+
+A layout **must not** pass fetched domain data to child routes via `useOutletContext`. Each child page that needs data follows the Loader + Page pattern with its **own** query — the same as a sibling page. This keeps every page independently loadable and avoids hidden coupling to the parent's query.
+
+```tsx
+// Bad — layout fetches and forwards domain data through Outlet context
+<Outlet context={{ showBranding: banner.showBranding }} />;
+const { showBranding } = useOutletContext<{ showBranding: boolean }>();
+
+// Good — the child page owns its loader + query (see relay.md)
+const [queryRef, loadQuery] = useQueryLoader(snippetPageQuery);
+useEffect(() => { loadQuery({ cookieBannerId }); }, [loadQuery, cookieBannerId]);
+```
+
+`Outlet` context is fine for **non-domain** UI coordination (a layout-owned callback, a `ref`), never for loaded entities or URL ids a child can read itself.

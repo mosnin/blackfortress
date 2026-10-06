@@ -1,0 +1,567 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/policy"
+	"go.probo.inc/probo/pkg/page"
+)
+
+type (
+	CompliancePortalAccess struct {
+		ID                    gid.GID                     `db:"id"`
+		OrganizationID        gid.GID                     `db:"organization_id"`
+		TenantID              gid.TenantID                `db:"tenant_id"`
+		IdentityID            gid.GID                     `db:"identity_id"`
+		CompliancePortalID    gid.GID                     `db:"compliance_portal_id"`
+		ElectronicSignatureID *gid.GID                    `db:"electronic_signature_id"`
+		State                 CompliancePortalAccessState `db:"state"`
+		AuthenticatedAt       *time.Time                  `db:"authenticated_at"`
+		CreatedAt             time.Time                   `db:"created_at"`
+		UpdatedAt             time.Time                   `db:"updated_at"`
+		PendingRequestCount   int                         `db:"-"`
+	}
+
+	CompliancePortalAccesses []*CompliancePortalAccess
+
+	listedCompliancePortalAccess struct {
+		CompliancePortalAccess
+		Count int `db:"pending_request_count"`
+	}
+)
+
+func (tca *CompliancePortalAccess) CursorKey(orderBy CompliancePortalAccessOrderField) page.CursorKey {
+	switch orderBy {
+	case CompliancePortalAccessOrderFieldCreatedAt:
+		return page.NewCursorKey(tca.ID, tca.CreatedAt)
+	case CompliancePortalAccessOrderFieldPendingRequestCount:
+		return page.NewCursorKey(tca.ID, tca.PendingRequestCount)
+	}
+
+	panic(fmt.Sprintf("unsupported order by: %s", orderBy))
+}
+
+func (tca *CompliancePortalAccess) AuthorizationAttributes(
+	ctx context.Context,
+	conn pg.Querier,
+	resourceIDs []gid.GID,
+) (policy.AttributesByID, error) {
+	q := `SELECT id, organization_id FROM cp_accesses WHERE id = ANY(@resource_ids::text[])`
+
+	args := pgx.StrictNamedArgs{
+		"resource_ids": resourceIDs,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query authorization attributes: %w", err)
+	}
+
+	defer rows.Close()
+
+	attrsByID := make(policy.AttributesByID)
+
+	for rows.Next() {
+		var id, organizationID gid.GID
+
+		if err := rows.Scan(&id, &organizationID); err != nil {
+			return nil, fmt.Errorf("cannot scan authorization attributes: %w", err)
+		}
+
+		attrsByID[id] = policy.Attributes{
+			"organization_id": organizationID.String(),
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cannot iterate authorization attributes: %w", err)
+	}
+
+	return attrsByID, nil
+}
+
+func (tca *CompliancePortalAccess) LoadByID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	accessID gid.GID,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	tenant_id,
+	identity_id,
+	compliance_portal_id,
+	electronic_signature_id,
+	state,
+	authenticated_at,
+	created_at,
+	updated_at
+FROM
+	cp_accesses
+WHERE
+	%s
+	AND id = @access_id
+LIMIT 1;
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"access_id": accessID}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query compliance portal access: %w", err)
+	}
+
+	access, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CompliancePortalAccess])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect compliance portal access: %w", err)
+	}
+
+	*tca = access
+
+	return nil
+}
+
+// LoadByIDForUpdate is LoadByID under FOR UPDATE so concurrent grant
+// and management updates take the access row before child mutations.
+func (tca *CompliancePortalAccess) LoadByIDForUpdate(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+	accessID gid.GID,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	tenant_id,
+	identity_id,
+	compliance_portal_id,
+	electronic_signature_id,
+	state,
+	authenticated_at,
+	created_at,
+	updated_at
+FROM
+	cp_accesses
+WHERE
+	%s
+	AND id = @access_id
+LIMIT 1
+FOR UPDATE;
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"access_id": accessID}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query compliance portal access: %w", err)
+	}
+
+	access, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CompliancePortalAccess])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect compliance portal access: %w", err)
+	}
+
+	*tca = access
+
+	return nil
+}
+
+func (tca *CompliancePortalAccess) LoadByCompliancePortalIDAndIdentityID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	compliancePortalID gid.GID,
+	identityID gid.GID,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	tenant_id,
+	identity_id,
+	compliance_portal_id,
+	electronic_signature_id,
+	state,
+	authenticated_at,
+	created_at,
+	updated_at
+FROM
+	cp_accesses
+WHERE
+	%s
+	AND compliance_portal_id = @compliance_portal_id
+	AND identity_id = @identity_id
+LIMIT 1;
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"compliance_portal_id": compliancePortalID,
+		"identity_id":          identityID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query compliance portal access: %w", err)
+	}
+
+	access, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CompliancePortalAccess])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect compliance portal access: %w", err)
+	}
+
+	*tca = access
+
+	return nil
+}
+
+// LoadByCompliancePortalIDAndIdentityIDForUpdate is
+// LoadByCompliancePortalIDAndIdentityID under FOR UPDATE so grant and
+// management updates take the access row before child mutations.
+func (tca *CompliancePortalAccess) LoadByCompliancePortalIDAndIdentityIDForUpdate(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+	compliancePortalID gid.GID,
+	identityID gid.GID,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	tenant_id,
+	identity_id,
+	compliance_portal_id,
+	electronic_signature_id,
+	state,
+	authenticated_at,
+	created_at,
+	updated_at
+FROM
+	cp_accesses
+WHERE
+	%s
+	AND compliance_portal_id = @compliance_portal_id
+	AND identity_id = @identity_id
+LIMIT 1
+FOR UPDATE;
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"compliance_portal_id": compliancePortalID,
+		"identity_id":          identityID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query compliance portal access: %w", err)
+	}
+
+	access, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CompliancePortalAccess])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect compliance portal access: %w", err)
+	}
+
+	*tca = access
+
+	return nil
+}
+
+func (tca *CompliancePortalAccess) LoadByElectronicSignatureID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	electronicSignatureID gid.GID,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	tenant_id,
+	identity_id,
+	compliance_portal_id,
+	electronic_signature_id,
+	state,
+	authenticated_at,
+	created_at,
+	updated_at
+FROM
+	cp_accesses
+WHERE
+	%s
+	AND electronic_signature_id = @electronic_signature_id
+LIMIT 1;
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{"electronic_signature_id": electronicSignatureID}
+	maps.Copy(args, scope.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query compliance portal access by electronic signature: %w", err)
+	}
+
+	access, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CompliancePortalAccess])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect compliance portal access by electronic signature: %w", err)
+	}
+
+	*tca = access
+
+	return nil
+}
+
+func (tca *CompliancePortalAccess) Insert(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+INSERT INTO cp_accesses (
+	id,
+	tenant_id,
+	organization_id,
+	identity_id,
+	compliance_portal_id,
+	electronic_signature_id,
+	state,
+	authenticated_at,
+	created_at,
+	updated_at
+) VALUES (
+	@id,
+	@tenant_id,
+	@organization_id,
+	@identity_id,
+	@compliance_portal_id,
+	@electronic_signature_id,
+	@state,
+	@authenticated_at,
+	@created_at,
+	@updated_at
+)
+`
+
+	args := pgx.StrictNamedArgs{
+		"id":                      tca.ID,
+		"tenant_id":               tca.TenantID,
+		"organization_id":         tca.OrganizationID,
+		"identity_id":             tca.IdentityID,
+		"compliance_portal_id":    tca.CompliancePortalID,
+		"electronic_signature_id": tca.ElectronicSignatureID,
+		"state":                   tca.State,
+		"authenticated_at":        tca.AuthenticatedAt,
+		"created_at":              tca.CreatedAt,
+		"updated_at":              tca.UpdatedAt,
+	}
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+			if pgErr.Code == "23505" && pgErr.ConstraintName == "cp_accesses_identity_id_compliance_portal_id_key" {
+				return ErrResourceAlreadyExists
+			}
+		}
+
+		return fmt.Errorf("cannot insert compliance portal access: %w", err)
+	}
+
+	return nil
+}
+
+func (tca *CompliancePortalAccess) Update(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+UPDATE cp_accesses SET
+	updated_at = @updated_at,
+	electronic_signature_id = @electronic_signature_id,
+	state = @state,
+	authenticated_at = @authenticated_at
+WHERE
+	%s
+	AND id = @id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"id":                      tca.ID,
+		"updated_at":              tca.UpdatedAt,
+		"electronic_signature_id": tca.ElectronicSignatureID,
+		"state":                   tca.State,
+		"authenticated_at":        tca.AuthenticatedAt,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	result, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot update compliance portal access: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return ErrResourceNotFound
+	}
+
+	return nil
+}
+
+func (tca *CompliancePortalAccess) Delete(
+	ctx context.Context,
+	conn pg.Tx,
+	scope Scoper,
+) error {
+	q := `
+DELETE FROM cp_accesses
+WHERE
+	%s
+	AND id = @id
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"id": tca.ID,
+	}
+	maps.Copy(args, scope.SQLArguments())
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot delete compliance portal access: %w", err)
+	}
+
+	return nil
+}
+
+func (tcas *CompliancePortalAccesses) LoadByCompliancePortalID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	compliancePortalID gid.GID,
+	cursor *page.Cursor[CompliancePortalAccessOrderField],
+	filter *CompliancePortalAccessFilter,
+) error {
+	q := `
+SELECT
+	id,
+	organization_id,
+	tenant_id,
+	identity_id,
+	compliance_portal_id,
+	electronic_signature_id,
+	state,
+	authenticated_at,
+	created_at,
+	updated_at,
+	(
+		SELECT COUNT(*)
+		FROM cp_document_accesses
+		WHERE compliance_portal_access_id = cp_accesses.id
+		AND status = @status_requested::compliance_portal_document_access_status
+	) AS pending_request_count
+FROM
+	cp_accesses
+WHERE
+	%s
+	AND compliance_portal_id = @compliance_portal_id
+	AND %s
+	AND %s
+`
+
+	q = fmt.Sprintf(q, scope.SQLFragment(), filter.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.StrictNamedArgs{
+		"compliance_portal_id": compliancePortalID,
+		"status_requested":     CompliancePortalDocumentAccessStatusRequested,
+	}
+	maps.Copy(args, scope.SQLArguments())
+	maps.Copy(args, filter.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query compliance portal accesses: %w", err)
+	}
+
+	listed, err := pgx.CollectRows(rows, pgx.RowToStructByName[listedCompliancePortalAccess])
+	if err != nil {
+		return fmt.Errorf("cannot collect compliance portal accesses: %w", err)
+	}
+
+	accesses := make(CompliancePortalAccesses, len(listed))
+	for i := range listed {
+		access := listed[i].CompliancePortalAccess
+		access.PendingRequestCount = listed[i].Count
+		accesses[i] = &access
+	}
+
+	*tcas = accesses
+
+	return nil
+}

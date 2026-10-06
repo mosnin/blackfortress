@@ -1,0 +1,125 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package cookiebanner
+
+import (
+	_ "embed"
+	"fmt"
+	"strings"
+
+	"go.gearno.de/kit/log"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/agent"
+	"go.probo.inc/probo/pkg/agent/tools/search"
+	"go.probo.inc/probo/pkg/coredata"
+)
+
+//go:embed prompts/tracker_enrichment.txt.tmpl
+var trackerEnrichmentPrompt string
+
+// CommonPatternEnrichmentResult is the structured output the
+// common-pattern enrichment agent returns.
+type CommonPatternEnrichmentResult struct {
+	Description string `json:"description" jsonschema:"A concise, factual, compliance-grade description of what this tracker stores or does and its purpose. One or two sentences. Name the operating company when known. Empty when the purpose cannot be substantiated from evidence."`
+}
+
+// buildCommonPatternEnrichmentAgent builds the common-pattern enrichment
+// agent. extraTools carries the browser read-only toolset when a headless
+// Chrome endpoint is configured; it is empty otherwise, in which case the
+// agent relies on the DB search tool and web search alone. The browser
+// lets it open authoritative vendor and cookie-database pages to ground a
+// description.
+func buildCommonPatternEnrichmentAgent(
+	cfg TrackerEnrichmentAgentConfig,
+	pgClient *pg.Client,
+	logger *log.Logger,
+	extraTools []agent.Tool,
+) *agent.Agent {
+	tools := []agent.Tool{
+		searchThirdPartiesTool(pgClient),
+	}
+
+	tools = append(tools, extraTools...)
+
+	if cfg.FirecrawlAPIKey != "" {
+		tools = append(tools, search.FirecrawlSearchTool(cfg.FirecrawlAPIKey))
+	}
+
+	outputType, err := agent.NewOutputType[CommonPatternEnrichmentResult]("tracker_enrichment")
+	if err != nil {
+		panic(fmt.Sprintf("cookiebanner: cannot build tracker enrichment output type: %s", err))
+	}
+
+	maxTurns := cfg.MaxTurns
+	if maxTurns < 1 {
+		maxTurns = defaultEnrichmentMaxTurns
+	}
+
+	opts := []agent.Option{
+		agent.WithInstructions(trackerEnrichmentPrompt),
+		agent.WithModel(cfg.Model),
+		agent.WithTools(tools...),
+		agent.WithOutputType(outputType),
+		agent.WithMaxTurns(maxTurns),
+		agent.WithMaxTokens(resolveAgentMaxTokens(cfg.MaxTokens)),
+		agent.WithLogger(logger),
+	}
+
+	if cfg.Temperature != nil {
+		opts = append(opts, agent.WithTemperature(*cfg.Temperature))
+	}
+
+	return agent.New("common-pattern-enrichment", cfg.LLMClient, opts...)
+}
+
+// buildCommonPatternIdentificationPrompt builds the mapping-agent input
+// for a global catalog pattern. Catalog rows carry no observed domains,
+// so the prompt omits the <observed_domains> signal and relies on the
+// pattern name, type, and naming conventions. It lets the enrichment
+// worker reuse the mapping agent to attribute a vendor before describing.
+func buildCommonPatternIdentificationPrompt(cp coredata.CommonTrackerPattern) string {
+	return buildTrackerIdentificationPrompt(cp.Pattern, cp.TrackerType, cp.MatchType, cp.MaxAgeSeconds)
+}
+
+func buildEnrichmentPrompt(cp coredata.CommonTrackerPattern, thirdPartyName string) string {
+	maxAge := "session"
+	if cp.MaxAgeSeconds != nil {
+		maxAge = fmt.Sprintf("%d seconds", *cp.MaxAgeSeconds)
+	}
+
+	prompt := fmt.Sprintf(
+		"Describe the following tracker:\n\n"+
+			"<pattern> %s </pattern>\n"+
+			"<type> %s </type>\n"+
+			"<match_type> %s </match_type>\n"+
+			"<max_age> %s </max_age>\n",
+		cp.Pattern,
+		cp.TrackerType,
+		cp.MatchType,
+		maxAge,
+	)
+
+	if name := strings.TrimSpace(thirdPartyName); name != "" {
+		prompt += fmt.Sprintf("<third_party> %s </third_party>\n", name)
+	}
+
+	return prompt
+}

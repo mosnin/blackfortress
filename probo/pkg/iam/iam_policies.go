@@ -1,0 +1,446 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package iam
+
+import "go.probo.inc/probo/pkg/iam/policy"
+
+// IAM Policies
+//
+// These policies define access control for the IAM service.
+// They are applied in addition to role-based organization policies.
+
+// IAMSelfManageIdentityPolicy allows users to manage their own identity.
+// This is applied to all authenticated users regardless of organization membership.
+var IAMSelfManageIdentityPolicy = policy.NewPolicy(
+	"iam:self-manage-identity",
+	"Self-Manage Identity",
+
+	// Users can view and update their own identity
+	policy.Allow(
+		ActionIdentityGet,
+		ActionIdentityUpdate,
+		ActionIdentityDelete,
+	).
+		WithSID("manage-own-identity").
+		When(policy.Equals("principal.id", "resource.identity_id")),
+
+	// Users can list their own memberships, invitations, sessions, and API keys
+	policy.Allow(
+		ActionMembershipList,
+		ActionInvitationList,
+		ActionSessionList,
+		ActionPersonalAPIKeyList,
+		ActionOAuth2AccessTokenList,
+	).
+		WithSID("list-own-associations").
+		When(policy.Equals("principal.id", "resource.identity_id")),
+).
+	WithDescription("Allows users to manage their own identity, sessions, API keys, and view their memberships")
+
+// IAMSelfManageSessionPolicy allows users to manage their own sessions.
+var IAMSelfManageSessionPolicy = policy.NewPolicy(
+	"iam:self-manage-session",
+	"Self-Manage Sessions",
+
+	// Users can view and revoke their own sessions
+	policy.Allow(
+		ActionSessionGet,
+		ActionSessionRevoke,
+		ActionSessionRevokeAll,
+	).
+		WithSID("manage-own-sessions").
+		When(policy.Equals("principal.id", "resource.identity_id")),
+).
+	WithDescription("Allows users to view and revoke their own sessions")
+
+// IAMSelfManageInvitationPolicy allows users to manage invitations sent to them.
+var IAMSelfManageInvitationPolicy = policy.NewPolicy(
+	"iam:self-manage-invitation",
+	"Self-Manage Invitations",
+
+	// Users can view and accept invitations sent to their email
+	policy.Allow(
+		ActionInvitationGet,
+		ActionInvitationAccept,
+	).
+		WithSID("manage-own-invitations").
+		When(policy.Equals("principal.email", "resource.email")),
+).
+	WithDescription("Allows users to view and accept invitations sent to them")
+
+// IAMSelfManageProfilePolicy allows users to view their own profiles.
+var IAMSelfManageProfilePolicy = policy.NewPolicy(
+	"iam:self-manage-profile",
+	"Self-Manage Profiles",
+
+	// Users can view their own profiles
+	policy.Allow(
+		ActionMembershipProfileGet,
+		ActionMembershipProfileList,
+	).
+		WithSID("view-own-profiles").
+		When(policy.Equals("principal.id", "resource.identity_id")),
+).
+	WithDescription("Allows users to view their organization profiles")
+
+// IAMSelfManageMembershipPolicy allows users to view their own memberships.
+var IAMSelfManageMembershipPolicy = policy.NewPolicy(
+	"iam:self-manage-membership",
+	"Self-Manage Memberships",
+
+	// Users can view their own memberships
+	policy.Allow(ActionMembershipGet).
+		WithSID("view-own-memberships").
+		When(policy.Equals("principal.id", "resource.identity_id")),
+).
+	WithDescription("Allows users to view their organization memberships")
+
+// IAMSelfManagePersonalAPIKeyPolicy allows users to manage their own API keys.
+var IAMSelfManagePersonalAPIKeyPolicy = policy.NewPolicy(
+	"iam:self-manage-personal-api-key",
+	"Self-Manage Personal API Keys",
+
+	// Users can create, view, update, and delete their own API keys
+	policy.Allow(
+		ActionPersonalAPIKeyCreate,
+		ActionPersonalAPIKeyGet,
+		ActionPersonalAPIKeyUpdate,
+		ActionPersonalAPIKeyDelete,
+	).
+		WithSID("manage-own-api-keys").
+		When(policy.Equals("principal.id", "resource.identity_id")),
+).
+	WithDescription("Allows users to manage their own personal API keys")
+
+// IAMSelfManageOAuth2AccessTokenPolicy allows users to manage their own OAuth2 access tokens.
+var IAMSelfManageOAuth2AccessTokenPolicy = policy.NewPolicy(
+	"iam:self-manage-oauth2-access-token",
+	"Self-Manage OAuth2 Access Tokens",
+
+	policy.Allow(
+		ActionOAuth2AccessTokenCreate,
+		ActionOAuth2AccessTokenGet,
+		ActionOAuth2AccessTokenDelete,
+	).
+		WithSID("manage-own-oauth2-access-tokens").
+		When(policy.Equals("principal.id", "resource.identity_id")),
+).
+	WithDescription("Allows users to manage their own manually created OAuth2 access tokens")
+
+// IAMSelfManageOAuth2ConsentPolicy allows users to manage their own OAuth2 consents.
+var IAMSelfManageOAuth2ConsentPolicy = policy.NewPolicy(
+	"iam:self-manage-oauth2-consent",
+	"Self-Manage OAuth2 Consents",
+
+	policy.Allow(
+		ActionOAuth2ConsentGet,
+		ActionOAuth2ConsentApprove,
+	).
+		WithSID("manage-own-consents").
+		When(
+			policy.Equals("principal.id", "resource.identity_id"),
+			policy.Equals("principal.session_id", "resource.session_id"),
+		),
+).
+	WithDescription("Allows users to view and approve their own OAuth2 consents")
+
+// IAMOwnerPolicy defines permissions for organization owners.
+var IAMOwnerPolicy = policy.NewPolicy(
+	"iam:owner",
+	"Organization Owner",
+
+	// Full access to organization management
+	policy.Allow("iam:organization:*").
+		WithSID("full-org-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Full access to member management (scoped to own organization), except deletion on SCIM sourced memberships
+	policy.Allow(
+		ActionMembershipGet,
+		ActionMembershipList,
+		ActionMembershipUpdate,
+	).
+		WithSID("membership-owner-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+	policy.Allow(
+		ActionMembershipDelete,
+	).
+		WithSID("membership-deletion-owner-access").
+		When(
+			policy.Equals("principal.organization_id", "resource.organization_id"),
+			policy.NotEquals("resource.source", "SCIM"),
+		),
+
+	// Full access to membership profiles (scoped to own organization)
+	policy.Allow(
+		ActionMembershipProfileGet,
+		ActionMembershipProfileList,
+		ActionMembershipProfileCreate,
+		ActionMembershipProfileUpdate,
+		ActionMembershipProfileDelete,
+		ActionMembershipProfileActivate,
+		ActionMembershipProfileDeactivate,
+	).
+		WithSID("full-membership-profile-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can view identities of members in the same organization
+	policy.Allow(ActionIdentityGet).
+		WithSID("view-member-identity").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can manage invitations (scoped to own organization)
+	policy.Allow(
+		ActionInvitationList,
+		ActionInvitationCreate,
+		ActionInvitationGet,
+		ActionInvitationList,
+		ActionInvitationDelete,
+	).
+		WithSID("manage-invitations").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Full access to SAML configuration management (scoped to own organization)
+	policy.Allow("iam:saml-configuration:*").
+		WithSID("full-saml-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Full access to SCIM configuration management (scoped to own organization)
+	policy.Allow("iam:scim-configuration:*").
+		WithSID("full-scim-configuration-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Full access to SCIM event viewing (scoped to own organization)
+	policy.Allow("iam:scim-event:*").
+		WithSID("full-scim-event-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Full access to SCIM bridge management (scoped to own organization)
+	policy.Allow("iam:scim-bridge:*").
+		WithSID("full-scim-bridge-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Full access to audit log entries (scoped to own organization)
+	policy.Allow(
+		ActionAuditLogEntryGet,
+		ActionAuditLogEntryList,
+		ActionAuditLogExport,
+	).
+		WithSID("audit-log-entry-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+).
+	WithDescription("Full IAM access for organization owners")
+
+// IAMAdminPolicy defines permissions for organization admins.
+var IAMAdminPolicy = policy.NewPolicy(
+	"iam:admin",
+	"Organization Admin",
+
+	// Can view and update organization (but not delete)
+	policy.Allow(
+		ActionOrganizationGet,
+		ActionOrganizationUpdate,
+		ActionMembershipList,
+		ActionInvitationList,
+		ActionInvitationCreate,
+	).
+		WithSID("org-admin-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can manage memberships (scoped to own organization)
+	policy.Allow(
+		ActionMembershipGet,
+	).
+		WithSID("membership-admin-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can update memberships, but neither of an existing owner (resource.role)
+	// nor to grant ownership (resource.target_role); only owner can grant
+	// ownership.
+	policy.Allow(
+		ActionMembershipUpdate,
+	).
+		WithSID("membership-role-admin-access").
+		When(
+			policy.Equals("principal.organization_id", "resource.organization_id"),
+			policy.NotEquals("resource.role", "OWNER"),
+			policy.NotEquals("resource.target_role", "OWNER"),
+		),
+
+	// Can view and manage membership profiles (scoped to own organization)
+	policy.Allow(
+		ActionMembershipProfileGet,
+		ActionMembershipProfileList,
+		ActionMembershipProfileUpdate,
+		ActionMembershipProfileDelete,
+		ActionMembershipProfileActivate,
+		ActionMembershipProfileDeactivate,
+	).
+		WithSID("membership-profile-admin-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can create members, but not with the OWNER role (resource.target_role);
+	// only owner can grant ownership.
+	policy.Allow(ActionMembershipProfileCreate).
+		WithSID("membership-profile-admin-create").
+		When(
+			policy.Equals("principal.organization_id", "resource.organization_id"),
+			policy.NotEquals("resource.target_role", "OWNER"),
+		),
+
+	// Can view identities of members in the same organization
+	policy.Allow(ActionIdentityGet).
+		WithSID("view-member-identity").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can manage invitations (scoped to own organization)
+	policy.Allow(
+		ActionInvitationGet,
+		ActionInvitationDelete,
+	).
+		WithSID("invitation-admin-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can view SAML configurations (scoped to own organization)
+	policy.Allow(ActionSAMLConfigurationGet).
+		WithSID("saml-configuration-admin-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Cannot delete organization
+	policy.Deny(ActionOrganizationDelete).
+		WithSID("deny-org-delete"),
+
+	// Cannot remove members (only owner can)
+	policy.Deny(ActionMembershipDelete).
+		WithSID("deny-remove-member"),
+
+	// Cannot manage SAML configurations (only owner can)
+	policy.Deny(
+		ActionSAMLConfigurationCreate,
+		ActionSAMLConfigurationUpdate,
+		ActionSAMLConfigurationDelete,
+	).
+		WithSID("deny-saml-management"),
+
+	// Can view SCIM configuration, bridge, and events (scoped to own organization)
+	policy.Allow(
+		ActionSCIMConfigurationGet,
+		ActionSCIMBridgeGet,
+		ActionSCIMEventList,
+		ActionSCIMEventGet,
+	).
+		WithSID("scim-admin-view-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Cannot manage SCIM configurations or bridges (only owner can)
+	policy.Deny(
+		ActionSCIMConfigurationCreate,
+		ActionSCIMConfigurationUpdate,
+		ActionSCIMConfigurationDelete,
+		ActionSCIMBridgeCreate,
+		ActionSCIMBridgeUpdate,
+		ActionSCIMBridgeDelete,
+	).
+		WithSID("deny-scim-management"),
+
+	// Can view and export audit log entries (scoped to own organization)
+	policy.Allow(
+		ActionAuditLogEntryGet,
+		ActionAuditLogEntryList,
+		ActionAuditLogExport,
+	).
+		WithSID("audit-log-entry-admin-access").
+		When(
+			policy.Equals("principal.organization_id", "resource.organization_id"),
+		),
+
+	// Can export SCIM events (scoped to own organization)
+	policy.Allow(ActionSCIMEventExport).
+		WithSID("scim-event-export-admin-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+).
+	WithDescription("IAM admin access - can manage members but cannot delete organization or manage SAML/SCIM")
+
+// IAMViewerPolicy defines permissions for organization viewers.
+var IAMViewerPolicy = policy.NewPolicy(
+	"iam:viewer",
+	"Organization Viewer",
+
+	// Read-only access to organization
+	policy.Allow(
+		ActionOrganizationGet,
+		ActionMembershipList,
+		ActionInvitationList,
+	).
+		WithSID("org-viewer-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can view memberships (scoped to own organization)
+	policy.Allow(ActionMembershipGet).
+		WithSID("membership-viewer-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can view membership profiles (scoped to own organization)
+	policy.Allow(
+		ActionMembershipProfileGet,
+		ActionMembershipProfileList,
+	).
+		WithSID("membership-profile-viewer-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can view identities of members in the same organization
+	policy.Allow(ActionIdentityGet).
+		WithSID("view-member-identity").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	// Can view audit log entries (scoped to own organization)
+	policy.Allow(
+		ActionAuditLogEntryGet,
+		ActionAuditLogEntryList,
+	).
+		WithSID("audit-log-entry-viewer-access").
+		When(
+			policy.Equals("principal.organization_id", "resource.organization_id"),
+		),
+).
+	WithDescription("Read-only IAM access for organization viewers")
+
+// IAMCompliancePortalAccessManagerPolicy defines the minimal IAM access needed
+// by compliance portal access managers. The role reviews visitor access
+// requests and has no business browsing members, invitations, or audit logs;
+// access to its own identity, memberships, and profile comes from the
+// identity-scoped self-manage policies. MembershipProfileGet is granted so
+// access-request profile fields can resolve (authorized against the access
+// entity's organization_id), without MembershipProfileList which would open
+// the People directory.
+var IAMCompliancePortalAccessManagerPolicy = policy.NewPolicy(
+	"iam:compliance-portal-access-manager",
+	"Compliance Portal Access Manager",
+
+	policy.Allow(ActionOrganizationGet).
+		WithSID("org-read-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+
+	policy.Allow(ActionMembershipProfileGet).
+		WithSID("membership-profile-get-access").
+		When(policy.Equals("principal.organization_id", "resource.organization_id")),
+).
+	WithDescription("Minimal IAM access for compliance portal access managers")

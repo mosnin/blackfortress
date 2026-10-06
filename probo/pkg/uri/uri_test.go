@@ -1,0 +1,482 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package uri
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestParse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    URI
+		wantErr bool
+	}{
+		{
+			name:  "valid https url",
+			input: "https://example.com",
+			want:  URI("https://example.com"),
+		},
+		{
+			name:  "valid https url with path",
+			input: "https://example.com/callback",
+			want:  URI("https://example.com/callback"),
+		},
+		{
+			name:  "valid https url with port",
+			input: "https://localhost:8080/callback",
+			want:  URI("https://localhost:8080/callback"),
+		},
+		{
+			name:  "valid http url",
+			input: "http://localhost:3000/auth/callback",
+			want:  URI("http://localhost:3000/auth/callback"),
+		},
+		{
+			name:  "valid url with query",
+			input: "https://example.com/path?key=value",
+			want:  URI("https://example.com/path?key=value"),
+		},
+		{
+			name:  "valid custom scheme",
+			input: "myapp://callback",
+			want:  URI("myapp://callback"),
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:    "no scheme",
+			input:   "example.com/callback",
+			wantErr: true,
+		},
+		{
+			name:    "no host",
+			input:   "/callback",
+			wantErr: true,
+		},
+		{
+			name:    "relative path",
+			input:   "callback",
+			wantErr: true,
+		},
+		{
+			name:    "scheme only",
+			input:   "https://",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+
+				got, err := Parse(tt.input)
+				if tt.wantErr {
+					require.Error(t, err)
+					return
+				}
+
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			},
+		)
+	}
+}
+
+func TestURIIsHTTP(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		uri  URI
+		want bool
+	}{
+		{name: "https", uri: URI("https://example.com"), want: true},
+		{name: "http", uri: URI("http://localhost:3000"), want: true},
+		{name: "custom scheme", uri: URI("myapp://callback"), want: false},
+		{name: "javascript scheme", uri: URI("javascript://example.com/%0Aalert(1)"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+
+				assert.Equal(t, tt.want, tt.uri.IsHTTP())
+			},
+		)
+	}
+}
+
+func TestURIUnmarshalText(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"valid",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var u URI
+
+			err := u.UnmarshalText([]byte("https://example.com/callback"))
+			require.NoError(t, err)
+			assert.Equal(t, URI("https://example.com/callback"), u)
+		},
+	)
+
+	t.Run(
+		"invalid",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var u URI
+
+			err := u.UnmarshalText([]byte("not-a-url"))
+			require.Error(t, err)
+		},
+	)
+}
+
+func TestURIMarshalText(t *testing.T) {
+	t.Parallel()
+
+	u := URI("https://example.com/callback")
+	b, err := u.MarshalText()
+	require.NoError(t, err)
+	assert.Equal(t, []byte("https://example.com/callback"), b)
+}
+
+func TestURIJSON(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"marshal",
+		func(t *testing.T) {
+			t.Parallel()
+
+			v := struct {
+				URL URI `json:"url"`
+			}{URL: URI("https://example.com")}
+
+			data, err := json.Marshal(v)
+			require.NoError(t, err)
+			assert.JSONEq(t, `{"url":"https://example.com"}`, string(data))
+		},
+	)
+
+	t.Run(
+		"unmarshal valid",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var v struct {
+				URL URI `json:"url"`
+			}
+
+			err := json.Unmarshal([]byte(`{"url":"https://example.com"}`), &v)
+			require.NoError(t, err)
+			assert.Equal(t, URI("https://example.com"), v.URL)
+		},
+	)
+
+	t.Run(
+		"unmarshal invalid",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var v struct {
+				URL URI `json:"url"`
+			}
+
+			err := json.Unmarshal([]byte(`{"url":"not-a-url"}`), &v)
+			require.Error(t, err)
+		},
+	)
+}
+
+func TestURIScan(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"string",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var u URI
+
+			err := u.Scan("https://example.com")
+			require.NoError(t, err)
+			assert.Equal(t, URI("https://example.com"), u)
+		},
+	)
+
+	t.Run(
+		"bytes",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var u URI
+
+			err := u.Scan([]byte("https://example.com"))
+			require.NoError(t, err)
+			assert.Equal(t, URI("https://example.com"), u)
+		},
+	)
+
+	t.Run(
+		"invalid value",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var u URI
+
+			err := u.Scan("not-a-url")
+			require.Error(t, err)
+		},
+	)
+
+	t.Run(
+		"unsupported type",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var u URI
+
+			err := u.Scan(123)
+			require.Error(t, err)
+		},
+	)
+}
+
+func TestURIValue(t *testing.T) {
+	t.Parallel()
+
+	u := URI("https://example.com")
+	v, err := u.Value()
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com", v)
+}
+
+func TestExtractDomain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		rawURL string
+		want   string
+	}{
+		{"google tag manager", "https://www.googletagmanager.com/gtag/js?id=G-ABC123", "googletagmanager.com"},
+		{"google analytics", "https://www.google-analytics.com/analytics.js", "google-analytics.com"},
+		{"facebook pixel", "https://connect.facebook.net/en_US/fbevents.js", "facebook.net"},
+		{"segment cdn", "https://cdn.segment.io/v1/projects/abc/settings", "segment.io"},
+		{"hubspot", "https://js.hs-analytics.net/analytics/1234/abc.js", "hs-analytics.net"},
+		{"subdomain stripped", "https://static.ads.example.com/pixel.js", "example.com"},
+		{"co.uk tld", "https://tracker.example.co.uk/script.js", "example.co.uk"},
+		{"bare domain no path", "https://doubleclick.net", "doubleclick.net"},
+		{"case insensitive", "https://WWW.GoogleTagManager.COM/gtag/js", "googletagmanager.com"},
+		{"empty string", "", ""},
+		{"invalid url", "not a url at all", ""},
+		{"data uri", "data:text/html,<h1>Hello</h1>", ""},
+		{"ip address", "https://192.168.1.1/script.js", ""},
+		{"port number", "https://tracker.example.com:8443/pixel.js", "example.com"},
+		{"http scheme", "http://cdn.jsdelivr.net/npm/cookieconsent", "jsdelivr.net"},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+				assert.Equal(t, tt.want, ExtractDomain(tt.rawURL))
+			},
+		)
+	}
+}
+
+func TestDomainLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"bare domain", "cookiedatabase.org", "cookiedatabase"},
+		{"domain with www", "www.cookiedatabase.org", "cookiedatabase"},
+		{"full url", "https://www.cookiedatabase.org/list", "cookiedatabase"},
+		{"url with query", "https://cookifi.com/?ref=x", "cookifi"},
+		{"host with port", "cookieserve.com:8443", "cookieserve"},
+		{"co.uk tld", "https://www.cookiepedia.co.uk/list", "cookiepedia"},
+		{"uppercase", "CookieDatabase.ORG", "cookiedatabase"},
+		{"surrounding spaces", "  cookifi.com  ", "cookifi"},
+		{"bare brand no suffix", "Cookiepedia", ""},
+		{"empty string", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(
+			tt.name,
+			func(t *testing.T) {
+				t.Parallel()
+				assert.Equal(t, tt.want, DomainLabel(tt.raw))
+			},
+		)
+	}
+}
+
+func TestFilterFirstPartyDomains(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		domains    []string
+		siteOrigin string
+		want       []string
+	}{
+		{
+			name:       "removes site domain from proxy",
+			domains:    []string{"probo.com", "posthog.com"},
+			siteOrigin: "https://app.probo.com",
+			want:       []string{"posthog.com"},
+		},
+		{
+			name:       "keeps all third-party domains",
+			domains:    []string{"stripe.com", "google.com"},
+			siteOrigin: "https://app.probo.com",
+			want:       []string{"stripe.com", "google.com"},
+		},
+		{
+			name:       "removes only matching domain",
+			domains:    []string{"example.com", "googletagmanager.com", "example.com"},
+			siteOrigin: "https://www.example.com",
+			want:       []string{"googletagmanager.com"},
+		},
+		{
+			name:       "all domains are first party",
+			domains:    []string{"probo.com"},
+			siteOrigin: "https://t.probo.com",
+			want:       []string{},
+		},
+		{
+			name:       "empty domains list",
+			domains:    []string{},
+			siteOrigin: "https://probo.com",
+			want:       []string{},
+		},
+		{
+			name:       "nil domains list",
+			domains:    nil,
+			siteOrigin: "https://probo.com",
+			want:       []string{},
+		},
+		{
+			name:       "invalid site origin preserves all",
+			domains:    []string{"probo.com", "stripe.com"},
+			siteOrigin: "not-a-url",
+			want:       []string{"probo.com", "stripe.com"},
+		},
+		{
+			name:       "empty site origin preserves all",
+			domains:    []string{"probo.com", "stripe.com"},
+			siteOrigin: "",
+			want:       []string{"probo.com", "stripe.com"},
+		},
+		{
+			name:       "co.uk site origin",
+			domains:    []string{"example.co.uk", "analytics.google.com"},
+			siteOrigin: "https://shop.example.co.uk",
+			want:       []string{"analytics.google.com"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, FilterFirstPartyDomains(tt.domains, tt.siteOrigin))
+		})
+	}
+}
+
+func TestFilterSharedInfrastructureDomains(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		domains []string
+		want    []string
+	}{
+		{
+			name:    "removes tag manager domain",
+			domains: []string{"googletagmanager.com", "posthog.com"},
+			want:    []string{"posthog.com"},
+		},
+		{
+			name:    "removes generic cdn domain",
+			domains: []string{"cloudfront.net", "hotjar.com"},
+			want:    []string{"hotjar.com"},
+		},
+		{
+			name:    "keeps vendor-specific domains",
+			domains: []string{"google-analytics.com", "stripe.com"},
+			want:    []string{"google-analytics.com", "stripe.com"},
+		},
+		{
+			name:    "case insensitive match",
+			domains: []string{"GoogleTagManager.com", "Segment.IO"},
+			want:    []string{},
+		},
+		{
+			name:    "mixed infra and vendor",
+			domains: []string{"gstatic.com", "doubleclick.net", "jsdelivr.net"},
+			want:    []string{"doubleclick.net"},
+		},
+		{
+			name:    "empty domains list",
+			domains: []string{},
+			want:    []string{},
+		},
+		{
+			name:    "nil domains list",
+			domains: nil,
+			want:    []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, FilterSharedInfrastructureDomains(tt.domains))
+		})
+	}
+}

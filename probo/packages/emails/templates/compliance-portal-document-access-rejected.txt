@@ -1,0 +1,12 @@
+Probo
+
+Hi {{.RecipientFullName}},
+
+Your access request to the following files in {{.OrganizationName}}'s compliance page has been rejected:
+
+{{range .FileNames}}
+- {{.}}
+{{end}}
+
+{{.SenderCompanyHeadquarterAddress}}
+Powered By Probo

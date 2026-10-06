@@ -1,0 +1,340 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/iam/policy"
+	"go.probo.inc/probo/pkg/mail"
+)
+
+type (
+	Email struct {
+		ID                  gid.GID     `db:"id"`
+		RecipientEmail      string      `db:"recipient_email"`
+		RecipientName       string      `db:"recipient_name"`
+		SenderName          *string     `db:"sender_name"`
+		ReplyTo             *mail.Addr  `db:"reply_to"`
+		UnsubscribeURL      *string     `db:"unsubscribe_url"`
+		MailingListUpdateID *gid.GID    `db:"mailing_list_update_id"`
+		Subject             string      `db:"subject"`
+		TextBody            string      `db:"text_body"`
+		HtmlBody            *string     `db:"html_body"`
+		Status              EmailStatus `db:"status"`
+		ProcessingStartedAt *time.Time  `db:"processing_started_at"`
+		AttemptCount        int         `db:"attempt_count"`
+		MaxAttempts         int         `db:"max_attempts"`
+		LastAttemptedAt     *time.Time  `db:"last_attempted_at"`
+		LastError           *string     `db:"last_error"`
+		CreatedAt           time.Time   `db:"created_at"`
+		UpdatedAt           time.Time   `db:"updated_at"`
+		SentAt              *time.Time  `db:"sent_at"`
+	}
+
+	Emails []*Email
+
+	EmailOptions struct {
+		SenderName          *string
+		ReplyTo             *mail.Addr
+		UnsubscribeURL      *string
+		MailingListUpdateID *gid.GID
+	}
+)
+
+var (
+	ErrNoUnsentEmail = errors.New("no unsent email found")
+)
+
+// AuthorizationAttributes returns the authorization attributes for policy evaluation.
+// Email is identity-scoped (not org-scoped), so it returns an empty map.
+func (e *Email) AuthorizationAttributes(
+	ctx context.Context,
+	conn pg.Querier,
+	resourceIDs []gid.GID,
+) (policy.AttributesByID, error) {
+	q := `
+SELECT
+    id
+FROM
+    emails
+WHERE
+    id = ANY(@resource_ids::text[])
+`
+
+	args := pgx.StrictNamedArgs{
+		"resource_ids": resourceIDs,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query email authorization attributes: %w", err)
+	}
+	defer rows.Close()
+
+	attrsByID := make(policy.AttributesByID, len(resourceIDs))
+
+	for rows.Next() {
+		var id gid.GID
+
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("cannot scan email authorization attributes: %w", err)
+		}
+
+		attrsByID[id] = policy.Attributes{}
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("cannot iterate email authorization attributes: %w", err)
+	}
+
+	return attrsByID, nil
+}
+
+func NewEmail(
+	recipientName string,
+	recipientEmail mail.Addr,
+	subject string,
+	textBody string,
+	htmlBody *string,
+	opts *EmailOptions,
+) *Email {
+	now := time.Now()
+	e := &Email{
+		ID:             gid.New(gid.NilTenant, EmailEntityType),
+		RecipientName:  recipientName,
+		RecipientEmail: recipientEmail.String(),
+		Subject:        subject,
+		TextBody:       textBody,
+		HtmlBody:       htmlBody,
+		Status:         EmailStatusPending,
+		AttemptCount:   0,
+		MaxAttempts:    10,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	if opts != nil {
+		e.SenderName = opts.SenderName
+		e.ReplyTo = opts.ReplyTo
+		e.UnsubscribeURL = opts.UnsubscribeURL
+		e.MailingListUpdateID = opts.MailingListUpdateID
+	}
+
+	return e
+}
+
+func (e *Email) Insert(
+	ctx context.Context,
+	conn pg.Tx,
+) error {
+	q := `
+INSERT INTO emails (
+	id,
+	recipient_email,
+	recipient_name,
+	sender_name,
+	reply_to,
+	unsubscribe_url,
+	mailing_list_update_id,
+	subject,
+	text_body,
+	html_body,
+	status,
+	attempt_count,
+	max_attempts,
+	created_at,
+	updated_at
+)
+VALUES (
+	@id,
+	@recipient_email,
+	@recipient_name,
+	@sender_name,
+	@reply_to,
+	@unsubscribe_url,
+	@mailing_list_update_id,
+	@subject,
+	@text_body,
+	@html_body,
+	@status,
+	@attempt_count,
+	@max_attempts,
+	@created_at,
+	@updated_at
+)
+`
+
+	args := pgx.StrictNamedArgs{
+		"id":                     e.ID,
+		"recipient_email":        e.RecipientEmail,
+		"recipient_name":         e.RecipientName,
+		"sender_name":            e.SenderName,
+		"reply_to":               e.ReplyTo,
+		"unsubscribe_url":        e.UnsubscribeURL,
+		"mailing_list_update_id": e.MailingListUpdateID,
+		"subject":                e.Subject,
+		"text_body":              e.TextBody,
+		"html_body":              e.HtmlBody,
+		"status":                 e.Status,
+		"attempt_count":          e.AttemptCount,
+		"max_attempts":           e.MaxAttempts,
+		"created_at":             e.CreatedAt,
+		"updated_at":             e.UpdatedAt,
+	}
+
+	_, err := conn.Exec(ctx, q, args)
+
+	return err
+}
+
+func (emails Emails) BulkInsert(
+	ctx context.Context,
+	conn pg.Querier,
+) error {
+	if len(emails) == 0 {
+		return nil
+	}
+
+	rows := make([][]any, 0, len(emails))
+	for _, e := range emails {
+		rows = append(
+			rows,
+			[]any{
+				e.ID,
+				e.RecipientEmail,
+				e.RecipientName,
+				e.SenderName,
+				e.ReplyTo,
+				e.UnsubscribeURL,
+				e.MailingListUpdateID,
+				e.Subject,
+				e.TextBody,
+				e.HtmlBody,
+				e.CreatedAt,
+				e.UpdatedAt,
+			},
+		)
+	}
+
+	_, err := conn.CopyFrom(
+		ctx,
+		pgx.Identifier{"emails"},
+		[]string{"id", "recipient_email", "recipient_name", "sender_name", "reply_to", "unsubscribe_url", "mailing_list_update_id", "subject", "text_body", "html_body", "created_at", "updated_at"},
+		pgx.CopyFromRows(rows),
+	)
+
+	return err
+}
+
+func (e *Email) LoadNextPendingForUpdateSkipLocked(
+	ctx context.Context,
+	conn pg.Tx,
+) error {
+	q := `
+SELECT
+	id, recipient_email, recipient_name, sender_name, reply_to, unsubscribe_url, mailing_list_update_id, subject, text_body, html_body,
+	status, processing_started_at, attempt_count, max_attempts,
+	last_attempted_at, last_error, created_at, updated_at, sent_at
+FROM emails
+WHERE status = 'PENDING' AND attempt_count < max_attempts
+ORDER BY created_at ASC
+LIMIT 1
+FOR UPDATE SKIP LOCKED
+	`
+
+	rows, err := conn.Query(ctx, q)
+	if err != nil {
+		return err
+	}
+
+	email, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[Email])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNoUnsentEmail
+		}
+
+		return fmt.Errorf("cannot collect email: %w", err)
+	}
+
+	*e = email
+
+	return nil
+}
+
+func (e *Email) Update(
+	ctx context.Context,
+	conn pg.Tx,
+) error {
+	q := `
+UPDATE emails
+SET
+	status = @status,
+	processing_started_at = @processing_started_at,
+	attempt_count = @attempt_count,
+	last_attempted_at = @last_attempted_at,
+	last_error = @last_error,
+	sent_at = @sent_at,
+	updated_at = @updated_at
+WHERE id = @id
+	`
+
+	args := pgx.StrictNamedArgs{
+		"id":                    e.ID,
+		"status":                e.Status,
+		"processing_started_at": e.ProcessingStartedAt,
+		"attempt_count":         e.AttemptCount,
+		"last_attempted_at":     e.LastAttemptedAt,
+		"last_error":            e.LastError,
+		"sent_at":               e.SentAt,
+		"updated_at":            e.UpdatedAt,
+	}
+
+	_, err := conn.Exec(ctx, q, args)
+
+	return err
+}
+
+func ResetStaleProcessingEmails(
+	ctx context.Context,
+	conn pg.Querier,
+	staleAfter time.Duration,
+) error {
+	q := `
+UPDATE emails
+SET status = 'PENDING', processing_started_at = NULL, updated_at = NOW()
+WHERE status = 'PROCESSING'
+	AND processing_started_at < NOW() - $1::interval
+`
+
+	_, err := conn.Exec(ctx, q, staleAfter)
+	if err != nil {
+		return fmt.Errorf("cannot reset stale processing emails: %w", err)
+	}
+
+	return nil
+}

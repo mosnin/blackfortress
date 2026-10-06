@@ -1,0 +1,52 @@
+{
+  "slug": "zoho-crm",
+  "name": "Zoho CRM",
+  "description": "Zoho CRM customer relationship management. Monitor user access, roles, profiles, and organization settings.",
+  "category": "Productivity",
+  "docsUrl": "https://www.zoho.com/crm/developer/docs/api/v7/",
+  "baseUrl": "https://www.zohoapis.com",
+  "authConfig": {
+    "type": "oauth2",
+    "config": {
+      "setupInstructions": "Connect your Zoho CRM account so Comp AI can monitor user access, roles, and organization settings.\n\nWhen you click \"Connect\":\n1. You will be redirected to Zoho\n2. Sign in with the Zoho account that has access to your CRM\n3. Authorize the requested read-only permissions\n4. You will be redirected back here, ready to use\n\nAfter connection, tokens auto-refresh — you will not need to reconnect periodically.\n\nNote: Currently optimized for the Zoho US data center. If your Zoho account is in EU/India/Australia/etc., contact support — multi-region support is in progress.",
+      "scopes": [
+        "ZohoCRM.users.READ",
+        "ZohoCRM.settings.READ",
+        "ZohoCRM.org.READ"
+      ],
+      "clientAuthMethod": "body",
+      "supportsRefreshToken": true
+    }
+  },
+  "capabilities": [
+    "checks",
+    "sync"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": true,
+  "checks": [
+    {
+      "slug": "zoho_crm_employee_access",
+      "name": "Employee Access",
+      "description": "Lists all Zoho CRM users and verifies their account status.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "zoho_crm_rbac",
+      "name": "Role-based Access Controls",
+      "description": "Verifies that Zoho CRM has roles and profiles configured for access control.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "zoho_crm_app_availability",
+      "name": "App Availability",
+      "description": "Verifies that the Zoho CRM API is accessible and returns organization information.",
+      "defaultSeverity": "high",
+      "enabled": true
+    }
+  ],
+  "checkCount": 3,
+  "isActive": true
+}

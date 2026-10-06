@@ -1,0 +1,839 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata_test
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/internal/test"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+)
+
+// seedCommonThirdParty inserts a global catalog third party with a
+// collision-free name/slug. The catalog is not tenant-scoped and carries
+// unique indexes, so parallel tests must namespace their rows.
+func seedCommonThirdParty(t *testing.T, ctx context.Context, client *pg.Client) coredata.CommonThirdParty {
+	t.Helper()
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	id := gid.New(gid.NilTenant, coredata.CommonThirdPartyEntityType)
+	suffix := id.String()
+
+	party := coredata.CommonThirdParty{
+		ID:             id,
+		Name:           "Acme " + suffix,
+		Slug:           "acme-" + suffix,
+		Category:       coredata.ThirdPartyCategoryAnalytics,
+		Certifications: []string{},
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		return party.Insert(ctx, tx)
+	}))
+
+	t.Cleanup(func() {
+		_ = client.WithTx(context.Background(), func(ctx context.Context, tx pg.Tx) error {
+			_, err := tx.Exec(ctx, `DELETE FROM common_third_parties WHERE id = $1`, id)
+			return err
+		})
+	})
+
+	return party
+}
+
+// insertCommonTrackerPattern inserts a catalog pattern row verbatim
+// (Insert, not Upsert) so a test can stage an exact enrichment state.
+func insertCommonTrackerPattern(
+	t *testing.T,
+	ctx context.Context,
+	client *pg.Client,
+	cp coredata.CommonTrackerPattern,
+) {
+	t.Helper()
+
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		return cp.Insert(ctx, tx)
+	}))
+
+	t.Cleanup(func() {
+		_ = client.WithTx(context.Background(), func(ctx context.Context, tx pg.Tx) error {
+			_, err := tx.Exec(ctx, `DELETE FROM common_tracker_patterns WHERE id = $1`, cp.ID)
+			return err
+		})
+	})
+}
+
+func loadCommonTrackerPattern(
+	t *testing.T,
+	ctx context.Context,
+	client *pg.Client,
+	id gid.GID,
+) coredata.CommonTrackerPattern {
+	t.Helper()
+
+	var reloaded coredata.CommonTrackerPattern
+
+	require.NoError(t, client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
+		return reloaded.LoadByID(ctx, conn, id)
+	}))
+
+	return reloaded
+}
+
+// TestCommonTrackerPattern_UpdateEnrichment_AllowsEmptyDescription pins
+// the no-fabrication contract: the enrichment worker records an empty
+// description when it cannot substantiate a purpose, but still writes an
+// enrichment payload so the row reads as having been through the workflow
+// and the stale-recovery loop never re-queues it.
+func TestCommonTrackerPattern_UpdateEnrichment_AllowsEmptyDescription(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	requestedAt := now.Add(-time.Minute)
+	cp := coredata.CommonTrackerPattern{
+		ID:                    gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		TrackerType:           coredata.TrackerTypeLocalStorage,
+		Pattern:               "blank_key_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+		MatchType:             coredata.TrackerPatternMatchTypeExact,
+		Description:           "",
+		Confidence:            0.5,
+		EnrichmentRequestedAt: &requestedAt,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}
+	insertCommonTrackerPattern(t, ctx, client, cp)
+
+	payload := json.RawMessage(`{"status":"no_result","fields":{"description":{"status":"not_found"}}}`)
+
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		return cp.UpdateEnrichment(ctx, tx, "", nil, payload)
+	}))
+
+	reloaded := loadCommonTrackerPattern(t, ctx, client, cp.ID)
+	assert.Equal(t, "", reloaded.Description, "blank description must stay blank")
+	assert.NotEmpty(t, reloaded.Enrichment, "blank row must still record an enrichment payload")
+	assert.Nil(t, reloaded.EnrichmentRequestedAt, "enriched row must leave the queue")
+
+	// A blank but enriched row must NOT be re-queued by stale recovery:
+	// the enrichment payload is present, so the stale sweep skips it.
+	require.NoError(t, client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
+		return coredata.ResetStaleEnrichments(ctx, conn, 0, 3)
+	}))
+
+	afterSweep := loadCommonTrackerPattern(t, ctx, client, cp.ID)
+	assert.Nil(t, afterSweep.EnrichmentRequestedAt, "stale recovery must not re-queue an enriched blank row")
+}
+
+// TestCommonTrackerPattern_UpdateEnrichment_LinksThirdPartyWithoutOverride
+// pins the link-no-override contract: the enrichment worker links a
+// resolved third party only when the row has none, and never clobbers an
+// attribution the mapping pipeline already resolved.
+func TestCommonTrackerPattern_UpdateEnrichment_LinksThirdPartyWithoutOverride(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	party := seedCommonThirdParty(t, ctx, client)
+	other := seedCommonThirdParty(t, ctx, client)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	t.Run("links when unset", func(t *testing.T) {
+		cp := coredata.CommonTrackerPattern{
+			ID:          gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+			TrackerType: coredata.TrackerTypeCookie,
+			Pattern:     "link_unset_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+			MatchType:   coredata.TrackerPatternMatchTypeExact,
+			Confidence:  0.5,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		insertCommonTrackerPattern(t, ctx, client, cp)
+
+		require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+			return cp.UpdateEnrichment(ctx, tx, "Analytics tracker.", &party.ID, json.RawMessage(`{"status":"done"}`))
+		}))
+
+		reloaded := loadCommonTrackerPattern(t, ctx, client, cp.ID)
+		require.NotNil(t, reloaded.CommonThirdPartyID)
+		assert.Equal(t, party.ID, *reloaded.CommonThirdPartyID, "unlinked row must gain the resolved third party")
+	})
+
+	t.Run("does not override existing link", func(t *testing.T) {
+		cp := coredata.CommonTrackerPattern{
+			ID:                 gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+			CommonThirdPartyID: &party.ID,
+			TrackerType:        coredata.TrackerTypeCookie,
+			Pattern:            "link_set_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+			MatchType:          coredata.TrackerPatternMatchTypeExact,
+			Confidence:         0.5,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}
+		insertCommonTrackerPattern(t, ctx, client, cp)
+
+		require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+			return cp.UpdateEnrichment(ctx, tx, "Analytics tracker.", &other.ID, json.RawMessage(`{"status":"done"}`))
+		}))
+
+		reloaded := loadCommonTrackerPattern(t, ctx, client, cp.ID)
+		require.NotNil(t, reloaded.CommonThirdPartyID)
+		assert.Equal(t, party.ID, *reloaded.CommonThirdPartyID, "existing third party link must not be overridden")
+	})
+}
+
+// TestCommonTrackerPattern_UpdateEnrichment_DiscardsVendorOnTerminal pins
+// the persist-side of the claim race: clearing the queue cannot cancel a
+// worker that already holds the row. If that worker then COALESCE-links a
+// researched vendor, a later terminal upsert is undone. The persist must
+// re-read attribution and drop the vendor instead.
+func TestCommonTrackerPattern_UpdateEnrichment_DiscardsVendorOnTerminal(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	party := seedCommonThirdParty(t, ctx, client)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	for _, verdict := range []coredata.CommonTrackerPatternAttribution{
+		coredata.CommonTrackerPatternAttributionFirstParty,
+		coredata.CommonTrackerPatternAttributionNotAttributable,
+	} {
+		t.Run(string(verdict), func(t *testing.T) {
+			t.Parallel()
+
+			require.True(t, verdict.IsTerminal(), "fixture must be a terminal verdict")
+
+			cp := coredata.CommonTrackerPattern{
+				ID:          gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+				TrackerType: coredata.TrackerTypeCookie,
+				Pattern:     "stale_enrich_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+				MatchType:   coredata.TrackerPatternMatchTypeExact,
+				Confidence:  0.5,
+				Attribution: verdict,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			insertCommonTrackerPattern(t, ctx, client, cp)
+
+			require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+				return cp.UpdateEnrichment(
+					ctx,
+					tx,
+					"Analytics tracker.",
+					&party.ID,
+					json.RawMessage(`{"status":"done"}`),
+				)
+			}))
+
+			assert.Nil(t, cp.CommonThirdPartyID, "in-memory state must not keep a discarded vendor")
+
+			reloaded := loadCommonTrackerPattern(t, ctx, client, cp.ID)
+			assert.Equal(t, verdict, reloaded.Attribution)
+			assert.Nil(t, reloaded.CommonThirdPartyID, "a terminal row must stay vendor-free")
+			assert.JSONEq(t, `{"status":"done"}`, string(reloaded.Enrichment))
+		})
+	}
+}
+
+// TestCommonTrackerPattern_Upsert_RequeuesBlankRowOnThirdPartyLink pins
+// the re-trigger contract: when a blank, unlinked catalog row later
+// gains a third party through the mapping pipeline's Upsert, enrichment
+// is re-armed so the now-known vendor gets a second, better-informed
+// description attempt.
+func TestCommonTrackerPattern_Upsert_RequeuesBlankRowOnThirdPartyLink(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	party := seedCommonThirdParty(t, ctx, client)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	attemptAt := now.Add(-time.Hour)
+	pattern := "requeue_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String()
+
+	// Stage a completed blank row: enriched (carries a payload), no
+	// description, no vendor, with prior attempts spent.
+	blank := coredata.CommonTrackerPattern{
+		ID:                      gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		TrackerType:             coredata.TrackerTypeCookie,
+		Pattern:                 pattern,
+		MatchType:               coredata.TrackerPatternMatchTypeExact,
+		Description:             "",
+		Confidence:              0.5,
+		Enrichment:              json.RawMessage(`{"status":"no_result"}`),
+		EnrichmentAttempts:      2,
+		LastEnrichmentAttemptAt: &attemptAt,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}
+	insertCommonTrackerPattern(t, ctx, client, blank)
+
+	// The mapping pipeline upserts the same key now carrying a vendor.
+	linking := coredata.CommonTrackerPattern{
+		ID:                 gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		CommonThirdPartyID: &party.ID,
+		TrackerType:        coredata.TrackerTypeCookie,
+		Pattern:            pattern,
+		MatchType:          coredata.TrackerPatternMatchTypeExact,
+		Description:        "",
+		Confidence:         0.7,
+		CreatedAt:          now,
+		UpdatedAt:          now.Add(time.Minute),
+	}
+
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		inserted, err := linking.Upsert(ctx, tx)
+		if err != nil {
+			return err
+		}
+
+		assert.False(t, inserted, "Upsert must hit the existing blank row, not insert a new one")
+
+		return nil
+	}))
+
+	reloaded := loadCommonTrackerPattern(t, ctx, client, blank.ID)
+	require.NotNil(t, reloaded.CommonThirdPartyID)
+	assert.Equal(t, party.ID, *reloaded.CommonThirdPartyID, "blank row must gain the linked third party")
+	assert.NotNil(t, reloaded.EnrichmentRequestedAt, "linking a vendor must re-queue the blank row for enrichment")
+	assert.Equal(t, 0, reloaded.EnrichmentAttempts, "re-queued row must get a fresh retry budget")
+	assert.Empty(t, reloaded.Enrichment, "re-armed row must drop the prior payload so it reads as not yet completed")
+
+	// The prior payload must be cleared so a crash between the worker's
+	// claim and persist stays recoverable. Simulate the claim (which bumps
+	// attempts past zero and stamps the idle clock) without completing, then
+	// confirm the stale sweep re-queues the row — it only catches rows whose
+	// payload is still null.
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		return reloaded.ClearEnrichmentRequestedAt(ctx, tx)
+	}))
+
+	// Back-date the attempt clock past the staleness window below. The
+	// window is compared against a timestamp taken in this process while
+	// the claim stamps the database's own clock, so a zero window would
+	// make eligibility depend on the skew between the two.
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		_, err := tx.Exec(
+			ctx,
+			`UPDATE common_tracker_patterns SET last_enrichment_attempt_at = NOW() - interval '1 hour' WHERE id = $1`,
+			blank.ID,
+		)
+
+		return err
+	}))
+
+	require.NoError(t, client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
+		return coredata.ResetStaleEnrichments(ctx, conn, time.Minute, 3)
+	}))
+
+	afterSweep := loadCommonTrackerPattern(t, ctx, client, blank.ID)
+	assert.NotNil(t, afterSweep.EnrichmentRequestedAt, "stale recovery must re-queue a re-armed row claimed but never completed")
+}
+
+// TestCommonTrackerPattern_Upsert_KeepsDescribedRowTerminal pins the
+// negative case: a row that already has a description is not re-queued
+// when its third party changes, since it already carries a substantiated
+// purpose.
+func TestCommonTrackerPattern_Upsert_KeepsDescribedRowTerminal(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	party := seedCommonThirdParty(t, ctx, client)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	attemptAt := now.Add(-time.Hour)
+	pattern := "described_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String()
+
+	described := coredata.CommonTrackerPattern{
+		ID:                      gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		TrackerType:             coredata.TrackerTypeCookie,
+		Pattern:                 pattern,
+		MatchType:               coredata.TrackerPatternMatchTypeExact,
+		Description:             "An established analytics cookie.",
+		Confidence:              0.9,
+		Enrichment:              json.RawMessage(`{"status":"done"}`),
+		EnrichmentAttempts:      1,
+		LastEnrichmentAttemptAt: &attemptAt,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}
+	insertCommonTrackerPattern(t, ctx, client, described)
+
+	linking := coredata.CommonTrackerPattern{
+		ID:                 gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		CommonThirdPartyID: &party.ID,
+		TrackerType:        coredata.TrackerTypeCookie,
+		Pattern:            pattern,
+		MatchType:          coredata.TrackerPatternMatchTypeExact,
+		Description:        "",
+		Confidence:         0.7,
+		CreatedAt:          now,
+		UpdatedAt:          now.Add(time.Minute),
+	}
+
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		_, err := linking.Upsert(ctx, tx)
+		return err
+	}))
+
+	reloaded := loadCommonTrackerPattern(t, ctx, client, described.ID)
+	assert.Equal(t, "An established analytics cookie.", reloaded.Description, "existing description must be preserved")
+	assert.Nil(t, reloaded.EnrichmentRequestedAt, "described row must not be re-queued")
+	assert.NotEmpty(t, reloaded.Enrichment, "described row must keep its enrichment payload")
+	assert.Equal(t, 1, reloaded.EnrichmentAttempts, "described row's retry budget must be untouched")
+}
+
+// TestCommonTrackerPattern_ClearEnrichmentRequestedAt_CountsAttempt pins
+// the claim contract: dequeuing a row counts the attempt and stamps the
+// idle clock, so a crash before UpdateEnrichment still spends part of the
+// retry budget and the stale clock starts at claim time.
+func TestCommonTrackerPattern_ClearEnrichmentRequestedAt_CountsAttempt(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	requestedAt := now.Add(-time.Minute)
+	cp := coredata.CommonTrackerPattern{
+		ID:                    gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		TrackerType:           coredata.TrackerTypeCookie,
+		Pattern:               "claim_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+		MatchType:             coredata.TrackerPatternMatchTypeExact,
+		Confidence:            0.5,
+		EnrichmentRequestedAt: &requestedAt,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}
+	insertCommonTrackerPattern(t, ctx, client, cp)
+
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		return cp.ClearEnrichmentRequestedAt(ctx, tx)
+	}))
+
+	reloaded := loadCommonTrackerPattern(t, ctx, client, cp.ID)
+	assert.Nil(t, reloaded.EnrichmentRequestedAt, "claim must remove the row from the queue")
+	assert.Equal(t, 1, reloaded.EnrichmentAttempts, "claim must count the attempt")
+	assert.NotNil(t, reloaded.LastEnrichmentAttemptAt, "claim must stamp the idle clock")
+}
+
+// TestCommonTrackerPattern_ResetStaleEnrichments_RespectsMaxAttempts pins
+// the retry-budget contract: stale recovery re-queues a claimed-but-
+// incomplete row that still has budget, but leaves a row at the
+// max-attempts ceiling alone so a permanently failing row does not loop.
+func TestCommonTrackerPattern_ResetStaleEnrichments_RespectsMaxAttempts(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	staleAttempt := now.Add(-time.Hour)
+
+	// A claimed-but-incomplete row with budget left: no payload yet, one
+	// attempt spent, idle past the threshold.
+	eligible := coredata.CommonTrackerPattern{
+		ID:                      gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		TrackerType:             coredata.TrackerTypeCookie,
+		Pattern:                 "stale_eligible_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+		MatchType:               coredata.TrackerPatternMatchTypeExact,
+		Confidence:              0.5,
+		EnrichmentAttempts:      1,
+		LastEnrichmentAttemptAt: &staleAttempt,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}
+	insertCommonTrackerPattern(t, ctx, client, eligible)
+
+	// A row that has exhausted its retry budget must be left alone.
+	exhausted := coredata.CommonTrackerPattern{
+		ID:                      gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		TrackerType:             coredata.TrackerTypeCookie,
+		Pattern:                 "stale_exhausted_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+		MatchType:               coredata.TrackerPatternMatchTypeExact,
+		Confidence:              0.5,
+		EnrichmentAttempts:      3,
+		LastEnrichmentAttemptAt: &staleAttempt,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}
+	insertCommonTrackerPattern(t, ctx, client, exhausted)
+
+	require.NoError(t, client.WithConn(ctx, func(ctx context.Context, conn pg.Querier) error {
+		return coredata.ResetStaleEnrichments(ctx, conn, time.Minute, 3)
+	}))
+
+	reloadedEligible := loadCommonTrackerPattern(t, ctx, client, eligible.ID)
+	assert.NotNil(t, reloadedEligible.EnrichmentRequestedAt, "stale row with budget must be re-queued")
+
+	reloadedExhausted := loadCommonTrackerPattern(t, ctx, client, exhausted.ID)
+	assert.Nil(t, reloadedExhausted.EnrichmentRequestedAt, "row at the max-attempts ceiling must not be re-queued")
+}
+
+// TestCommonTrackerPatternAttribution_IsValid pins the enum's accepted
+// values.
+func TestCommonTrackerPatternAttribution_IsValid(t *testing.T) {
+	t.Parallel()
+
+	for _, v := range coredata.CommonTrackerPatternAttributions() {
+		assert.True(t, v.IsValid(), "%q must be valid", v)
+	}
+
+	assert.False(t, coredata.CommonTrackerPatternAttribution("").IsValid())
+	assert.False(t, coredata.CommonTrackerPatternAttribution("nonsense").IsValid())
+}
+
+// TestCommonTrackerPattern_Upsert_RoundTripsAttribution pins that the
+// attribution verdict is persisted and read back, and that an empty
+// verdict defaults to UNDETERMINED.
+func TestCommonTrackerPattern_Upsert_RoundTripsAttribution(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	cp := coredata.CommonTrackerPattern{
+		ID:          gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		TrackerType: coredata.TrackerTypeLocalStorage,
+		Pattern:     "attr_default_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+		MatchType:   coredata.TrackerPatternMatchTypeExact,
+		Confidence:  0.5,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	insertCommonTrackerPattern(t, ctx, client, cp)
+
+	reloaded := loadCommonTrackerPattern(t, ctx, client, cp.ID)
+	assert.Equal(t, coredata.CommonTrackerPatternAttributionUndetermined, reloaded.Attribution, "empty verdict must default to UNDETERMINED")
+}
+
+// TestCommonTrackerPattern_Upsert_PreservesFirstPartyVerdict pins the
+// terminal contract: once a row is FIRST_PARTY, an automated upsert that
+// carries a vendor neither flips the verdict nor attaches the vendor.
+// TestCommonTrackerPattern_Upsert_IncomingTerminalVerdictClearsVendor pins the
+// other direction of the terminal-row invariant.
+//
+// The existing-attribution guard only stops a terminal row from gaining a
+// vendor. An upsert can also *introduce* a terminal verdict, and if it carries
+// a vendor of its own the row would end up both terminal and attributed —
+// which the organization-scoped lookup then reads as vendor-attributed. A
+// queued undetermined row that becomes terminal must also leave the
+// enrichment queue: the worker claims on that stamp alone and can then
+// COALESCE a vendor onto the settled row.
+func TestCommonTrackerPattern_Upsert_IncomingTerminalVerdictClearsVendor(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	for _, verdict := range []coredata.CommonTrackerPatternAttribution{
+		coredata.CommonTrackerPatternAttributionFirstParty,
+		coredata.CommonTrackerPatternAttributionNotAttributable,
+	} {
+		t.Run(string(verdict), func(t *testing.T) {
+			t.Parallel()
+
+			party := seedCommonThirdParty(t, ctx, client)
+
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			attemptAt := now.Add(-time.Hour)
+			pattern := "incoming_terminal_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String()
+			payload := json.RawMessage(`{"status":"no_result"}`)
+
+			existing := coredata.CommonTrackerPattern{
+				ID:                      gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+				TrackerType:             coredata.TrackerTypeCookie,
+				Pattern:                 pattern,
+				MatchType:               coredata.TrackerPatternMatchTypeExact,
+				Description:             "",
+				Confidence:              0.5,
+				Attribution:             coredata.CommonTrackerPatternAttributionUndetermined,
+				EnrichmentRequestedAt:   &now,
+				Enrichment:              payload,
+				EnrichmentAttempts:      2,
+				LastEnrichmentAttemptAt: &attemptAt,
+				CreatedAt:               now,
+				UpdatedAt:               now,
+			}
+			insertCommonTrackerPattern(t, ctx, client, existing)
+
+			// The incoming row settles the artifact but still names a vendor.
+			incoming := existing
+			incoming.ID = gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType)
+			incoming.CommonThirdPartyID = &party.ID
+			incoming.Attribution = verdict
+			incoming.Enrichment = nil
+			incoming.EnrichmentAttempts = 0
+			incoming.LastEnrichmentAttemptAt = nil
+			incoming.UpdatedAt = now.Add(time.Minute)
+
+			require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+				_, err := incoming.Upsert(ctx, tx)
+				return err
+			}))
+
+			reloaded := loadCommonTrackerPattern(t, ctx, client, existing.ID)
+			assert.Equal(t, verdict, reloaded.Attribution)
+			assert.Nil(t, reloaded.CommonThirdPartyID, "a terminal verdict must not persist alongside a vendor")
+			assert.Nil(t, reloaded.EnrichmentRequestedAt, "a terminal verdict must leave the enrichment queue")
+			assert.Equal(t, 2, reloaded.EnrichmentAttempts, "a discarded terminal vendor must leave the retry budget")
+			assert.JSONEq(t, string(payload), string(reloaded.Enrichment), "a discarded terminal vendor must keep the prior payload")
+			require.NotNil(t, reloaded.LastEnrichmentAttemptAt)
+			assert.Equal(t, attemptAt, reloaded.LastEnrichmentAttemptAt.UTC())
+		})
+	}
+}
+
+// TestCommonTrackerPattern_Upsert_InsertTerminalVerdictSkipsEnrichmentQueue
+// pins the insert-side of the same invariant: a fresh terminal row that
+// still names a vendor must land vendor-free and unqueued.
+func TestCommonTrackerPattern_Upsert_InsertTerminalVerdictSkipsEnrichmentQueue(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	for _, verdict := range []coredata.CommonTrackerPatternAttribution{
+		coredata.CommonTrackerPatternAttributionFirstParty,
+		coredata.CommonTrackerPatternAttributionNotAttributable,
+	} {
+		t.Run(string(verdict), func(t *testing.T) {
+			t.Parallel()
+
+			party := seedCommonThirdParty(t, ctx, client)
+
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			incoming := coredata.CommonTrackerPattern{
+				ID:                 gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+				CommonThirdPartyID: &party.ID,
+				TrackerType:        coredata.TrackerTypeCookie,
+				Pattern:            "insert_terminal_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+				MatchType:          coredata.TrackerPatternMatchTypeExact,
+				Description:        "",
+				Confidence:         0.5,
+				Attribution:        verdict,
+				CreatedAt:          now,
+				UpdatedAt:          now,
+			}
+
+			require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+				inserted, err := incoming.Upsert(ctx, tx)
+				if err != nil {
+					return err
+				}
+
+				assert.True(t, inserted)
+
+				return nil
+			}))
+
+			t.Cleanup(func() {
+				_ = client.WithTx(context.Background(), func(ctx context.Context, tx pg.Tx) error {
+					_, err := tx.Exec(ctx, `DELETE FROM common_tracker_patterns WHERE id = $1`, incoming.ID)
+					return err
+				})
+			})
+
+			reloaded := loadCommonTrackerPattern(t, ctx, client, incoming.ID)
+			assert.Equal(t, verdict, reloaded.Attribution)
+			assert.Nil(t, reloaded.CommonThirdPartyID, "a terminal insert must not persist a vendor")
+			assert.Nil(t, reloaded.EnrichmentRequestedAt, "a terminal insert must not enter the enrichment queue")
+			assert.Equal(t, 0, reloaded.EnrichmentAttempts)
+			assert.Empty(t, reloaded.Enrichment)
+		})
+	}
+}
+
+func TestCommonTrackerPattern_Upsert_PreservesTerminalVerdict(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	// Every terminal verdict must resist a later mapping-side upsert, not just
+	// FIRST_PARTY. The SQL tests membership of a set for that reason, so adding
+	// a verdict cannot silently make it re-attributable.
+	for _, verdict := range []coredata.CommonTrackerPatternAttribution{
+		coredata.CommonTrackerPatternAttributionFirstParty,
+		coredata.CommonTrackerPatternAttributionNotAttributable,
+	} {
+		t.Run(string(verdict), func(t *testing.T) {
+			t.Parallel()
+
+			require.True(t, verdict.IsTerminal(), "fixture must be a terminal verdict")
+
+			party := seedCommonThirdParty(t, ctx, client)
+
+			now := time.Now().UTC().Truncate(time.Microsecond)
+			pattern := "terminal_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String()
+
+			terminal := coredata.CommonTrackerPattern{
+				ID:                    gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+				TrackerType:           coredata.TrackerTypeLocalStorage,
+				Pattern:               pattern,
+				MatchType:             coredata.TrackerPatternMatchTypeExact,
+				Confidence:            0.8,
+				Attribution:           verdict,
+				EnrichmentRequestedAt: &now,
+				CreatedAt:             now,
+				UpdatedAt:             now,
+			}
+			insertCommonTrackerPattern(t, ctx, client, terminal)
+
+			// An automated upsert (same key) that tries to attach a vendor.
+			intruder := coredata.CommonTrackerPattern{
+				ID:                 gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+				CommonThirdPartyID: &party.ID,
+				TrackerType:        coredata.TrackerTypeLocalStorage,
+				Pattern:            pattern,
+				MatchType:          coredata.TrackerPatternMatchTypeExact,
+				Confidence:         0.7,
+				Attribution:        coredata.CommonTrackerPatternAttributionThirdParty,
+				CreatedAt:          now,
+				UpdatedAt:          now.Add(time.Minute),
+			}
+
+			require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+				_, err := intruder.Upsert(ctx, tx)
+				return err
+			}))
+
+			reloaded := loadCommonTrackerPattern(t, ctx, client, terminal.ID)
+			assert.Equal(t, verdict, reloaded.Attribution, "a terminal verdict must survive an automated upsert")
+			assert.Nil(t, reloaded.CommonThirdPartyID, "a terminal row must stay vendor-free")
+			assert.Nil(t, reloaded.EnrichmentRequestedAt, "a terminal row must leave the enrichment queue")
+		})
+	}
+}
+
+// TestCommonTrackerPatterns_SetAttributionByIDs pins that the operator
+// helper records the verdict and clears any vendor link.
+func TestCommonTrackerPatterns_SetAttributionByIDs(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	party := seedCommonThirdParty(t, ctx, client)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	linked := coredata.CommonTrackerPattern{
+		ID:                 gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		CommonThirdPartyID: &party.ID,
+		TrackerType:        coredata.TrackerTypeCookie,
+		Pattern:            "to_first_party_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+		MatchType:          coredata.TrackerPatternMatchTypeExact,
+		Confidence:         0.8,
+		Attribution:        coredata.CommonTrackerPatternAttributionThirdParty,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	insertCommonTrackerPattern(t, ctx, client, linked)
+
+	var affected int64
+
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		var (
+			ps  coredata.CommonTrackerPatterns
+			err error
+		)
+
+		affected, err = ps.SetAttributionByIDs(ctx, tx, []gid.GID{linked.ID}, coredata.CommonTrackerPatternAttributionFirstParty)
+
+		return err
+	}))
+
+	assert.Equal(t, int64(1), affected)
+
+	reloaded := loadCommonTrackerPattern(t, ctx, client, linked.ID)
+	assert.Equal(t, coredata.CommonTrackerPatternAttributionFirstParty, reloaded.Attribution)
+	assert.Nil(t, reloaded.CommonThirdPartyID, "marking first-party must clear the vendor link")
+}
+
+// TestCommonTrackerPatterns_RelinkCommonThirdPartyByIDs_SetsAttribution
+// pins that linking sets THIRD_PARTY and unlinking returns the row to
+// UNDETERMINED.
+func TestCommonTrackerPatterns_RelinkCommonThirdPartyByIDs_SetsAttribution(t *testing.T) {
+	t.Parallel()
+
+	client := test.PGClient(t)
+	ctx := context.Background()
+
+	party := seedCommonThirdParty(t, ctx, client)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	row := coredata.CommonTrackerPattern{
+		ID:          gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType),
+		TrackerType: coredata.TrackerTypeCookie,
+		Pattern:     "relink_attr_" + gid.New(gid.NilTenant, coredata.CommonTrackerPatternEntityType).String(),
+		MatchType:   coredata.TrackerPatternMatchTypeExact,
+		Confidence:  0.5,
+		Attribution: coredata.CommonTrackerPatternAttributionUndetermined,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	insertCommonTrackerPattern(t, ctx, client, row)
+
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		var ps coredata.CommonTrackerPatterns
+
+		_, err := ps.RelinkCommonThirdPartyByIDs(ctx, tx, []gid.GID{row.ID}, &party.ID)
+
+		return err
+	}))
+
+	linked := loadCommonTrackerPattern(t, ctx, client, row.ID)
+	assert.Equal(t, coredata.CommonTrackerPatternAttributionThirdParty, linked.Attribution, "linking must set THIRD_PARTY")
+	require.NotNil(t, linked.CommonThirdPartyID)
+	assert.Equal(t, party.ID, *linked.CommonThirdPartyID)
+	assert.Equal(t, float32(1), linked.Confidence, "linking must bump confidence to the curated tier")
+
+	require.NoError(t, client.WithTx(ctx, func(ctx context.Context, tx pg.Tx) error {
+		var ps coredata.CommonTrackerPatterns
+
+		_, err := ps.RelinkCommonThirdPartyByIDs(ctx, tx, []gid.GID{row.ID}, nil)
+
+		return err
+	}))
+
+	unlinked := loadCommonTrackerPattern(t, ctx, client, row.ID)
+	assert.Equal(t, coredata.CommonTrackerPatternAttributionUndetermined, unlinked.Attribution, "unlinking must return the verdict to UNDETERMINED")
+	assert.Nil(t, unlinked.CommonThirdPartyID)
+}

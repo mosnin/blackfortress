@@ -1,0 +1,45 @@
+{
+  "slug": "kolide",
+  "name": "Kolide",
+  "description": "Kolide device security and compliance for remote teams",
+  "category": "Security",
+  "docsUrl": "https://www.kolide.com/docs/developers/api",
+  "baseUrl": "https://api.kolide.com",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to Kolide\n2. Settings → API\n3. Create a new API token\n4. Paste it below",
+      "credentialFields": [
+        {
+          "label": "API Token",
+          "type": "password",
+          "required": true,
+          "helpText": "Kolide → Settings → API"
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "kolide_secure_devices",
+      "name": "All Kolide-managed devices pass security checks",
+      "description": "Verifies that every device enrolled in Kolide has zero unresolved security issues (disk encryption, screen lock, OS updates, MDM, etc.).",
+      "defaultSeverity": "high",
+      "enabled": true
+    },
+    {
+      "slug": "kolide_employee_access",
+      "name": "No Kolide users have open security issues",
+      "description": "Verifies that every enrolled Kolide user has zero unresolved Kolide issues. Fails if any user has open issues.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

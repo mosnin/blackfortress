@@ -1,0 +1,210 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+
+import { SpinnerGapIcon } from "@phosphor-icons/react";
+import { times } from "@probo/helpers";
+// Vite `?url` import resolves to the bundled worker URL (string); the import-x
+// resolver doesn't understand the suffix, and `vite/client` types cover it.
+// eslint-disable-next-line import-x/default
+import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import type { ComponentRef, Ref } from "react";
+import { useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Document, Page, pdfjs } from "react-pdf";
+
+import { pdfPreview } from "./variants";
+
+// Bundle the pdf.js worker with the app (via Vite's `?url`) instead of loading
+// it from a CDN, so the viewer works under a strict trust-center CSP.
+// Resolve `pdfjs-dist` only via react-pdf's dependency — a direct newer
+// pdfjs-dist makes Vite emit a mismatched worker and Document fails with
+// only a silent warning ("API version does not match the Worker version").
+pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+
+// Fit-to-width at 100% zoom: mobile keeps a tight phone gutter; desktop pages
+// match HeaderBand's inner column (`px-8` + centered `max-w-5xl`).
+const PAGE_GUTTER_MOBILE_PX = 32;
+const HEADER_PAD_DESKTOP_PX = 32; // Tailwind `px-8` per side
+const HEADER_CONTENT_MAX_PX = 1024; // Tailwind `max-w-5xl`
+// Tailwind `md` — same breakpoint as `max-md:px-4` on the hero band.
+const DESKTOP_MEDIA_QUERY = "(min-width: 768px)";
+
+function pageWidthForWrapper(clientWidth: number): number {
+  if (!window.matchMedia(DESKTOP_MEDIA_QUERY).matches) {
+    return Math.max(clientWidth - PAGE_GUTTER_MOBILE_PX, 1);
+  }
+  return Math.max(
+    Math.min(clientWidth - HEADER_PAD_DESKTOP_PX * 2, HEADER_CONTENT_MAX_PX),
+    1,
+  );
+}
+
+function findCenteredPage(
+  wrapper: HTMLDivElement,
+  pages: ArrayLike<HTMLElement | null | undefined>,
+): number | null {
+  const middle = wrapper.getBoundingClientRect().top + wrapper.clientHeight / 2;
+  for (let index = 0; index < pages.length; index += 1) {
+    const page = pages[index];
+    if (page == null) {
+      continue;
+    }
+    const rect = page.getBoundingClientRect();
+    if (rect.top <= middle && rect.bottom >= middle) {
+      return index + 1;
+    }
+  }
+  return null;
+}
+
+export interface PdfPreviewHandle {
+  scrollToPage: (page: number) => void;
+}
+
+interface PdfPreviewProps {
+  // Base64 data URI of the PDF to render.
+  file: string;
+  // Zoom factor applied on top of fit-to-width sizing.
+  scale: number;
+  // Handle exposing imperative page navigation to the toolbar.
+  ref?: Ref<PdfPreviewHandle>;
+  // Reports the page count once the document has loaded.
+  onNumPages: (numPages: number) => void;
+  // Reports the page currently centered in the viewport.
+  onVisiblePageChange: (page: number) => void;
+}
+
+// Scrollable react-pdf renderer, controlled by the viewer toolbar: pages fit
+// the viewport width by default, then the zoom `scale` multiplies that width.
+// Reports the page count and the visible page, and exposes `scrollToPage`.
+export function PdfPreview({ file, scale, ref, onNumPages, onVisiblePageChange }: PdfPreviewProps) {
+  const [numPages, setNumPages] = useState(0);
+  const [pageWidth, setPageWidth] = useState<number | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const documentRef = useRef<ComponentRef<typeof Document>>(null);
+
+  useImperativeHandle(ref, () => ({
+    scrollToPage(page) {
+      const node = documentRef.current?.pages.current[page - 1];
+      node?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+  }), []);
+
+  const resolveVisiblePage = () => {
+    const wrapper = wrapperRef.current;
+    const pages = documentRef.current?.pages.current;
+    if (!wrapper || !pages?.length) {
+      return;
+    }
+    const page = findCenteredPage(wrapper, pages);
+    if (page != null) {
+      onVisiblePageChange(page);
+    }
+  };
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) {
+      return;
+    }
+
+    const updateWidth = () => {
+      setPageWidth(pageWidthForWrapper(wrapper.clientWidth));
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(wrapper);
+    // Recompute when crossing the md breakpoint so width tracks HeaderBand.
+    const media = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    media.addEventListener("change", updateWidth);
+    return () => {
+      observer.disconnect();
+      media.removeEventListener("change", updateWidth);
+    };
+  }, []);
+
+  // After fit-to-width / zoom reflow, the same scroll offset can center a
+  // different page — recompute once the resized pages have painted.
+  useEffect(() => {
+    if (pageWidth == null || numPages === 0) {
+      return;
+    }
+
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const wrapper = wrapperRef.current;
+        const pages = documentRef.current?.pages.current;
+        if (!wrapper || !pages?.length) {
+          return;
+        }
+        const page = findCenteredPage(wrapper, pages);
+        if (page != null) {
+          onVisiblePageChange(page);
+        }
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [pageWidth, scale, numPages, onVisiblePageChange]);
+
+  const slots = pdfPreview();
+
+  return (
+    <div ref={wrapperRef} onScrollEnd={resolveVisiblePage} className={slots.viewport()}>
+      <Document
+        ref={documentRef}
+        file={file}
+        className={slots.list()}
+        loading={(
+          <div className={slots.loading()}>
+            <SpinnerGapIcon className={slots.spinner()} />
+          </div>
+        )}
+        onLoadSuccess={(document) => {
+          setNumPages(document.numPages);
+          onNumPages(document.numPages);
+          onVisiblePageChange(1);
+        }}
+        onLoadError={(error) => {
+          console.error("Failed to load PDF document", error);
+        }}
+      >
+        {pageWidth != null
+          ? times(numPages, index => (
+              <Page
+                key={index}
+                pageNumber={index + 1}
+                width={pageWidth}
+                scale={scale}
+                className={slots.page()}
+              />
+            ))
+          : null}
+      </Document>
+    </div>
+  );
+}

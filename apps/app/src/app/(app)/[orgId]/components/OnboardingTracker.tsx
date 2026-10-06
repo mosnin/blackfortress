@@ -1,0 +1,838 @@
+'use client';
+
+import { Button } from '@trycompai/ui/button';
+import { Card, CardContent } from '@trycompai/ui/card';
+import type { Onboarding } from '@db';
+import { useRun } from '@trigger.dev/react-hooks';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  ChevronsDown,
+  ChevronsUp,
+  Clock3,
+  Loader2,
+  Rocket,
+  Settings,
+  ShieldAlert,
+  X,
+  Zap,
+} from 'lucide-react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+const ONBOARDING_STEPS = [
+  { key: 'policies', label: 'Tailoring Policies', order: 1 },
+  { key: 'vendors', label: 'Creating Vendors', order: 2 },
+  { key: 'risk', label: 'Creating Risks', order: 3 },
+  { key: 'linkage', label: 'Linking to Controls', order: 4 },
+  { key: 'vendorMitigations', label: 'Assessing Vendors', order: 5 },
+  { key: 'riskMitigations', label: 'Assessing Risks', order: 6 },
+] as const;
+
+const IN_PROGRESS_STATUSES = [
+  'QUEUED',
+  'EXECUTING',
+  'WAITING_FOR_DEPLOY',
+  'REATTEMPTING',
+  'FROZEN',
+  'DELAYED',
+];
+
+const getFriendlyStatusName = (status: string): string => {
+  if (!status) return 'Unknown';
+  return status
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+export const OnboardingTracker = ({ onboarding }: { onboarding: Onboarding }) => {
+  const triggerJobId = onboarding.triggerJobId;
+  const organizationId = onboarding.organizationId;
+  const pathname = usePathname();
+  const router = useRouter();
+  const orgId = pathname?.split('/')[1] || '';
+  const [mounted, setMounted] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [isDismissed, setIsDismissed] = useState(false);
+  const [isPoliciesExpanded, setIsPoliciesExpanded] = useState(false);
+  const [isVendorsExpanded, setIsVendorsExpanded] = useState(false);
+  const [isRisksExpanded, setIsRisksExpanded] = useState(false);
+  const spinnerStyle = useMemo(() => ({
+    animation: 'spin 1s linear infinite',
+    animationDelay: `${-(Date.now() % 1000)}ms`,
+  }), []);
+
+  const { run, error } = useRun(triggerJobId || '', {
+    refreshInterval: 1000,
+  });
+
+  const dismissKey = triggerJobId ? `onboarding-tracker-dismissed:${triggerJobId}` : null;
+  const handleDismiss = useCallback(() => {
+    if (dismissKey && typeof window !== 'undefined') {
+      window.localStorage.setItem(dismissKey, '1');
+    }
+    setIsDismissed(true);
+  }, [dismissKey]);
+
+  const handleRetry = useCallback(() => {
+    if (!organizationId) {
+      return;
+    }
+    void router.push(`/onboarding/${organizationId}?retry=1`);
+  }, [organizationId, router]);
+
+  useEffect(() => {
+    setMounted(true);
+    // Always reflect the stored state for THIS triggerJobId. If the key
+    // changes (new onboarding run), this resets isDismissed to false when
+    // no dismissal exists for the new key — otherwise a dismissed prior
+    // run could leave the tracker hidden forever.
+    if (dismissKey && typeof window !== 'undefined') {
+      setIsDismissed(window.localStorage.getItem(dismissKey) === '1');
+    } else {
+      setIsDismissed(false);
+    }
+  }, [dismissKey]);
+
+  // Auto-minimize when completed AND all background work is done.
+  // The main task completes before policies/mitigations finish (they
+  // run as fire-and-forget children), so also check the counters.
+  useEffect(() => {
+    if (run?.status !== 'COMPLETED' || isMinimized) return;
+    const meta = run?.metadata as Record<string, unknown> | undefined;
+    if (!meta) return;
+
+    const policiesTotal = (meta.policiesTotal as number) || 0;
+    const policiesCompleted = (meta.policiesCompleted as number) || 0;
+    const policiesDone = policiesTotal === 0 || policiesCompleted >= policiesTotal;
+
+    const vendorsTotal = (meta.vendorsTotal as number) || 0;
+    const vendorsCompleted = (meta.vendorsCompleted as number) || 0;
+    const vendorsDone = vendorsTotal === 0 || vendorsCompleted >= vendorsTotal;
+
+    const risksTotal = (meta.risksTotal as number) || 0;
+    const risksCompleted = (meta.risksCompleted as number) || 0;
+    const risksDone = risksTotal === 0 || risksCompleted >= risksTotal;
+
+    if (policiesDone && vendorsDone && risksDone) {
+      setIsMinimized(true);
+    }
+  }, [run?.status, run?.metadata, isMinimized]);
+
+  // Extract step completion from metadata (real-time updates)
+  const stepStatus = useMemo(() => {
+    if (!run?.metadata) {
+      return {
+        vendors: false,
+        risk: false,
+        policies: false,
+        linkage: false,
+        vendorMitigations: false,
+        riskMitigations: false,
+        currentStep: null,
+        vendorsTotal: 0,
+        vendorsCompleted: 0,
+        vendorsRemaining: 0,
+        vendorsInfo: [],
+        vendorsStatus: {},
+        risksTotal: 0,
+        risksCompleted: 0,
+        risksRemaining: 0,
+        risksInfo: [],
+        risksStatus: {},
+        policiesTotal: 0,
+        policiesCompleted: 0,
+        policiesRemaining: 0,
+        policiesInfo: [],
+        policiesStatus: {},
+      };
+    }
+
+    const meta = run.metadata as Record<string, unknown>;
+
+    // Build vendorsStatus object from individual vendor status keys
+    const vendorsStatus: Record<string, 'pending' | 'processing' | 'assessing' | 'completed'> = {};
+    const vendorsInfo = (meta.vendorsInfo as Array<{ id: string; name: string }>) || [];
+
+    vendorsInfo.forEach((vendor) => {
+      const statusKey = `vendor_${vendor.id}_status`;
+      vendorsStatus[vendor.id] =
+        (meta[statusKey] as 'pending' | 'processing' | 'assessing' | 'completed') || 'pending';
+    });
+
+    // Build risksStatus object from individual risk status keys
+    const risksStatus: Record<string, 'pending' | 'processing' | 'assessing' | 'completed'> = {};
+    const risksInfo = (meta.risksInfo as Array<{ id: string; name: string }>) || [];
+
+    risksInfo.forEach((risk) => {
+      const statusKey = `risk_${risk.id}_status`;
+      risksStatus[risk.id] =
+        (meta[statusKey] as 'pending' | 'processing' | 'assessing' | 'completed') || 'pending';
+    });
+
+    // Build policiesStatus object from individual policy status keys
+    const policiesStatus: Record<string, 'queued' | 'pending' | 'processing' | 'completed'> = {};
+    const policiesInfo = (meta.policiesInfo as Array<{ id: string; name: string }>) || [];
+
+    policiesInfo.forEach((policy) => {
+      // Check for individual policy status key: policy_{id}_status
+      const statusKey = `policy_${policy.id}_status`;
+      policiesStatus[policy.id] =
+        (meta[statusKey] as 'queued' | 'pending' | 'processing' | 'completed') || 'queued';
+    });
+
+    const vTotal = (meta.vendorsTotal as number) || 0;
+    const vCompleted = (meta.vendorsCompleted as number) || 0;
+    const rTotal = (meta.risksTotal as number) || 0;
+    const rCompleted = (meta.risksCompleted as number) || 0;
+    const pTotal = (meta.policiesTotal as number) || 0;
+    const pCompleted = (meta.policiesCompleted as number) || 0;
+
+    return {
+      vendors: meta.vendors === true,
+      risk: meta.risk === true,
+      policies: pTotal === 0 || pCompleted >= pTotal,
+      linkage: meta.linkage === true,
+      vendorMitigations: vTotal === 0 || vCompleted >= vTotal,
+      riskMitigations: rTotal === 0 || rCompleted >= rTotal,
+      currentStep: (meta.currentStep as string) || null,
+      vendorsTotal: (meta.vendorsTotal as number) || 0,
+      vendorsCompleted: (meta.vendorsCompleted as number) || 0,
+      vendorsRemaining: (meta.vendorsRemaining as number) || 0,
+      vendorsInfo,
+      vendorsStatus,
+      risksTotal: (meta.risksTotal as number) || 0,
+      risksCompleted: (meta.risksCompleted as number) || 0,
+      risksRemaining: (meta.risksRemaining as number) || 0,
+      risksInfo,
+      risksStatus,
+      policiesTotal: (meta.policiesTotal as number) || 0,
+      policiesCompleted: (meta.policiesCompleted as number) || 0,
+      policiesRemaining: (meta.policiesRemaining as number) || 0,
+      policiesInfo,
+      policiesStatus,
+    };
+  }, [run?.metadata]);
+
+  // Calculate current step from metadata
+  const currentStep = useMemo(() => {
+    if (stepStatus.currentStep) {
+      // Use the currentStep from metadata if available
+      const step = ONBOARDING_STEPS.find((s) => stepStatus.currentStep?.includes(s.label));
+      return step || null;
+    }
+    // Otherwise find first incomplete step
+    return ONBOARDING_STEPS.find((step) => !stepStatus[step.key as keyof typeof stepStatus]);
+  }, [stepStatus]);
+
+  // Auto-expand current step and collapse others
+  useEffect(() => {
+    if (!currentStep) return;
+
+    const stepKey = currentStep.key;
+
+    if (stepKey === 'vendorMitigations' && stepStatus.vendorsTotal > 0) {
+      setIsVendorsExpanded(true);
+      setIsRisksExpanded(false);
+      setIsPoliciesExpanded(false);
+    } else if (stepKey === 'riskMitigations' && stepStatus.risksTotal > 0) {
+      setIsVendorsExpanded(false);
+      setIsRisksExpanded(true);
+      setIsPoliciesExpanded(false);
+    } else if (stepKey === 'policies' && stepStatus.policiesTotal > 0) {
+      setIsVendorsExpanded(false);
+      setIsRisksExpanded(false);
+      setIsPoliciesExpanded(true);
+    } else {
+      setIsVendorsExpanded(false);
+      setIsRisksExpanded(false);
+      setIsPoliciesExpanded(false);
+    }
+  }, [currentStep?.key, stepStatus.vendorsTotal, stepStatus.risksTotal, stepStatus.policiesTotal]);
+
+  // Build dynamic current step message with progress
+  const currentStepMessage = useMemo(() => {
+    if (stepStatus.currentStep) {
+      // If it's the policies step, update the count dynamically
+      if (stepStatus.currentStep.includes('Tailoring Policies')) {
+        if (stepStatus.policiesTotal > 0) {
+          return `Tailoring Policies... (${stepStatus.policiesCompleted}/${stepStatus.policiesTotal})`;
+        }
+        return 'Tailoring Policies...';
+      }
+      return stepStatus.currentStep;
+    }
+    if (currentStep) {
+      return currentStep.label;
+    }
+    return 'Initializing...';
+  }, [stepStatus.currentStep, stepStatus.policiesTotal, stepStatus.policiesCompleted, currentStep]);
+
+  // Normalize vendor name for deduplication - strips parenthetical suffixes
+  // e.g., "Fanta (cool)" and "Fanta" are treated as the same vendor
+  const normalizeVendorName = useCallback((name: string): string => {
+    return name
+      .toLowerCase()
+      .replace(/\s*\([^)]*\)\s*$/, '') // Remove trailing parenthetical suffixes
+      .trim();
+  }, []);
+
+  const uniqueVendorsInfo = useMemo(() => {
+    const statusRank = (status: 'pending' | 'processing' | 'assessing' | 'completed') => {
+      switch (status) {
+        case 'completed':
+          return 3;
+        case 'assessing':
+        case 'processing':
+          return 2;
+        case 'pending':
+        default:
+          return 1;
+      }
+    };
+
+    const map = new Map<
+      string,
+      { vendor: { id: string; name: string }; rank: number; status: 'pending' | 'processing' | 'assessing' | 'completed' }
+    >();
+
+    stepStatus.vendorsInfo.forEach((vendor) => {
+      const status = stepStatus.vendorsStatus[vendor.id] || 'pending';
+      const nameKey = normalizeVendorName(vendor.name);
+      const rank = statusRank(status);
+      const existing = map.get(nameKey);
+
+      if (!existing || rank > existing.rank) {
+        map.set(nameKey, { vendor, rank, status });
+      }
+    });
+
+    return Array.from(map.values()).map(({ vendor }) => vendor);
+  }, [stepStatus.vendorsInfo, stepStatus.vendorsStatus, normalizeVendorName]);
+
+  // Calculate unique completed count for the counter (to match deduplicated list)
+  const uniqueVendorsCounts = useMemo(() => {
+    const statusRank = (status: 'pending' | 'processing' | 'assessing' | 'completed') => {
+      switch (status) {
+        case 'completed':
+          return 3;
+        case 'assessing':
+        case 'processing':
+          return 2;
+        case 'pending':
+        default:
+          return 1;
+      }
+    };
+
+    const map = new Map<
+      string,
+      { status: 'pending' | 'processing' | 'assessing' | 'completed'; rank: number }
+    >();
+
+    stepStatus.vendorsInfo.forEach((vendor) => {
+      const status = stepStatus.vendorsStatus[vendor.id] || 'pending';
+      const nameKey = normalizeVendorName(vendor.name);
+      const rank = statusRank(status);
+      const existing = map.get(nameKey);
+
+      if (!existing || rank > existing.rank) {
+        map.set(nameKey, { status, rank });
+      }
+    });
+
+    const entries = Array.from(map.values());
+    return {
+      total: entries.length,
+      completed: entries.filter((e) => e.status === 'completed').length,
+    };
+  }, [stepStatus.vendorsInfo, stepStatus.vendorsStatus, normalizeVendorName]);
+
+  if (!triggerJobId || !mounted) {
+    return null;
+  }
+
+  // Dismissed is a hard hide — stays gone across refreshes via localStorage
+  // keyed by triggerJobId, so onboarding keeps running in the background and
+  // the user doesn't see the tracker again for this run.
+  if (isDismissed) {
+    return null;
+  }
+
+  // Minimized view - show only current step
+  if (isMinimized) {
+    const isCompleted = run?.status === 'COMPLETED';
+
+    return createPortal(
+      <AnimatePresence>
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 20, scale: 0.95 }}
+          transition={{ duration: 0.2 }}
+          className="fixed bottom-4 right-4 z-50 min-w-[400px] max-w-[calc(100vw-2rem)]"
+        >
+          <Card className="shadow-2xl border">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {isCompleted ? (
+                    <Rocket className="h-5 w-5 shrink-0 text-primary" />
+                  ) : (
+                    <Settings className="h-5 w-5 shrink-0 text-primary" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base font-medium text-foreground">
+                      {isCompleted ? 'Setup Complete' : 'Setting up your organization'}
+                    </p>
+                    {!isCompleted && currentStepMessage && (
+                      <p className="text-sm text-muted-foreground mt-0.5 truncate">
+                        {currentStepMessage}
+                      </p>
+                    )}
+                    {isCompleted && (
+                      <p className="text-sm text-muted-foreground mt-0.5">
+                        Your organization is ready!
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {!isCompleted && (
+                    <button
+                      onClick={() => setIsMinimized(false)}
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label="Expand"
+                    >
+                      <ChevronsUp className="h-5 w-5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={handleDismiss}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Close"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </AnimatePresence>,
+      document.body,
+    );
+  }
+
+  const renderStatusContent = () => {
+    if (!run && !error) {
+      return (
+        <div className="flex items-center gap-3">
+          <Loader2 className="h-5 w-5 shrink-0 text-primary" style={spinnerStyle} />
+          <div className="flex-1 min-w-0">
+            <p className="text-base font-medium text-foreground">Initializing...</p>
+            <p className="text-muted-foreground text-sm mt-1">Checking onboarding status</p>
+          </div>
+        </div>
+      );
+    }
+    if (!run) {
+      return (
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="text-warning h-5 w-5 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-warning text-base font-medium">Status Unavailable</p>
+            <p className="text-muted-foreground text-sm mt-1">Could not retrieve status</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setIsMinimized(true)}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Minimize"
+            >
+              <ChevronsDown className="h-5 w-5" />
+            </button>
+            <button
+              onClick={handleDismiss}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const friendlyStatus = getFriendlyStatusName(run.status);
+
+    // When the main task is COMPLETED but child tasks (policies, mitigations)
+    // are still running, show the progress view instead of "Setup Complete".
+    const hasBackgroundWork = (() => {
+      if (run.status !== 'COMPLETED') return false;
+      const meta = run.metadata as Record<string, unknown> | undefined;
+      if (!meta) return false;
+      const pt = (meta.policiesTotal as number) || 0;
+      const pc = (meta.policiesCompleted as number) || 0;
+      const vt = (meta.vendorsTotal as number) || 0;
+      const vc = (meta.vendorsCompleted as number) || 0;
+      const rt = (meta.risksTotal as number) || 0;
+      const rc = (meta.risksCompleted as number) || 0;
+      return (pt > 0 && pc < pt) || (vt > 0 && vc < vt) || (rt > 0 && rc < rt);
+    })();
+
+    switch (hasBackgroundWork ? 'EXECUTING' : run.status) {
+      case 'WAITING':
+      case 'QUEUED':
+      case 'EXECUTING':
+      case 'PENDING_VERSION':
+      case 'DEQUEUED':
+      case 'DELAYED':
+        return (
+          <div className="flex flex-col gap-4 h-full overflow-hidden">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <Settings className="h-5 w-5 shrink-0 text-primary" />
+                <p className="text-base font-medium text-foreground">
+                  Setting up your organization
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setIsMinimized(true)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Minimize"
+                >
+                  <ChevronsDown className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={handleDismiss}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Step progress - scrollable */}
+            <div className="flex flex-col gap-2.5 flex-1 overflow-y-auto min-h-0 pr-1">
+              {ONBOARDING_STEPS.map((step) => {
+                if (step.key === 'vendorMitigations' && !stepStatus.vendors) return null;
+                if (step.key === 'riskMitigations' && !stepStatus.risk) return null;
+
+                const isCurrent = currentStep?.key === step.key;
+                const isCompleted = stepStatus[step.key as keyof typeof stepStatus] === true;
+
+                const isProcessing = !isCompleted && (
+                  (step.key === 'policies' && Object.values(stepStatus.policiesStatus).some((s) => s === 'processing')) ||
+                  (step.key === 'vendorMitigations' && Object.values(stepStatus.vendorsStatus).some((s) => s === 'processing' || s === 'assessing')) ||
+                  (step.key === 'riskMitigations' && Object.values(stepStatus.risksStatus).some((s) => s === 'processing' || s === 'assessing'))
+                );
+
+                const stepIcon = isCompleted ? (
+                  <CheckCircle2 className="text-primary h-5 w-5 shrink-0" />
+                ) : isCurrent || isProcessing ? (
+                  <Loader2 className="h-5 w-5 shrink-0 text-primary" style={spinnerStyle} />
+                ) : (
+                  <div className="h-5 w-5 shrink-0 rounded-full border-2 border-muted" />
+                );
+
+                const stepTextClass = `text-sm ${
+                  isCompleted ? 'text-primary' : isCurrent || isProcessing ? 'text-primary font-medium' : 'text-muted-foreground'
+                }`;
+
+                // Expandable step with per-entity items
+                if (step.key === 'vendorMitigations' && stepStatus.vendorsTotal > 0) {
+                  return (
+                    <div key={step.key} className="flex flex-col gap-2">
+                      <button onClick={() => setIsVendorsExpanded(!isVendorsExpanded)} className="flex items-center gap-2 w-full text-left">
+                        {stepIcon}
+                        <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
+                          <span className={stepTextClass}>{step.label}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-muted-foreground text-sm">{uniqueVendorsCounts.completed}/{uniqueVendorsCounts.total}</span>
+                            {isVendorsExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                          </div>
+                        </div>
+                      </button>
+                      {isVendorsExpanded && uniqueVendorsInfo.length > 0 && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                          <div className="flex flex-col gap-1.5 pl-7">
+                            {uniqueVendorsInfo.map((vendor) => {
+                              const status = stepStatus.vendorsStatus[vendor.id] || 'pending';
+                              const done = status === 'completed';
+                              const active = status === 'processing' || status === 'assessing';
+                              const content = (
+                                <>
+                                  {done ? <CheckCircle2 className="text-primary h-4 w-4 shrink-0 pointer-events-none" /> : active ? <Loader2 className="h-4 w-4 shrink-0 text-primary pointer-events-none" style={spinnerStyle} /> : <Clock3 className="h-4 w-4 shrink-0 text-muted-foreground pointer-events-none" />}
+                                  <span className={`text-sm truncate pointer-events-none ${done || active ? 'text-primary' : 'text-muted-foreground'}`}>{vendor.name}</span>
+                                </>
+                              );
+                              return (
+                                <div key={vendor.id} className="flex items-center gap-2">
+                                  {done && orgId ? <Link href={`/${orgId}/vendors/${vendor.id}?tab=treatment-plan`} className="flex items-center gap-2 flex-1 min-w-0 hover:underline transition-all cursor-pointer">{content}</Link> : content}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  );
+                }
+
+                if (step.key === 'riskMitigations' && stepStatus.risksTotal > 0) {
+                  return (
+                    <div key={step.key} className="flex flex-col gap-2">
+                      <button onClick={() => setIsRisksExpanded(!isRisksExpanded)} className="flex items-center gap-2 w-full text-left">
+                        {stepIcon}
+                        <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
+                          <span className={stepTextClass}>{step.label}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-muted-foreground text-sm">{stepStatus.risksCompleted}/{stepStatus.risksTotal}</span>
+                            {isRisksExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                          </div>
+                        </div>
+                      </button>
+                      {isRisksExpanded && stepStatus.risksInfo.length > 0 && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                          <div className="flex flex-col gap-1.5 pl-7">
+                            {stepStatus.risksInfo.map((risk) => {
+                              const status = stepStatus.risksStatus[risk.id] || 'pending';
+                              const done = status === 'completed';
+                              const active = status === 'processing' || status === 'assessing';
+                              const content = (
+                                <>
+                                  {done ? <CheckCircle2 className="text-primary h-4 w-4 shrink-0 pointer-events-none" /> : active ? <Loader2 className="h-4 w-4 shrink-0 text-primary pointer-events-none" style={spinnerStyle} /> : <div className="h-4 w-4 shrink-0 rounded-full border-2 border-muted pointer-events-none" />}
+                                  <span className={`text-sm truncate pointer-events-none ${done || active ? 'text-primary' : 'text-muted-foreground'}`}>{risk.name}</span>
+                                </>
+                              );
+                              return (
+                                <div key={risk.id} className="flex items-center gap-2">
+                                  {done && orgId ? <Link href={`/${orgId}/risk/${risk.id}?tab=treatment-plan`} className="flex items-center gap-2 flex-1 min-w-0 hover:underline transition-all cursor-pointer">{content}</Link> : content}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  );
+                }
+
+                if (step.key === 'policies' && stepStatus.policiesTotal > 0) {
+                  return (
+                    <div key={step.key} className="flex flex-col gap-2">
+                      <button onClick={() => setIsPoliciesExpanded(!isPoliciesExpanded)} className="flex items-center gap-2 w-full text-left">
+                        {stepIcon}
+                        <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
+                          <span className={stepTextClass}>{step.label}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-muted-foreground text-sm">{stepStatus.policiesCompleted}/{stepStatus.policiesTotal}</span>
+                            {!isCompleted && (isPoliciesExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />)}
+                          </div>
+                        </div>
+                      </button>
+                      {isPoliciesExpanded && stepStatus.policiesInfo.length > 0 && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                          <div className="flex flex-col gap-1.5 pl-7">
+                            {stepStatus.policiesInfo.map((policy) => {
+                              const status = stepStatus.policiesStatus[policy.id] || 'queued';
+                              const done = status === 'completed';
+                              const processing = status === 'processing';
+                              const queued = status === 'queued' || status === 'pending';
+                              const content = (
+                                <>
+                                  {done ? <CheckCircle2 className="text-primary h-4 w-4 shrink-0 pointer-events-none" /> : processing ? <Loader2 className="h-4 w-4 shrink-0 text-primary pointer-events-none" style={spinnerStyle} /> : queued ? <Clock3 className="h-4 w-4 shrink-0 text-muted-foreground pointer-events-none" /> : <div className="h-4 w-4 shrink-0 rounded-full border-2 border-muted pointer-events-none" />}
+                                  <span className={`text-sm truncate pointer-events-none ${done || processing ? 'text-primary' : 'text-muted-foreground'}`}>{policy.name}</span>
+                                </>
+                              );
+                              return (
+                                <div key={policy.id} className="flex items-center gap-2">
+                                  {done && orgId ? <Link href={`/${orgId}/policies/${policy.id}`} className="flex items-center gap-2 flex-1 min-w-0 hover:underline transition-all cursor-pointer">{content}</Link> : content}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Simple step row (creation, linkage)
+                const total = step.key === 'vendors' ? uniqueVendorsCounts.total
+                  : step.key === 'risk' ? stepStatus.risksTotal
+                  : null;
+                const created = step.key === 'vendors' && stepStatus.vendors ? uniqueVendorsCounts.total
+                  : step.key === 'risk' && stepStatus.risk ? stepStatus.risksTotal
+                  : 0;
+                return (
+                  <div key={step.key} className="flex items-center gap-2">
+                    {stepIcon}
+                    <span className={`${stepTextClass} flex-1`}>{step.label}</span>
+                    {total !== null && total > 0 && (
+                      <span className="text-muted-foreground text-sm">{created}/{total}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      case 'COMPLETED':
+        return (
+          <div className="flex flex-col gap-4 h-full overflow-hidden">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <Rocket className="h-5 w-5 shrink-0 text-primary" />
+                <p className="text-base font-medium text-foreground">Setup Complete</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setIsMinimized(true)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Minimize"
+                >
+                  <ChevronsDown className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={handleDismiss}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 flex flex-col justify-center">
+              <div className="flex flex-col gap-2">
+                <p className="text-primary text-base font-medium">
+                  Your organization is ready!
+                </p>
+                <p className="text-muted-foreground text-sm">
+                  All onboarding steps have been completed successfully.
+                </p>
+              </div>
+            </div>
+
+            {/* Show completed steps */}
+            <div className="flex flex-col gap-2.5 shrink-0">
+              {ONBOARDING_STEPS.map((step) => (
+                <div key={step.key} className="flex items-center gap-2">
+                  <CheckCircle2 className="text-primary h-5 w-5 shrink-0" />
+                  <span className="text-sm text-primary">{step.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case 'FAILED':
+      case 'CANCELED':
+      case 'CRASHED':
+      case 'SYSTEM_FAILURE':
+      case 'EXPIRED':
+      case 'TIMED_OUT': {
+        const errorMessage = run.error?.message || 'An unexpected issue occurred.';
+        const truncatedMessage =
+          errorMessage.length > 60 ? `${errorMessage.substring(0, 57)}...` : errorMessage;
+        return (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="text-destructive h-5 w-5 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-destructive text-base font-medium">Setup needs attention</p>
+                <p className="text-muted-foreground text-sm mt-1">
+                  Something went wrong while tailoring your environment. Retry the onboarding job or
+                  contact support for help.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setIsMinimized(true)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Minimize"
+                >
+                  <ChevronsDown className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={handleDismiss}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button size="sm" onClick={handleRetry} disabled={!organizationId}>
+                Retry setup
+              </Button>
+              <Button size="sm" variant="outline" asChild>
+                <a href="mailto:support@trycomp.ai">Contact support</a>
+              </Button>
+            </div>
+          </div>
+        );
+      }
+      default: {
+        const exhaustiveCheck: never = run.status as never;
+
+        return (
+          <div className="flex items-start gap-3">
+            <Zap className="text-warning h-5 w-5 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-warning text-base font-medium">Unknown Status</p>
+              <p className="text-muted-foreground text-sm mt-1">Status: {exhaustiveCheck}</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setIsMinimized(true)}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Minimize"
+              >
+                <ChevronsDown className="h-5 w-5" />
+              </button>
+              <button
+                onClick={handleDismiss}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        );
+      }
+    }
+  };
+
+  return createPortal(
+    <motion.div
+      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.95 }}
+      transition={{ duration: 0.2 }}
+      className="fixed bottom-4 right-4 z-50 min-w-[400px] w-96 max-w-[calc(100vw-2rem)]"
+    >
+      <Card className="shadow-2xl border h-[600px] flex flex-col overflow-hidden">
+        <CardContent className="p-5 flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+            {renderStatusContent()}
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>,
+    document.body,
+  );
+};

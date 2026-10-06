@@ -1,0 +1,126 @@
+---
+description: Coredata Load vs LoadAll naming and no cross-entity JOINs
+globs: "pkg/coredata/**/*.go"
+alwaysApply: false
+---
+
+# Coredata Load vs LoadAll naming
+
+Do **not** add new unbounded `LoadAll*` loaders that materialise an entire
+result set with one query. They have no ceiling: a table that is small in
+dev can grow without bound in production, blowing up memory and query time.
+Expose a cursor-paginated `LoadBy*` instead, and when a caller genuinely
+needs every row, walk that method with the `page.LoadAll` helper (see
+[`pkg/page/load_all.go`](../../pkg/page/load_all.go)).
+
+The method name signals whether the result set is bounded:
+
+- **`LoadBy*` with a `cursor` param** — paginated list; the cursor provides
+  the limit and ordering. This is the primary list shape; prefer it.
+- **`Load` / `LoadBy*` with a `limit int` param** — filtered list with an
+  explicit, hard-capped limit (e.g. `... LIMIT 20`), when the caller controls
+  a small bounded result count.
+- **`LoadAllBy*` / `LoadAll`** — legacy unbounded loaders. Do not add new
+  ones. The few that remain are deliberate exceptions: tiny per-parent sets
+  (handful of rows), `[]gid.GID` / map projections, or hard-`LIMIT` search
+  helpers. When in doubt, use `LoadBy*` + `page.LoadAll`.
+
+`LoadAll*` methods must **never** accept a cursor or limit parameter — the
+`All` suffix means the entire matching set is returned. The codebase has
+some legacy `LoadAllBy*` methods that accept a cursor; do not follow that
+pattern.
+
+```go
+// GOOD — paginated query uses LoadBy with a cursor
+func (ds *Things) LoadByParentID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	parentID gid.GID,
+	cursor *page.Cursor[ThingOrderField],
+) error {
+
+// GOOD — caller that needs every row walks the paginated method
+things, err := page.LoadAll(
+	ctx,
+	page.OrderBy[coredata.ThingOrderField]{
+		Field:     coredata.ThingOrderFieldCreatedAt,
+		Direction: page.OrderDirectionAsc,
+	},
+	func(ctx context.Context, cursor *page.Cursor[coredata.ThingOrderField]) ([]*coredata.Thing, error) {
+		var batch coredata.Things
+		if err := batch.LoadByParentID(ctx, conn, scope, parentID, cursor); err != nil {
+			return nil, err
+		}
+
+		return batch, nil
+	},
+)
+
+// GOOD — explicit hard-capped limit, named Load
+func (ds *Things) Load(
+	ctx context.Context,
+	conn pg.Querier,
+	limit int,
+	filter *ThingFilter,
+) error {
+
+// BAD — new unbounded loader; add LoadByParentID + page.LoadAll instead
+func (ds *Things) LoadAllByParentID(
+	ctx context.Context,
+	conn pg.Querier,
+	scope Scoper,
+	parentID gid.GID,
+) error {
+
+// BAD — LoadAll with a limit, or LoadAllBy with a cursor (legacy, do not use)
+func (ds *Things) LoadAll(
+	ctx context.Context,
+	conn pg.Querier,
+	limit int,
+	filter *ThingFilter,
+) error {
+```
+
+Whatever order field the loop uses must have a `CursorKey` case on the
+entity — `CursorKey` panics at runtime (not compile time) on an unhandled
+field, so add the case when introducing the order field.
+
+# Cross-entity table references
+
+Each entity file in `pkg/coredata` queries its own table. Never JOIN two
+entity tables to **return columns from both** — the caller orchestrates
+separate calls instead.
+
+**Subqueries for filtering are OK.** When the only purpose of the other
+table is to narrow a `WHERE` clause (e.g. `IN (SELECT id FROM ...)`),
+keep it in the query rather than materializing IDs in Go and passing
+them as an `ANY(@ids)` parameter. A subquery keeps the filtering in the
+database and eliminates an extra round trip.
+
+```go
+// BAD — cross-entity JOIN that returns columns from both tables
+q := `
+SELECT ctpd.common_third_party_id
+FROM detected_trackers dt
+JOIN common_third_party_domains ctpd ON ctpd.domain = dt.initiator_domain
+WHERE dt.tracker_pattern_id = @tracker_pattern_id
+`
+
+// GOOD — caller orchestrates two entity calls
+domains, err := trackers.LoadInitiatorDomainsByTrackerPatternID(ctx, conn, patternID, 10)
+filter := coredata.NewCommonThirdPartyDomainFilter(domains)
+var matched coredata.CommonThirdPartyDomains
+err = matched.Load(ctx, conn, 1, filter)
+thirdPartyID := matched[0].CommonThirdPartyID
+
+// GOOD — subquery only used for filtering, no columns returned from it
+q := `
+SELECT id, pattern, tracker_type, ...
+FROM tracker_patterns
+WHERE common_tracker_pattern_id IN (
+    SELECT id FROM common_tracker_patterns
+    WHERE common_third_party_id = @filter_common_third_party_id
+)
+`
+```

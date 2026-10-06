@@ -1,0 +1,156 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"encoding"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"go.probo.inc/probo/pkg/gid"
+)
+
+type EmployeeFilterMode string
+
+const (
+	EmployeeFilterModeSignature EmployeeFilterMode = "signature"
+	EmployeeFilterModeApproval  EmployeeFilterMode = "approval"
+)
+
+var (
+	_ fmt.Stringer             = EmployeeFilterMode("")
+	_ encoding.TextMarshaler   = EmployeeFilterMode("")
+	_ encoding.TextUnmarshaler = (*EmployeeFilterMode)(nil)
+)
+
+func EmployeeFilterModes() []EmployeeFilterMode {
+	return []EmployeeFilterMode{
+		EmployeeFilterModeSignature,
+		EmployeeFilterModeApproval,
+	}
+}
+
+func (v EmployeeFilterMode) IsValid() bool {
+	switch v {
+	case
+		EmployeeFilterModeSignature,
+		EmployeeFilterModeApproval:
+		return true
+	}
+
+	return false
+}
+
+func (v EmployeeFilterMode) String() string {
+	return string(v)
+}
+
+func (v EmployeeFilterMode) MarshalText() ([]byte, error) {
+	return []byte(v.String()), nil
+}
+
+func (v *EmployeeFilterMode) UnmarshalText(text []byte) error {
+	val := EmployeeFilterMode(text)
+	if !val.IsValid() {
+		return fmt.Errorf("invalid EmployeeFilterMode value: %q", string(text))
+	}
+
+	*v = val
+
+	return nil
+}
+
+type (
+	DocumentVersionFilter struct {
+		statuses            []DocumentVersionStatus
+		employeeIdentityID  *gid.GID
+		employeeFilterModes []EmployeeFilterMode
+	}
+)
+
+func NewDocumentVersionFilter() *DocumentVersionFilter {
+	return &DocumentVersionFilter{}
+}
+
+func (f *DocumentVersionFilter) WithStatuses(statuses ...DocumentVersionStatus) *DocumentVersionFilter {
+	f.statuses = statuses
+	return f
+}
+
+func (f *DocumentVersionFilter) WithEmployeeIdentityID(identityID *gid.GID, modes ...EmployeeFilterMode) *DocumentVersionFilter {
+	f.employeeIdentityID = identityID
+	f.employeeFilterModes = modes
+
+	return f
+}
+
+func (f *DocumentVersionFilter) SQLArguments() pgx.StrictNamedArgs {
+	var filterStatuses []string
+	for _, s := range f.statuses {
+		filterStatuses = append(filterStatuses, s.String())
+	}
+
+	var employeeFilterModes []string
+	for _, m := range f.employeeFilterModes {
+		employeeFilterModes = append(employeeFilterModes, string(m))
+	}
+
+	return pgx.StrictNamedArgs{
+		"filter_statuses":       filterStatuses,
+		"employee_identity_id":  f.employeeIdentityID,
+		"employee_filter_modes": employeeFilterModes,
+	}
+}
+
+func (f *DocumentVersionFilter) SQLFragment() string {
+	return `
+(
+	(
+		@filter_statuses::text[] IS NULL
+		OR document_versions.status::text = ANY(@filter_statuses::text[])
+	)
+	AND
+	(
+		@employee_identity_id::text IS NULL
+		OR (
+			'signature' = ANY(@employee_filter_modes::text[]) AND EXISTS (
+				SELECT 1
+				FROM document_version_signatures dvs
+				INNER JOIN iam_membership_profiles p ON dvs.signed_by_profile_id = p.id
+				WHERE dvs.document_version_id = document_versions.id
+					AND p.identity_id = @employee_identity_id::text
+					AND dvs.state IN ('REQUESTED', 'SIGNED')
+			)
+		)
+		OR (
+			'approval' = ANY(@employee_filter_modes::text[]) AND EXISTS (
+				SELECT 1
+				FROM document_version_approval_quorums dvaq
+				INNER JOIN document_version_approval_decisions dvad ON dvad.quorum_id = dvaq.id
+				INNER JOIN iam_membership_profiles p ON dvad.approver_id = p.id
+				WHERE dvaq.version_id = document_versions.id
+					AND p.identity_id = @employee_identity_id::text
+					AND NOT (dvad.state = 'APPROVED' AND dvad.electronic_signature_id IS NULL)
+			)
+		)
+	)
+)`
+}

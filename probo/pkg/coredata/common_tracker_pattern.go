@@ -1,0 +1,1342 @@
+// Copyright (c) 2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package coredata
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/page"
+)
+
+type (
+	CommonTrackerPattern struct {
+		ID                      gid.GID                         `db:"id"`
+		CommonThirdPartyID      *gid.GID                        `db:"common_third_party_id"`
+		TrackerType             TrackerType                     `db:"tracker_type"`
+		Pattern                 string                          `db:"pattern"`
+		MatchType               TrackerPatternMatchType         `db:"match_type"`
+		Description             string                          `db:"description"`
+		MaxAgeSeconds           *int                            `db:"max_age_seconds"`
+		Confidence              float32                         `db:"confidence"`
+		Attribution             CommonTrackerPatternAttribution `db:"attribution"`
+		EnrichmentRequestedAt   *time.Time                      `db:"enrichment_requested_at"`
+		Enrichment              json.RawMessage                 `db:"enrichment"`
+		EnrichmentAttempts      int                             `db:"enrichment_attempts"`
+		LastEnrichmentAttemptAt *time.Time                      `db:"last_enrichment_attempt_at"`
+		CreatedAt               time.Time                       `db:"created_at"`
+		UpdatedAt               time.Time                       `db:"updated_at"`
+	}
+
+	CommonTrackerPatterns []*CommonTrackerPattern
+)
+
+func (p *CommonTrackerPattern) LoadByID(
+	ctx context.Context,
+	conn pg.Querier,
+	id gid.GID,
+) error {
+	q := `
+SELECT
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+FROM
+    common_tracker_patterns
+WHERE
+    id = @id
+LIMIT 1;
+`
+
+	args := pgx.StrictNamedArgs{"id": id}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query common tracker pattern: %w", err)
+	}
+
+	row, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CommonTrackerPattern])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect common tracker pattern: %w", err)
+	}
+
+	*p = row
+
+	return nil
+}
+
+func (p *CommonTrackerPattern) LoadByPattern(
+	ctx context.Context,
+	conn pg.Querier,
+	trackerType TrackerType,
+	pattern string,
+	maxAgeSeconds *int,
+) error {
+	q := `
+SELECT
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+FROM
+    common_tracker_patterns
+WHERE
+    tracker_type = @tracker_type
+    AND pattern = @pattern
+    AND COALESCE(max_age_seconds, -1) = COALESCE(@max_age_seconds, -1)
+LIMIT 1;
+`
+
+	args := pgx.StrictNamedArgs{
+		"tracker_type":    trackerType,
+		"pattern":         pattern,
+		"max_age_seconds": maxAgeSeconds,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query common tracker pattern: %w", err)
+	}
+
+	row, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CommonTrackerPattern])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect common tracker pattern: %w", err)
+	}
+
+	*p = row
+
+	return nil
+}
+
+func (p CommonTrackerPattern) Insert(
+	ctx context.Context,
+	conn pg.Tx,
+) error {
+	if p.Attribution == "" {
+		p.Attribution = CommonTrackerPatternAttributionUndetermined
+	}
+
+	q := `
+INSERT INTO common_tracker_patterns (
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+) VALUES (
+    @id,
+    @common_third_party_id,
+    @tracker_type,
+    @pattern,
+    @match_type,
+    @description,
+    @max_age_seconds,
+    @confidence,
+    @attribution,
+    @enrichment_requested_at,
+    @enrichment,
+    @enrichment_attempts,
+    @last_enrichment_attempt_at,
+    @created_at,
+    @updated_at
+)
+`
+
+	args := pgx.StrictNamedArgs{
+		"id":                         p.ID,
+		"common_third_party_id":      p.CommonThirdPartyID,
+		"tracker_type":               p.TrackerType,
+		"pattern":                    p.Pattern,
+		"match_type":                 p.MatchType,
+		"description":                p.Description,
+		"max_age_seconds":            p.MaxAgeSeconds,
+		"confidence":                 p.Confidence,
+		"attribution":                p.Attribution,
+		"enrichment_requested_at":    p.EnrichmentRequestedAt,
+		"enrichment":                 p.Enrichment,
+		"enrichment_attempts":        p.EnrichmentAttempts,
+		"last_enrichment_attempt_at": p.LastEnrichmentAttemptAt,
+		"created_at":                 p.CreatedAt,
+		"updated_at":                 p.UpdatedAt,
+	}
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot insert common tracker pattern: %w", err)
+	}
+
+	return nil
+}
+
+func (p *CommonTrackerPattern) Upsert(
+	ctx context.Context,
+	conn pg.Tx,
+) (inserted bool, err error) {
+	// On insert, a description-less non-terminal row is immediately queued
+	// for the enrichment worker (enrichment_requested_at = NOW()). A
+	// terminal insert is not: there is no vendor to research. On conflict
+	// the enrichment columns are otherwise left untouched, and an empty
+	// incoming description never overwrites an existing one — descriptions
+	// are owned by the enrichment worker, so mapping-side upserts must not
+	// clobber a researched description with an empty string. The one
+	// exception is a blank, unlinked row that gains a non-terminal third
+	// party: it is re-armed for enrichment, and re-arming resets the
+	// attempt counter and drops the prior payload so the row reads as
+	// not-yet-completed again (see the enrichment CASE below). An incoming
+	// terminal verdict that still names a vendor does not count as gaining
+	// one: the vendor is discarded, and any existing queue stamp is
+	// cleared. The worker claims solely on enrichment_requested_at, then
+	// UpdateEnrichment COALESCE-links a vendor, so leaving a terminal row
+	// queued would let a later claim violate the vendor-free invariant.
+	if p.Attribution == "" {
+		p.Attribution = CommonTrackerPatternAttributionUndetermined
+	}
+
+	q := `
+INSERT INTO common_tracker_patterns (
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+) VALUES (
+    @id,
+    CASE
+        WHEN @attribution::common_tracker_pattern_attribution
+             = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+        THEN NULL
+        ELSE @common_third_party_id
+    END,
+    @tracker_type,
+    @pattern,
+    @match_type,
+    @description,
+    @max_age_seconds,
+    @confidence,
+    @attribution::common_tracker_pattern_attribution,
+    CASE
+        WHEN @description = ''
+         AND NOT (
+            @attribution::common_tracker_pattern_attribution
+            = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+         )
+        THEN NOW()
+        ELSE NULL
+    END,
+    NULL,
+    0,
+    NULL,
+    @created_at,
+    @updated_at
+)
+ON CONFLICT (tracker_type, pattern, COALESCE(max_age_seconds, -1)) DO UPDATE
+SET
+    common_third_party_id = CASE
+        WHEN common_tracker_patterns.attribution
+             = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+          OR EXCLUDED.attribution
+             = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+        THEN NULL
+        ELSE EXCLUDED.common_third_party_id
+    END,
+    match_type            = EXCLUDED.match_type,
+    description           = CASE
+        WHEN EXCLUDED.description = '' THEN common_tracker_patterns.description
+        ELSE EXCLUDED.description
+    END,
+    confidence            = EXCLUDED.confidence,
+    attribution           = CASE
+        WHEN common_tracker_patterns.attribution
+             = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+        THEN common_tracker_patterns.attribution
+        ELSE EXCLUDED.attribution
+    END,
+    enrichment_requested_at = CASE
+        WHEN common_tracker_patterns.attribution
+             = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+          OR EXCLUDED.attribution
+             = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+        THEN NULL
+        WHEN common_tracker_patterns.description = ''
+         AND common_tracker_patterns.common_third_party_id IS NULL
+         AND EXCLUDED.common_third_party_id IS NOT NULL
+        THEN NOW()
+        ELSE common_tracker_patterns.enrichment_requested_at
+    END,
+    enrichment_attempts   = CASE
+        WHEN NOT (
+            common_tracker_patterns.attribution
+            = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+         )
+         AND NOT (
+            EXCLUDED.attribution
+            = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+         )
+         AND common_tracker_patterns.description = ''
+         AND common_tracker_patterns.common_third_party_id IS NULL
+         AND EXCLUDED.common_third_party_id IS NOT NULL
+        THEN 0
+        ELSE common_tracker_patterns.enrichment_attempts
+    END,
+    enrichment            = CASE
+        WHEN NOT (
+            common_tracker_patterns.attribution
+            = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+         )
+         AND NOT (
+            EXCLUDED.attribution
+            = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+         )
+         AND common_tracker_patterns.description = ''
+         AND common_tracker_patterns.common_third_party_id IS NULL
+         AND EXCLUDED.common_third_party_id IS NOT NULL
+        THEN NULL
+        ELSE common_tracker_patterns.enrichment
+    END,
+    updated_at            = EXCLUDED.updated_at
+RETURNING
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+`
+
+	originalID := p.ID
+
+	args := pgx.StrictNamedArgs{
+		"id":                    p.ID,
+		"common_third_party_id": p.CommonThirdPartyID,
+		"tracker_type":          p.TrackerType,
+		"pattern":               p.Pattern,
+		"match_type":            p.MatchType,
+		"description":           p.Description,
+		"max_age_seconds":       p.MaxAgeSeconds,
+		"confidence":            p.Confidence,
+		"attribution":           p.Attribution,
+		"created_at":            p.CreatedAt,
+		"updated_at":            p.UpdatedAt,
+		// A terminal verdict is never overwritten by a later mapping-side
+		// upsert. Passed as a set rather than compared against one value, so
+		// adding a terminal verdict does not silently make it re-probeable.
+		"terminal_attributions": terminalAttributions(),
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return false, fmt.Errorf("cannot upsert common tracker pattern: %w", err)
+	}
+	defer rows.Close()
+
+	row, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CommonTrackerPattern])
+	if err != nil {
+		return false, fmt.Errorf("cannot collect upsert result: %w", err)
+	}
+
+	*p = row
+
+	return originalID == p.ID, nil
+}
+
+func (p CommonTrackerPattern) Delete(
+	ctx context.Context,
+	conn pg.Tx,
+	id gid.GID,
+) error {
+	q := `DELETE FROM common_tracker_patterns WHERE id = @id`
+
+	args := pgx.StrictNamedArgs{"id": id}
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot delete common tracker pattern: %w", err)
+	}
+
+	return nil
+}
+
+func (ps *CommonTrackerPatterns) FindMatchingPattern(
+	ctx context.Context,
+	conn pg.Querier,
+	trackerType TrackerType,
+	identifier string,
+) (*CommonTrackerPattern, error) {
+	q := `
+SELECT
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+FROM
+    common_tracker_patterns
+WHERE
+    tracker_type = @tracker_type
+    AND (
+        (match_type = @match_type_glob
+         AND @identifier LIKE
+             replace(replace(replace(replace(
+                 pattern, E'\\', E'\\\\'), '%', E'\\%'), '_', E'\\_'), '*', '%')
+             ESCAPE E'\\')
+        OR (match_type = @match_type_exact AND pattern = @identifier)
+    )
+ORDER BY
+    CASE WHEN match_type = @match_type_exact AND pattern = @identifier THEN 0
+         ELSE 1
+    END,
+    length(replace(pattern, '*', '')) DESC
+LIMIT 1;
+`
+
+	args := pgx.StrictNamedArgs{
+		"tracker_type":     trackerType,
+		"identifier":       identifier,
+		"match_type_glob":  TrackerPatternMatchTypeGlob,
+		"match_type_exact": TrackerPatternMatchTypeExact,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query common tracker patterns: %w", err)
+	}
+
+	pattern, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CommonTrackerPattern])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("cannot collect common tracker pattern: %w", err)
+	}
+
+	return &pattern, nil
+}
+
+type CommonTrackerPatternSearchResult struct {
+	Pattern        string      `db:"pattern"`
+	Description    string      `db:"description"`
+	TrackerType    TrackerType `db:"tracker_type"`
+	ThirdPartyName *string     `db:"third_party_name"`
+	Confidence     float32     `db:"confidence"`
+}
+
+func (ps *CommonTrackerPatterns) FindByKeyword(
+	ctx context.Context,
+	conn pg.Querier,
+	fragment string,
+	limit int,
+) ([]CommonTrackerPatternSearchResult, error) {
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+
+	q := `
+SELECT
+    ctp.pattern,
+    ctp.description,
+    ctp.tracker_type,
+    ct.name AS third_party_name,
+    ctp.confidence
+FROM
+    common_tracker_patterns ctp
+LEFT JOIN common_third_parties ct ON ct.id = ctp.common_third_party_id
+WHERE
+    ctp.pattern ILIKE '%' || @fragment || '%'
+    OR ctp.description ILIKE '%' || @fragment || '%'
+ORDER BY
+    ctp.confidence DESC
+LIMIT @limit;
+`
+
+	args := pgx.StrictNamedArgs{
+		"fragment": fragment,
+		"limit":    limit,
+	}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot search common tracker patterns: %w", err)
+	}
+
+	results, err := pgx.CollectRows(rows, pgx.RowToStructByName[CommonTrackerPatternSearchResult])
+	if err != nil {
+		return nil, fmt.Errorf("cannot collect common tracker pattern search results: %w", err)
+	}
+
+	return results, nil
+}
+
+// PatternSummary is the part of a pattern a reviewer reads to judge what the
+// software actually did: the key, where it was stored, and the verdict already
+// on it. The description is deliberately absent — it is agent prose that names
+// a vendor, which is what a review is meant to check rather than trust.
+type PatternSummary struct {
+	Pattern     string
+	TrackerType TrackerType
+	Attribution CommonTrackerPatternAttribution
+	Confidence  float32
+}
+
+// LoadSummariesGroupedByCommonThirdPartyID returns a short pattern summary for
+// every catalog entry in one round trip, keyed by the entry that owns it.
+//
+// Judging a row means reading its keys — a device id means a vendor, a theme
+// preference means local state — and doing that per row is one query each. A
+// backlog of a hundred rows makes the correct method slow enough that batching
+// by name becomes tempting, which is where misjudgements come from. Loading
+// them together removes the reason to guess.
+//
+// Capped per entry by the caller: a handful of keys is enough to classify a
+// row, and loglevel-style namespaces run to dozens.
+func (ps *CommonTrackerPatterns) LoadSummariesGroupedByCommonThirdPartyID(
+	ctx context.Context,
+	conn pg.Querier,
+) (map[gid.GID][]PatternSummary, error) {
+	q := `
+SELECT
+    common_third_party_id,
+    pattern,
+    tracker_type,
+    attribution,
+    confidence
+FROM
+    common_tracker_patterns
+WHERE
+    common_third_party_id IS NOT NULL
+ORDER BY
+    common_third_party_id,
+    confidence DESC,
+    pattern
+`
+
+	rows, err := conn.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query common tracker pattern summaries: %w", err)
+	}
+	defer rows.Close()
+
+	byParty := make(map[gid.GID][]PatternSummary)
+
+	for rows.Next() {
+		var (
+			partyID gid.GID
+			summary PatternSummary
+		)
+
+		if err := rows.Scan(
+			&partyID,
+			&summary.Pattern,
+			&summary.TrackerType,
+			&summary.Attribution,
+			&summary.Confidence,
+		); err != nil {
+			return nil, fmt.Errorf("cannot scan common tracker pattern summary: %w", err)
+		}
+
+		byParty[partyID] = append(byParty[partyID], summary)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cannot iterate common tracker pattern summaries: %w", err)
+	}
+
+	return byParty, nil
+}
+
+func (ps *CommonTrackerPatterns) LoadByCommonThirdPartyID(
+	ctx context.Context,
+	conn pg.Querier,
+	commonThirdPartyID gid.GID,
+) error {
+	q := `
+SELECT
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+FROM
+    common_tracker_patterns
+WHERE
+    common_third_party_id = @common_third_party_id
+ORDER BY pattern ASC;
+`
+
+	args := pgx.StrictNamedArgs{"common_third_party_id": commonThirdPartyID}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query common tracker patterns: %w", err)
+	}
+
+	patterns, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[CommonTrackerPattern])
+	if err != nil {
+		return fmt.Errorf("cannot collect common tracker patterns: %w", err)
+	}
+
+	*ps = patterns
+
+	return nil
+}
+
+// LoadNextForEnrichmentForUpdateSkipLocked claims the next common tracker
+// pattern queued for description enrichment, oldest request first. It
+// mirrors the mapping worker's claim pattern: the row is locked FOR
+// UPDATE SKIP LOCKED so concurrent enrichment workers never pick the same
+// row.
+func (p *CommonTrackerPattern) LoadNextForEnrichmentForUpdateSkipLocked(
+	ctx context.Context,
+	tx pg.Tx,
+) error {
+	q := `
+SELECT
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+FROM
+    common_tracker_patterns
+WHERE
+    enrichment_requested_at IS NOT NULL
+ORDER BY
+    enrichment_requested_at ASC
+FOR UPDATE SKIP LOCKED
+LIMIT 1;
+`
+
+	rows, err := tx.Query(ctx, q)
+	if err != nil {
+		return fmt.Errorf("cannot query common tracker pattern for enrichment: %w", err)
+	}
+
+	pattern, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[CommonTrackerPattern])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot collect common tracker pattern for enrichment: %w", err)
+	}
+
+	*p = pattern
+
+	return nil
+}
+
+// ClearEnrichmentRequestedAt removes the row from the enrichment queue and
+// records the attempt: it bumps the attempt counter and stamps
+// last_enrichment_attempt_at, which is the stale-recovery clock. The
+// attempt counter is incremented up front so a crash between claim and
+// persist still counts against the retry budget. It bumps updated_at too.
+func (p *CommonTrackerPattern) ClearEnrichmentRequestedAt(
+	ctx context.Context,
+	tx pg.Tx,
+) error {
+	q := `
+UPDATE common_tracker_patterns
+SET
+    enrichment_requested_at = NULL,
+    enrichment_attempts = enrichment_attempts + 1,
+    last_enrichment_attempt_at = NOW(),
+    updated_at = NOW()
+WHERE id = @id
+RETURNING enrichment_attempts, last_enrichment_attempt_at
+`
+
+	args := pgx.StrictNamedArgs{"id": p.ID}
+
+	var (
+		attempts    int
+		lastAttempt *time.Time
+	)
+
+	err := tx.QueryRow(ctx, q, args).Scan(&attempts, &lastAttempt)
+	if err != nil {
+		return fmt.Errorf("cannot clear enrichment requested at: %w", err)
+	}
+
+	p.EnrichmentRequestedAt = nil
+	p.EnrichmentAttempts = attempts
+	p.LastEnrichmentAttemptAt = lastAttempt
+
+	return nil
+}
+
+// UpdateEnrichment records the researched description and the per-run
+// enrichment provenance payload (named to mirror
+// CommonThirdParty.UpdateEnrichment, the sibling persist step). The
+// payload presence is what marks a row as having been through the
+// workflow, so the stale-recovery loop never re-queues it
+// (last_enrichment_attempt_at, the attempt clock, is stamped separately at
+// claim time). An empty description is allowed: the enrichment agent
+// leaves it blank when it cannot substantiate a purpose, and a later
+// third-party link re-arms enrichment for a second attempt. When
+// thirdPartyID is non-nil it links the row to that third party, but only
+// when none is set yet (COALESCE) — the enrichment worker links, it never
+// overrides an attribution the mapping pipeline already resolved. A
+// terminal verdict is stronger still: claim only clears the queue stamp,
+// so a worker that already held the row can finish after an upsert
+// settles FIRST_PARTY or NOT_ATTRIBUTABLE. The persist step therefore
+// re-reads attribution and discards any incoming vendor rather than
+// COALESCE-linking it onto a vendor-free row.
+func (p *CommonTrackerPattern) UpdateEnrichment(
+	ctx context.Context,
+	tx pg.Tx,
+	description string,
+	thirdPartyID *gid.GID,
+	enrichment json.RawMessage,
+) error {
+	q := `
+UPDATE common_tracker_patterns
+SET
+    description = @description,
+    common_third_party_id = CASE
+        WHEN attribution = ANY(@terminal_attributions::common_tracker_pattern_attribution[])
+        THEN NULL
+        ELSE COALESCE(common_third_party_id, @third_party_id)
+    END,
+    enrichment = @enrichment,
+    enrichment_requested_at = NULL,
+    updated_at = NOW()
+WHERE id = @id
+RETURNING
+    description,
+    common_third_party_id,
+    enrichment,
+    enrichment_requested_at
+`
+
+	args := pgx.StrictNamedArgs{
+		"id":                    p.ID,
+		"description":           description,
+		"third_party_id":        thirdPartyID,
+		"enrichment":            enrichment,
+		"terminal_attributions": terminalAttributions(),
+	}
+
+	var (
+		storedDescription string
+		storedThirdParty  *gid.GID
+		storedEnrichment  json.RawMessage
+		storedRequestedAt *time.Time
+	)
+
+	err := tx.QueryRow(ctx, q, args).Scan(
+		&storedDescription,
+		&storedThirdParty,
+		&storedEnrichment,
+		&storedRequestedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrResourceNotFound
+		}
+
+		return fmt.Errorf("cannot mark common tracker pattern enriched: %w", err)
+	}
+
+	p.Description = storedDescription
+	p.CommonThirdPartyID = storedThirdParty
+	p.Enrichment = storedEnrichment
+	p.EnrichmentRequestedAt = storedRequestedAt
+
+	return nil
+}
+
+// ResetStaleEnrichments re-queues rows whose enrichment was claimed but
+// never completed and have been idle longer than staleAfter, so a crashed
+// or timed-out enrichment is retried.
+//
+// A claimed row has enrichment_attempts > 0 (the claim increments it) and
+// a completed row carries a non-null enrichment payload (UpdateEnrichment
+// always writes it, even on a blank-description run), so the sweep targets
+// rows that were claimed but carry no payload yet. Curated rows that were
+// never enqueued keep enrichment_attempts = 0 and are left untouched. The
+// max-attempts ceiling stops permanently failing rows from looping
+// forever. last_enrichment_attempt_at, stamped at claim, is the idle clock.
+func ResetStaleEnrichments(
+	ctx context.Context,
+	conn pg.Querier,
+	staleAfter time.Duration,
+	maxAttempts int,
+) error {
+	q := `
+UPDATE common_tracker_patterns
+SET
+    enrichment_requested_at = NOW(),
+    updated_at = NOW()
+WHERE
+    enrichment_requested_at IS NULL
+    AND enrichment IS NULL
+    AND enrichment_attempts > 0
+    AND enrichment_attempts < @max_attempts
+    AND last_enrichment_attempt_at < @stale_before
+`
+
+	args := pgx.StrictNamedArgs{
+		"max_attempts": maxAttempts,
+		"stale_before": time.Now().Add(-staleAfter),
+	}
+
+	_, err := conn.Exec(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot reset stale common tracker pattern enrichments: %w", err)
+	}
+
+	return nil
+}
+
+func (ps *CommonTrackerPatterns) LoadByIDs(
+	ctx context.Context,
+	conn pg.Querier,
+	ids []gid.GID,
+) error {
+	q := `
+SELECT
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+FROM
+    common_tracker_patterns
+WHERE
+    id = ANY(@ids)
+`
+
+	args := pgx.StrictNamedArgs{"ids": ids}
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query common tracker patterns: %w", err)
+	}
+
+	patterns, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[CommonTrackerPattern])
+	if err != nil {
+		return fmt.Errorf("cannot collect common tracker patterns: %w", err)
+	}
+
+	*ps = patterns
+
+	return nil
+}
+
+func (p *CommonTrackerPattern) CursorKey(field CommonTrackerPatternOrderField) page.CursorKey {
+	switch field {
+	case CommonTrackerPatternOrderFieldPattern:
+		return page.NewCursorKey(p.ID, p.Pattern)
+	case CommonTrackerPatternOrderFieldConfidence:
+		return page.NewCursorKey(p.ID, p.Confidence)
+	case CommonTrackerPatternOrderFieldCreatedAt:
+		return page.NewCursorKey(p.ID, p.CreatedAt)
+	case CommonTrackerPatternOrderFieldUpdatedAt:
+		return page.NewCursorKey(p.ID, p.UpdatedAt)
+	case CommonTrackerPatternOrderFieldLastEnrichmentAttemptAt:
+		if p.LastEnrichmentAttemptAt == nil {
+			return page.NewCursorKey(p.ID, time.Time{})
+		}
+
+		return page.NewCursorKey(p.ID, *p.LastEnrichmentAttemptAt)
+	}
+
+	panic(fmt.Sprintf("unsupported order by: %s", field))
+}
+
+// Load returns a cursor-paginated, filtered page of common tracker
+// patterns. The catalog is global (no tenant scope). The cursor supplies
+// the limit and ordering; callers wrap the result with page.NewPage.
+func (ps *CommonTrackerPatterns) Load(
+	ctx context.Context,
+	conn pg.Querier,
+	cursor *page.Cursor[CommonTrackerPatternOrderField],
+	filter *CommonTrackerPatternFilter,
+) error {
+	q := `
+SELECT
+    id,
+    common_third_party_id,
+    tracker_type,
+    pattern,
+    match_type,
+    description,
+    max_age_seconds,
+    confidence,
+    attribution,
+    enrichment_requested_at,
+    enrichment,
+    enrichment_attempts,
+    last_enrichment_attempt_at,
+    created_at,
+    updated_at
+FROM
+    common_tracker_patterns
+WHERE
+    %s
+    AND %s
+`
+
+	q = fmt.Sprintf(q, filter.SQLFragment(), cursor.SQLFragment())
+
+	args := pgx.StrictNamedArgs{}
+	maps.Copy(args, filter.SQLArguments())
+	maps.Copy(args, cursor.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return fmt.Errorf("cannot query common tracker patterns: %w", err)
+	}
+
+	patterns, err := pgx.CollectRows(rows, pgx.RowToAddrOfStructByName[CommonTrackerPattern])
+	if err != nil {
+		return fmt.Errorf("cannot collect common tracker patterns: %w", err)
+	}
+
+	*ps = patterns
+
+	return nil
+}
+
+// CountAll returns the number of common tracker patterns matching the
+// filter, ignoring pagination.
+func (ps *CommonTrackerPatterns) CountAll(
+	ctx context.Context,
+	conn pg.Querier,
+	filter *CommonTrackerPatternFilter,
+) (int, error) {
+	q := `
+SELECT
+    COUNT(id)
+FROM
+    common_tracker_patterns
+WHERE
+    %s
+`
+
+	q = fmt.Sprintf(q, filter.SQLFragment())
+
+	args := pgx.StrictNamedArgs{}
+	maps.Copy(args, filter.SQLArguments())
+
+	row := conn.QueryRow(ctx, q, args)
+
+	var count int
+	if err := row.Scan(&count); err != nil {
+		return 0, fmt.Errorf("cannot count common tracker patterns: %w", err)
+	}
+
+	return count, nil
+}
+
+// LoadAllIDs returns every common tracker pattern id matching the filter,
+// with no pagination. It backs bulk operations (e.g. operator-driven
+// re-enrichment) that act on the entire matching set.
+func (ps *CommonTrackerPatterns) LoadAllIDs(
+	ctx context.Context,
+	conn pg.Querier,
+	filter *CommonTrackerPatternFilter,
+) ([]gid.GID, error) {
+	q := `
+SELECT
+    id
+FROM
+    common_tracker_patterns
+WHERE
+    %s
+ORDER BY pattern ASC
+`
+
+	q = fmt.Sprintf(q, filter.SQLFragment())
+
+	args := pgx.StrictNamedArgs{}
+	maps.Copy(args, filter.SQLArguments())
+
+	rows, err := conn.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot query common tracker pattern ids: %w", err)
+	}
+
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[gid.GID])
+	if err != nil {
+		return nil, fmt.Errorf("cannot collect common tracker pattern ids: %w", err)
+	}
+
+	return ids, nil
+}
+
+// RelinkCommonThirdPartyByIDs repoints the given common tracker patterns
+// at a different common third party (or unlinks them when thirdPartyID is
+// nil). Linking is a manual operator attribution - the highest-trust
+// signal - so it bumps confidence to 1 to match the curated/seed tier and
+// sets the attribution verdict to THIRD_PARTY; unlinking makes no
+// attribution, returns the verdict to UNDETERMINED so the pipeline can
+// re-probe the row, and leaves confidence untouched. It only touches the
+// catalog rows; callers re-arm enrichment and remap the org-scoped tracker
+// patterns separately. Returns the number of rows updated.
+func (ps *CommonTrackerPatterns) RelinkCommonThirdPartyByIDs(
+	ctx context.Context,
+	tx pg.Tx,
+	ids []gid.GID,
+	thirdPartyID *gid.GID,
+) (int64, error) {
+	q := `
+UPDATE common_tracker_patterns
+SET
+    common_third_party_id = @third_party_id,
+    confidence = CASE WHEN @third_party_id::text IS NOT NULL THEN 1 ELSE confidence END,
+    attribution = CASE
+        WHEN @third_party_id::text IS NOT NULL THEN 'THIRD_PARTY'::common_tracker_pattern_attribution
+        ELSE 'UNDETERMINED'::common_tracker_pattern_attribution
+    END,
+    updated_at = NOW()
+WHERE
+    id = ANY(@ids)
+`
+
+	args := pgx.StrictNamedArgs{
+		"ids":            ids,
+		"third_party_id": thirdPartyID,
+	}
+
+	result, err := tx.Exec(ctx, q, args)
+	if err != nil {
+		return 0, fmt.Errorf("cannot relink common tracker pattern third party: %w", err)
+	}
+
+	return result.RowsAffected(), nil
+}
+
+// CountByCommonThirdPartyID returns how many catalog patterns are
+// attributed to each catalog third party, keyed by catalog id.
+//
+// Catalog cleanup ranks merge winners on how much each candidate is
+// referenced, so the whole histogram is aggregated in one round trip rather
+// than counted per candidate.
+func (ps *CommonTrackerPatterns) CountByCommonThirdPartyID(
+	ctx context.Context,
+	conn pg.Querier,
+) (map[gid.GID]int, error) {
+	q := `
+SELECT
+    common_third_party_id,
+    COUNT(id)
+FROM
+    common_tracker_patterns
+WHERE
+    common_third_party_id IS NOT NULL
+GROUP BY
+    common_third_party_id
+`
+
+	rows, err := conn.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("cannot count common tracker patterns by third party: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[gid.GID]int)
+
+	for rows.Next() {
+		var (
+			id    gid.GID
+			count int
+		)
+
+		if err := rows.Scan(&id, &count); err != nil {
+			return nil, fmt.Errorf("cannot scan common tracker pattern count: %w", err)
+		}
+
+		counts[id] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cannot iterate common tracker pattern counts: %w", err)
+	}
+
+	return counts, nil
+}
+
+// RepointCommonThirdPartyID moves every catalog pattern attributed to
+// fromID onto toID. It backs the catalog merge, which folds one vendor row
+// into another.
+//
+// Unlike RelinkCommonThirdPartyByIDs this preserves confidence. That method
+// is an operator attribution and promotes the row to full confidence; a
+// merge is a statement that two catalog rows are the same vendor, which
+// says nothing new about how well any pattern was attributed, so a
+// low-confidence link must stay low-confidence.
+//
+// Attribution is forced to THIRD_PARTY because a row carrying a vendor must
+// record that verdict, which every affected row already did — they held
+// fromID. Selecting by the vendor id rather than a list of pattern ids
+// keeps the whole repoint in one statement.
+//
+// Returns the ids of the rows moved, so the caller can re-queue exactly
+// those for enrichment: their descriptions were researched against the
+// vendor that no longer exists.
+func (ps *CommonTrackerPatterns) RepointCommonThirdPartyID(
+	ctx context.Context,
+	tx pg.Tx,
+	fromID gid.GID,
+	toID gid.GID,
+) ([]gid.GID, error) {
+	q := `
+UPDATE common_tracker_patterns
+SET
+    common_third_party_id = @to_id,
+    attribution = @attribution,
+    updated_at = NOW()
+WHERE
+    common_third_party_id = @from_id
+RETURNING id
+`
+
+	args := pgx.StrictNamedArgs{
+		"from_id":     fromID,
+		"to_id":       toID,
+		"attribution": CommonTrackerPatternAttributionThirdParty,
+	}
+
+	rows, err := tx.Query(ctx, q, args)
+	if err != nil {
+		return nil, fmt.Errorf("cannot repoint common tracker pattern third party: %w", err)
+	}
+
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[gid.GID])
+	if err != nil {
+		return nil, fmt.Errorf("cannot collect repointed common tracker patterns: %w", err)
+	}
+
+	return ids, nil
+}
+
+// SetAttributionByIDs records a terminal attribution verdict on the given
+// catalog rows. It is an operator action: marking a row FIRST_PARTY (or
+// UNDETERMINED) clears any vendor link, because a non-third-party verdict
+// cannot keep a common_third_party_id. THIRD_PARTY is not a valid verdict
+// here - that attribution carries a vendor and must go through
+// RelinkCommonThirdPartyByIDs. Callers re-arm the org-scoped tracker
+// patterns separately. Returns the number of rows updated.
+func (ps *CommonTrackerPatterns) SetAttributionByIDs(
+	ctx context.Context,
+	tx pg.Tx,
+	ids []gid.GID,
+	attribution CommonTrackerPatternAttribution,
+) (int64, error) {
+	q := `
+UPDATE common_tracker_patterns
+SET
+    attribution = @attribution,
+    common_third_party_id = NULL,
+    updated_at = NOW()
+WHERE
+    id = ANY(@ids)
+`
+
+	args := pgx.StrictNamedArgs{
+		"ids":         ids,
+		"attribution": attribution,
+	}
+
+	result, err := tx.Exec(ctx, q, args)
+	if err != nil {
+		return 0, fmt.Errorf("cannot set common tracker pattern attribution: %w", err)
+	}
+
+	return result.RowsAffected(), nil
+}
+
+// ClearDescriptionByIDs blanks the researched description on the given
+// catalog rows without re-arming enrichment or touching the enrichment
+// payload. It backs the first-party verdict: a terminal non-third-party
+// row keeps no vendor link, so a description that named the (now-cleared)
+// vendor would be stale. The verdict is terminal, so rather than re-derive
+// a description - which would re-run the mapping agent and re-link a
+// vendor - the description simply returns to empty. Returns the number of
+// rows updated.
+func (ps *CommonTrackerPatterns) ClearDescriptionByIDs(
+	ctx context.Context,
+	tx pg.Tx,
+	ids []gid.GID,
+) (int64, error) {
+	q := `
+UPDATE common_tracker_patterns
+SET
+    description = '',
+    updated_at = NOW()
+WHERE
+    id = ANY(@ids)
+`
+
+	args := pgx.StrictNamedArgs{"ids": ids}
+
+	result, err := tx.Exec(ctx, q, args)
+	if err != nil {
+		return 0, fmt.Errorf("cannot clear common tracker pattern description: %w", err)
+	}
+
+	return result.RowsAffected(), nil
+}
+
+// RequestEnrichmentByIDs arms enrichment on the given common tracker
+// patterns by stamping enrichment_requested_at, which is the only column
+// the enrichment worker claims on. It resets enrichment_attempts to 0 so
+// the re-queued rows get a fresh retry budget: the claim path bumps the
+// counter on every run, and without a reset a row near the max-attempts
+// ceiling would not be re-armed by stale recovery if a re-run crashed.
+// Already-enriched rows are re-processed too: the worker overwrites the
+// description and enrichment payload when it runs. Returns the number of
+// rows re-queued. This is the async fallback path; the synchronous
+// enricher service is preferred.
+func (ps *CommonTrackerPatterns) RequestEnrichmentByIDs(
+	ctx context.Context,
+	tx pg.Tx,
+	ids []gid.GID,
+) (int64, error) {
+	q := `
+UPDATE common_tracker_patterns
+SET
+    enrichment_requested_at = NOW(),
+    enrichment_attempts = 0,
+    updated_at = NOW()
+WHERE
+    id = ANY(@ids)
+`
+
+	args := pgx.StrictNamedArgs{
+		"ids": ids,
+	}
+
+	result, err := tx.Exec(ctx, q, args)
+	if err != nil {
+		return 0, fmt.Errorf("cannot request common tracker pattern enrichment: %w", err)
+	}
+
+	return result.RowsAffected(), nil
+}

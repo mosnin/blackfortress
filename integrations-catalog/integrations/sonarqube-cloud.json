@@ -1,0 +1,45 @@
+{
+  "slug": "sonarqube-cloud",
+  "name": "SonarCloud",
+  "description": "Cloud-based code quality and security analysis. Monitor project scans and code coverage.",
+  "category": "Development",
+  "docsUrl": "https://sonarcloud.io/web_api",
+  "baseUrl": "https://sonarcloud.io",
+  "authConfig": {
+    "type": "custom",
+    "config": {
+      "setupInstructions": "1. Log in to SonarQube Cloud (sonarcloud.io)\n2. Go to My Account > Security\n3. Generate a new token\n4. Base64-encode it as token:\n5. Paste the encoded string below",
+      "credentialFields": [
+        {
+          "label": "Base64 Encoded Token",
+          "type": "password",
+          "required": true,
+          "helpText": "Base64-encode 'your_token:' (with trailing colon). Create a token in SonarQube Cloud > My Account > Security."
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "checks"
+  ],
+  "supportsMultipleConnections": false,
+  "syncSupported": false,
+  "checks": [
+    {
+      "slug": "sonarqube_cloud_app_availability",
+      "name": "SonarCloud App Availability",
+      "description": "Verifies SonarCloud API is accessible.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    },
+    {
+      "slug": "sonarqube_cloud_code_quality",
+      "name": "SonarCloud Code Quality",
+      "description": "Verifies code quality scanning is active.",
+      "defaultSeverity": "medium",
+      "enabled": true
+    }
+  ],
+  "checkCount": 2,
+  "isActive": true
+}

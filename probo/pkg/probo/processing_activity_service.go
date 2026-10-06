@@ -1,0 +1,430 @@
+// Copyright (c) 2025-2026 Probo Inc <hello@probo.com>.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+package probo
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"go.gearno.de/kit/pg"
+	"go.probo.inc/probo/pkg/coredata"
+	"go.probo.inc/probo/pkg/gid"
+	"go.probo.inc/probo/pkg/page"
+	"go.probo.inc/probo/pkg/validator"
+)
+
+type ProcessingActivityService struct {
+	svc *Service
+}
+
+type (
+	CreateProcessingActivityRequest struct {
+		OrganizationID                       gid.GID
+		Name                                 string
+		Purpose                              *string
+		DataSubjectCategory                  *string
+		PersonalDataCategory                 *string
+		SpecialOrCriminalData                coredata.ProcessingActivitySpecialOrCriminalDatum
+		ConsentEvidenceLink                  *string
+		LawfulBasis                          coredata.ProcessingActivityLawfulBasis
+		Recipients                           *string
+		Location                             *string
+		InternationalTransfers               bool
+		TransferSafeguard                    *coredata.ProcessingActivityTransferSafeguard
+		RetentionPeriod                      *string
+		SecurityMeasures                     *string
+		DataProtectionImpactAssessmentNeeded coredata.ProcessingActivityDataProtectionImpactAssessment
+		TransferImpactAssessmentNeeded       coredata.ProcessingActivityTransferImpactAssessment
+		LastReviewDate                       *time.Time
+		NextReviewDate                       *time.Time
+		Role                                 coredata.ProcessingActivityRole
+		DataProtectionOfficerID              *gid.GID
+		ThirdPartyIDs                        []gid.GID
+	}
+
+	UpdateProcessingActivityRequest struct {
+		ID                                   gid.GID
+		Name                                 *string
+		Purpose                              **string
+		DataSubjectCategory                  **string
+		PersonalDataCategory                 **string
+		SpecialOrCriminalData                *coredata.ProcessingActivitySpecialOrCriminalDatum
+		ConsentEvidenceLink                  **string
+		LawfulBasis                          *coredata.ProcessingActivityLawfulBasis
+		Recipients                           **string
+		Location                             **string
+		InternationalTransfers               *bool
+		TransferSafeguard                    **coredata.ProcessingActivityTransferSafeguard
+		RetentionPeriod                      **string
+		SecurityMeasures                     **string
+		DataProtectionImpactAssessmentNeeded *coredata.ProcessingActivityDataProtectionImpactAssessment
+		TransferImpactAssessmentNeeded       *coredata.ProcessingActivityTransferImpactAssessment
+		LastReviewDate                       **time.Time
+		NextReviewDate                       **time.Time
+		Role                                 *coredata.ProcessingActivityRole
+		DataProtectionOfficerID              **gid.GID
+		ThirdPartyIDs                        *[]gid.GID
+	}
+)
+
+func (cpar *CreateProcessingActivityRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(cpar.OrganizationID, "organization_id", validator.Required(), validator.GID(coredata.OrganizationEntityType))
+	v.Check(cpar.Name, "name", validator.SafeTextNoNewLine(TitleMaxLength))
+	v.Check(cpar.Purpose, "purpose", validator.SafeText(TitleMaxLength))
+	v.Check(cpar.DataSubjectCategory, "data_subject_category", validator.SafeText(TitleMaxLength))
+	v.Check(cpar.PersonalDataCategory, "personal_data_category", validator.SafeText(TitleMaxLength))
+	v.Check(cpar.SpecialOrCriminalData, "special_or_criminal_data", validator.Required(), validator.OneOfSlice(coredata.ProcessingActivitySpecialOrCriminalData()))
+	v.Check(cpar.ConsentEvidenceLink, "consent_evidence_link", validator.SafeText(2048))
+	v.Check(cpar.LawfulBasis, "lawful_basis", validator.Required(), validator.OneOfSlice(coredata.ProcessingActivityLawfulBases()))
+	v.Check(cpar.Recipients, "recipients", validator.SafeText(TitleMaxLength))
+	v.Check(cpar.Location, "location", validator.SafeText(TitleMaxLength))
+	v.Check(cpar.InternationalTransfers, "international_transfers", validator.Required())
+	v.Check(cpar.TransferSafeguard, "transfer_safeguard", validator.OneOfSlice(coredata.ProcessingActivityTransferSafeguards()))
+	v.Check(cpar.RetentionPeriod, "retention_period", validator.SafeText(TitleMaxLength))
+	v.Check(cpar.SecurityMeasures, "security_measures", validator.SafeText(TitleMaxLength))
+	v.Check(cpar.DataProtectionImpactAssessmentNeeded, "data_protection_impact_assessment_needed", validator.Required(), validator.OneOfSlice(coredata.ProcessingActivityDataProtectionImpactAssessments()))
+	v.Check(cpar.TransferImpactAssessmentNeeded, "transfer_impact_assessment_needed", validator.Required(), validator.OneOfSlice(coredata.ProcessingActivityTransferImpactAssessments()))
+	v.Check(cpar.Role, "role", validator.Required(), validator.OneOfSlice(coredata.ProcessingActivityRoles()))
+	v.Check(cpar.DataProtectionOfficerID, "data_protection_officer_id", validator.GID(coredata.MembershipProfileEntityType))
+	v.CheckEach(cpar.ThirdPartyIDs, "third_party_ids", func(index int, item any) {
+		v.Check(item, fmt.Sprintf("third_party_ids[%d]", index), validator.Required(), validator.GID(coredata.ThirdPartyEntityType))
+	})
+
+	return v.Error()
+}
+
+func (upar *UpdateProcessingActivityRequest) Validate() error {
+	v := validator.New()
+
+	v.Check(upar.ID, "id", validator.Required(), validator.GID(coredata.ProcessingActivityEntityType))
+	v.Check(upar.Name, "name", validator.SafeTextNoNewLine(TitleMaxLength))
+	v.Check(upar.Purpose, "purpose", validator.SafeText(TitleMaxLength))
+	v.Check(upar.DataSubjectCategory, "data_subject_category", validator.SafeText(TitleMaxLength))
+	v.Check(upar.PersonalDataCategory, "personal_data_category", validator.SafeText(TitleMaxLength))
+	v.Check(upar.SpecialOrCriminalData, "special_or_criminal_data", validator.OneOfSlice(coredata.ProcessingActivitySpecialOrCriminalData()))
+	v.Check(upar.ConsentEvidenceLink, "consent_evidence_link", validator.SafeText(2048))
+	v.Check(upar.LawfulBasis, "lawful_basis", validator.OneOfSlice(coredata.ProcessingActivityLawfulBases()))
+	v.Check(upar.Recipients, "recipients", validator.SafeText(TitleMaxLength))
+	v.Check(upar.Location, "location", validator.SafeText(TitleMaxLength))
+	v.Check(upar.TransferSafeguard, "transfer_safeguards", validator.OneOfSlice(coredata.ProcessingActivityTransferSafeguards()))
+	v.Check(upar.RetentionPeriod, "retention_period", validator.SafeText(TitleMaxLength))
+	v.Check(upar.SecurityMeasures, "security_measures", validator.SafeText(TitleMaxLength))
+	v.Check(upar.DataProtectionImpactAssessmentNeeded, "data_protection_impact_assessment_needed", validator.OneOfSlice(coredata.ProcessingActivityDataProtectionImpactAssessments()))
+	v.Check(upar.TransferImpactAssessmentNeeded, "transfer_impact_assessment_needed", validator.OneOfSlice(coredata.ProcessingActivityTransferImpactAssessments()))
+	v.Check(upar.Role, "role", validator.OneOfSlice(coredata.ProcessingActivityRoles()))
+	v.Check(upar.DataProtectionOfficerID, "data_protection_officer_id", validator.GID(coredata.MembershipProfileEntityType))
+	v.CheckEach(upar.ThirdPartyIDs, "third_party_ids", func(index int, item any) {
+		v.Check(item, fmt.Sprintf("third_party_ids[%d]", index), validator.GID(coredata.ThirdPartyEntityType))
+	})
+
+	return v.Error()
+}
+
+func (s ProcessingActivityService) Get(
+	ctx context.Context, scope coredata.Scoper,
+	processingActivityID gid.GID,
+) (*coredata.ProcessingActivity, error) {
+	processingActivity := &coredata.ProcessingActivity{}
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			return processingActivity.LoadByID(ctx, conn, scope, processingActivityID)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return processingActivity, nil
+}
+
+func (s *ProcessingActivityService) Create(
+	ctx context.Context, scope coredata.Scoper,
+	req *CreateProcessingActivityRequest,
+) (*coredata.ProcessingActivity, error) {
+	now := time.Now()
+	processingActivityThirdParties := &coredata.ProcessingActivityThirdParties{}
+
+	processingActivity := &coredata.ProcessingActivity{
+		ID:                                   gid.New(scope.GetTenantID(), coredata.ProcessingActivityEntityType),
+		OrganizationID:                       req.OrganizationID,
+		Name:                                 req.Name,
+		Purpose:                              req.Purpose,
+		DataSubjectCategory:                  req.DataSubjectCategory,
+		PersonalDataCategory:                 req.PersonalDataCategory,
+		SpecialOrCriminalData:                req.SpecialOrCriminalData,
+		ConsentEvidenceLink:                  req.ConsentEvidenceLink,
+		LawfulBasis:                          req.LawfulBasis,
+		Recipients:                           req.Recipients,
+		Location:                             req.Location,
+		InternationalTransfers:               req.InternationalTransfers,
+		TransferSafeguard:                    req.TransferSafeguard,
+		RetentionPeriod:                      req.RetentionPeriod,
+		SecurityMeasures:                     req.SecurityMeasures,
+		DataProtectionImpactAssessmentNeeded: req.DataProtectionImpactAssessmentNeeded,
+		TransferImpactAssessmentNeeded:       req.TransferImpactAssessmentNeeded,
+		LastReviewDate:                       req.LastReviewDate,
+		NextReviewDate:                       req.NextReviewDate,
+		Role:                                 req.Role,
+		DataProtectionOfficerID:              req.DataProtectionOfficerID,
+		CreatedAt:                            now,
+		UpdatedAt:                            now,
+	}
+
+	err := s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, conn pg.Tx) error {
+			organization := &coredata.Organization{}
+			if err := organization.LoadByID(ctx, conn, scope, req.OrganizationID); err != nil {
+				return fmt.Errorf("cannot load organization: %w", err)
+			}
+
+			if req.DataProtectionOfficerID != nil {
+				dpo := &coredata.MembershipProfile{}
+				if err := dpo.LoadByID(ctx, conn, scope, *req.DataProtectionOfficerID); err != nil {
+					return fmt.Errorf("cannot load data protection officer profile: %w", err)
+				}
+			}
+
+			if err := processingActivity.Insert(ctx, conn, scope); err != nil {
+				return fmt.Errorf("cannot insert processing activity: %w", err)
+			}
+
+			if len(req.ThirdPartyIDs) > 0 {
+				thirdParties := &coredata.ThirdParties{}
+				if err := thirdParties.LoadByIDs(ctx, conn, scope, req.ThirdPartyIDs); err != nil {
+					return fmt.Errorf("cannot load thirdParties: %w", err)
+				}
+
+				if err := processingActivityThirdParties.Insert(ctx, conn, scope, processingActivity.ID, req.OrganizationID, req.ThirdPartyIDs); err != nil {
+					return fmt.Errorf("cannot create processing activity thirdParties: %w", err)
+				}
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return processingActivity, nil
+}
+
+func (s *ProcessingActivityService) Update(
+	ctx context.Context, scope coredata.Scoper,
+	req *UpdateProcessingActivityRequest,
+) (*coredata.ProcessingActivity, error) {
+	processingActivity := &coredata.ProcessingActivity{}
+	processingActivityThirdParties := &coredata.ProcessingActivityThirdParties{}
+
+	err := s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, conn pg.Tx) error {
+			if err := processingActivity.LoadByID(ctx, conn, scope, req.ID); err != nil {
+				return fmt.Errorf("cannot load processing activity: %w", err)
+			}
+
+			if req.Name != nil {
+				processingActivity.Name = *req.Name
+			}
+
+			if req.Purpose != nil {
+				processingActivity.Purpose = *req.Purpose
+			}
+
+			if req.DataSubjectCategory != nil {
+				processingActivity.DataSubjectCategory = *req.DataSubjectCategory
+			}
+
+			if req.PersonalDataCategory != nil {
+				processingActivity.PersonalDataCategory = *req.PersonalDataCategory
+			}
+
+			if req.SpecialOrCriminalData != nil {
+				processingActivity.SpecialOrCriminalData = *req.SpecialOrCriminalData
+			}
+
+			if req.ConsentEvidenceLink != nil {
+				processingActivity.ConsentEvidenceLink = *req.ConsentEvidenceLink
+			}
+
+			if req.LawfulBasis != nil {
+				processingActivity.LawfulBasis = *req.LawfulBasis
+			}
+
+			if req.Recipients != nil {
+				processingActivity.Recipients = *req.Recipients
+			}
+
+			if req.Location != nil {
+				processingActivity.Location = *req.Location
+			}
+
+			if req.InternationalTransfers != nil {
+				processingActivity.InternationalTransfers = *req.InternationalTransfers
+			}
+
+			if req.TransferSafeguard != nil {
+				processingActivity.TransferSafeguard = *req.TransferSafeguard
+			}
+
+			if req.RetentionPeriod != nil {
+				processingActivity.RetentionPeriod = *req.RetentionPeriod
+			}
+
+			if req.SecurityMeasures != nil {
+				processingActivity.SecurityMeasures = *req.SecurityMeasures
+			}
+
+			if req.DataProtectionImpactAssessmentNeeded != nil {
+				processingActivity.DataProtectionImpactAssessmentNeeded = *req.DataProtectionImpactAssessmentNeeded
+			}
+
+			if req.TransferImpactAssessmentNeeded != nil {
+				processingActivity.TransferImpactAssessmentNeeded = *req.TransferImpactAssessmentNeeded
+			}
+
+			if req.LastReviewDate != nil {
+				processingActivity.LastReviewDate = *req.LastReviewDate
+			}
+
+			if req.NextReviewDate != nil {
+				processingActivity.NextReviewDate = *req.NextReviewDate
+			}
+
+			if req.Role != nil {
+				processingActivity.Role = *req.Role
+			}
+
+			if req.DataProtectionOfficerID != nil {
+				if *req.DataProtectionOfficerID != nil {
+					dpo := &coredata.MembershipProfile{}
+					if err := dpo.LoadByID(ctx, conn, scope, **req.DataProtectionOfficerID); err != nil {
+						return fmt.Errorf("cannot load data protection officer profile: %w", err)
+					}
+				}
+
+				processingActivity.DataProtectionOfficerID = *req.DataProtectionOfficerID
+			}
+
+			processingActivity.UpdatedAt = time.Now()
+
+			if err := processingActivity.Update(ctx, conn, scope); err != nil {
+				return fmt.Errorf("cannot update processing activity: %w", err)
+			}
+
+			if req.ThirdPartyIDs != nil {
+				if len(*req.ThirdPartyIDs) > 0 {
+					thirdParties := &coredata.ThirdParties{}
+					if err := thirdParties.LoadByIDs(ctx, conn, scope, *req.ThirdPartyIDs); err != nil {
+						return fmt.Errorf("cannot load thirdParties: %w", err)
+					}
+				}
+
+				if err := processingActivityThirdParties.Merge(ctx, conn, scope, processingActivity.ID, processingActivity.OrganizationID, *req.ThirdPartyIDs); err != nil {
+					return fmt.Errorf("cannot update processing activity thirdParties: %w", err)
+				}
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return processingActivity, nil
+}
+
+func (s ProcessingActivityService) Delete(
+	ctx context.Context, scope coredata.Scoper,
+	processingActivityID gid.GID,
+) error {
+	processingActivity := coredata.ProcessingActivity{ID: processingActivityID}
+
+	return s.svc.pg.WithTx(
+		ctx,
+		func(ctx context.Context, tx pg.Tx) error {
+			err := processingActivity.Delete(ctx, tx, scope)
+			if err != nil {
+				return fmt.Errorf("cannot delete processing activity: %w", err)
+			}
+
+			return nil
+		},
+	)
+}
+
+func (s ProcessingActivityService) ListForOrganizationID(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+	cursor *page.Cursor[coredata.ProcessingActivityOrderField],
+) (*page.Page[*coredata.ProcessingActivity, coredata.ProcessingActivityOrderField], error) {
+	var processingActivities coredata.ProcessingActivities
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) error {
+			err := processingActivities.LoadByOrganizationID(ctx, conn, scope, organizationID, cursor)
+			if err != nil {
+				return fmt.Errorf("cannot load processing activities: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.NewPage(processingActivities, cursor), nil
+}
+
+func (s ProcessingActivityService) CountForOrganizationID(
+	ctx context.Context, scope coredata.Scoper,
+	organizationID gid.GID,
+) (int, error) {
+	var count int
+
+	err := s.svc.pg.WithConn(
+		ctx,
+		func(ctx context.Context, conn pg.Querier) (err error) {
+			processingActivities := coredata.ProcessingActivities{}
+
+			count, err = processingActivities.CountByOrganizationID(ctx, conn, scope, organizationID)
+			if err != nil {
+				return fmt.Errorf("cannot count processing activities: %w", err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
