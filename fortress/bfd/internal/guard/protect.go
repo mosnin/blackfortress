@@ -56,6 +56,10 @@ func Protection(s Subject, home string) *Decision {
 			return block("agents may not access the Black Fortress data directory from the shell")
 		}
 
+		if stopsRuntimeRe.MatchString(cmd) {
+			return block("agents may not stop the Black Fortress runtime")
+		}
+
 		if strings.Contains(cmd, ".claude/settings") && writesFiles(cmd) {
 			return block("agents may not change Claude Code settings, which hold the compliance hooks")
 		}
@@ -78,6 +82,10 @@ func homeSuffix(home string) string {
 func normalizeShell(s string) string {
 	return strings.NewReplacer(`\ `, " ", `"`, "", `'`, "").Replace(s)
 }
+
+// stopsRuntimeRe matches the ways to stop the runtime by name. A plain
+// `kill <pid>` is not caught; this is defence in depth, not a sandbox.
+var stopsRuntimeRe = regexp.MustCompile(`(^|[\s;&|(/])bf\s+down\b|\b(pkill|killall)\b[^;&|]*\b(bfd|probod|postgres)\b|\bsystemctl\s+(stop|kill|disable)\b[^;&|]*\bblackfortress\b`)
 
 var writeCommandRe = regexp.MustCompile(`(>|\btee\b|\bsed\s+-i|\bperl\s+-i|\bmv\b|\bcp\b|\brm\b|\bjq\b.*>|\btruncate\b|\bchmod\b|\bln\b|\bpython3?\b|\bnode\b|\bruby\b)`)
 

@@ -180,3 +180,35 @@ func Checks(args []string, stdout io.Writer) int {
 
 	return 0
 }
+
+// LoginLink prints a one-time console sign-in link (valid 60 s), for
+// opening the console from another machine through an SSH tunnel.
+func LoginLink(stdout io.Writer) int {
+	sec, err := loadSecrets()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, controlURL()+"/v1/login-link", nil)
+	req.Header.Set("Authorization", "Bearer "+sec.MCPToken)
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		fmt.Fprintln(stdout, "Black Fortress is not running.")
+		return 1
+	}
+	defer resp.Body.Close()
+
+	var out struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || out.URL == "" {
+		fmt.Fprintf(os.Stderr, "no login link (HTTP %d)\n", resp.StatusCode)
+		return 1
+	}
+
+	fmt.Fprintln(stdout, out.URL)
+
+	return 0
+}

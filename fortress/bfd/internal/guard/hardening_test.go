@@ -51,6 +51,11 @@ func TestProtection(t *testing.T) {
 		{Tool: "Bash", Command: `cat ~/Library/Application\ Support/BlackFortress/secrets.json`},
 		{Tool: "Bash", Command: `sed -i '' s/block/record/ "$HOME/Library/Application Support/BlackFortress/policy.json"`},
 		{Tool: "Bash", Command: `jq 'del(.hooks)' ~/.claude/settings.json > /tmp/x && mv /tmp/x ~/.claude/settings.json`},
+		{Tool: "Bash", Command: "bf down"},
+		{Tool: "Bash", Command: "make test && /opt/blackfortress/bin/bf down"},
+		{Tool: "Bash", Command: "pkill -f 'bfd run'"},
+		{Tool: "Bash", Command: "killall postgres"},
+		{Tool: "Bash", Command: "sudo systemctl stop blackfortress"},
 	}
 	for _, s := range blocked {
 		if d := Protection(s, home); d == nil || d.Action != ActionBlock {
@@ -63,6 +68,9 @@ func TestProtection(t *testing.T) {
 		{Tool: "Edit", Path: "/Users/dev/code/blackfortress/README.md"},
 		{Tool: "Bash", Command: "cd ~/code/blackfortress && go test ./..."},
 		{Tool: "Bash", Command: "cat ~/.claude/settings.json"},
+		{Tool: "Bash", Command: "bf report --out report.md"},
+		{Tool: "Bash", Command: "git checkout -b bf-download-fix"},
+		{Tool: "Bash", Command: "pkill -f 'node server.js'"},
 	}
 	for _, s := range allowed {
 		if d := Protection(s, home); d != nil {

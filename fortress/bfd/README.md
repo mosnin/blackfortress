@@ -94,14 +94,22 @@ default, `"disabled": true` turns one off, new ids add rules.
 | `BF_LIBRARY_DIR` | framework JSON directory (else `library/frameworks` next to or above `bfd`) |
 | `BF_OPENAI_API_KEY`, `BF_ANTHROPIC_API_KEY`, `BF_FIRECRAWL_API_KEY` | enable Probo's AI features (vendor vetting, evidence description) |
 | `BF_*_PORT` | `PROBOD` 7810, `CONTROL` 7811, `STORAGE` 7812, `MAIL` 7813, `PG` 7814 |
+| `BF_PG_USER` | system user PostgreSQL runs as when bfd is root (default `blackfortress`, created if missing) |
+| `BF_REPORT_DIR` | when set in the agent's environment, each Claude Code session writes `blackfortress-<session>.md`/`.json` there when it ends |
 | `BF_ENABLE_PDF=1` | start headless Chrome for PDF export (off by default: its DevTools port has no authentication) |
 
-Logs: `$BF_HOME/logs/{bfd,probod,postgres}.log`. PostgreSQL refuses to run as
-root, so run bfd as a normal user.
+Logs: `$BF_HOME/logs/{bfd,probod,postgres}.log`. As root (containers, cloud
+sandboxes) bfd runs PostgreSQL as an unprivileged user and keeps its data
+in `/var/lib/blackfortress`; see [`../linux/README.md`](../linux/README.md).
+
+`bf up` starts the runtime in the background and waits until it is ready,
+`bf down` stops it, and `bf report` writes the compliance report.
 
 ## Building
 
 ```sh
 go test ./...
 ../scripts/build-runtime.sh darwin-arm64 darwin-amd64   # → dist/<os>-<arch>/
+../scripts/build-runtime.sh linux-amd64 && ../scripts/package-linux.sh amd64
+                                                         # → dist/blackfortress-linux-amd64.tar.gz
 ```

@@ -26,7 +26,10 @@ func startProc(name string, cmd *exec.Cmd, logPath string) (*Proc, error) {
 
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
 
 	if err := cmd.Start(); err != nil {
 		logFile.Close()

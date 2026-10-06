@@ -38,6 +38,12 @@ func Home() (string, error) {
 		return filepath.Join(x, "blackfortress"), nil
 	}
 
+	// Root (cloud sandboxes, containers): PostgreSQL runs as an unprivileged
+	// user that must reach the data directory, and /root is private.
+	if os.Geteuid() == 0 {
+		return "/var/lib/blackfortress", nil
+	}
+
 	return filepath.Join(userHome, ".local", "share", "blackfortress"), nil
 }
 
@@ -54,6 +60,8 @@ type Layout struct {
 	Policy    string
 	Logs      string
 	StateFile string
+	// PidFile holds the pid of the running `bfd run`.
+	PidFile string
 }
 
 func NewLayout(home string) Layout {
@@ -69,6 +77,7 @@ func NewLayout(home string) Layout {
 		Policy:    filepath.Join(home, "policy.json"),
 		Logs:      filepath.Join(home, "logs"),
 		StateFile: filepath.Join(home, "state.json"),
+		PidFile:   filepath.Join(home, "bfd.pid"),
 	}
 }
 

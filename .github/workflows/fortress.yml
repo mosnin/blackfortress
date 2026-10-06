@@ -9,6 +9,9 @@ on:
       - '.github/workflows/fortress.yml'
   push:
     branches: [main]
+    # Path filters do not apply to tags: a fortress-v* tag always builds and
+    # publishes a release.
+    tags: ['fortress-v*']
     paths:
       - 'fortress/**'
       - 'probo/**'
@@ -118,6 +121,34 @@ jobs:
       - name: Smoke test a fresh install
         run: fortress/scripts/smoke-test.sh fortress/bfd/dist/linux-amd64
 
+      - name: Package the Linux release (runtime, library, bundled PostgreSQL)
+        run: fortress/scripts/package-linux.sh amd64
+
+      - name: Install the release as root and smoke test it with the bundled PostgreSQL
+        run: |
+          rel="$(mktemp -d)"
+          tar -xzf fortress/bfd/dist/blackfortress-linux-amd64.tar.gz -C "$rel"
+          sudo "$rel/blackfortress-linux-amd64/install.sh"
+          sudo env "PATH=$PATH" fortress/scripts/smoke-test.sh /opt/blackfortress/bin
+          id blackfortress
+
+      - name: Container image runs the release as root
+        run: |
+          rel="$(mktemp -d)"
+          tar -xzf fortress/bfd/dist/blackfortress-linux-amd64.tar.gz -C "$rel"
+          docker build -t blackfortress:ci -f fortress/linux/Dockerfile "$rel/blackfortress-linux-amd64"
+          docker run --rm blackfortress:ci sh -c 'bf up --timeout 4m || { tail -40 /var/lib/blackfortress/logs/bfd.log; exit 1; }
+            bf report --fail-on fail && bf down'
+
+      - name: Upload the Linux release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: blackfortress-linux-amd64
+          path: |
+            fortress/bfd/dist/blackfortress-linux-amd64.tar.gz
+            fortress/bfd/dist/blackfortress-linux-amd64.tar.gz.sha256
+          retention-days: 14
+
       - name: Hand the macOS runtime to the app job
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -222,3 +253,34 @@ jobs:
           name: BlackFortress-macos-arm64
           path: fortress/macos/build/BlackFortress-macos-arm64.zip
           retention-days: 14
+
+  release:
+    name: publish release
+    if: startsWith(github.ref, 'refs/tags/fortress-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [smoke, macos-app]
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch the Linux release
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: blackfortress-linux-amd64
+          path: release
+
+      - name: Fetch the macOS app
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: BlackFortress-macos-arm64
+          path: release
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Black Fortress ${TAG#fortress-}" \
+            --notes "Linux: extract blackfortress-linux-amd64.tar.gz, run install.sh, then bf up (see fortress/linux/README.md). macOS: unzip BlackFortress-macos-arm64.zip."

@@ -104,6 +104,11 @@ func Hook(args []string, stdin io.Reader, stdout io.Writer) (code int) {
 		return 0
 	case "SessionEnd", "Stop":
 		record(layout, ledger, &guard.Entry{Agent: agent, SessionID: in.SessionID, Cwd: in.Cwd, Repo: gitRoot(in.Cwd), Event: event})
+
+		if dir := os.Getenv("BF_REPORT_DIR"); dir != "" && event == "SessionEnd" {
+			writeSessionReport(dir, in.SessionID)
+		}
+
 		return 0
 	case "PreToolUse", "PostToolUse":
 	default:

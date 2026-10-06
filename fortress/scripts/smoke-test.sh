@@ -111,6 +111,9 @@ expect "agent evidence uploads to Probo" '[[ "$sync" == *"uploaded"* && "$sync" 
 sleep 3
 in_progress="$(curl -s "${AUTH[@]}" "$CONTROL/v1/posture" | json 'sum(f["measures"].get("IN_PROGRESS",0) for f in d["frameworks"])')"
 expect "guardrail measures mapped to controls ($in_progress)" '[[ "$in_progress" -gt 0 ]]'
+report="$("$BF" report --format json)"
+expect "report: ledger verified, runtime running, activity counted" '[[ "$(json "d[\"ledger\"][\"valid\"] and d[\"runtime\"][\"state\"] == \"running\" and d[\"activity\"][\"blocked\"] >= 2" <<<"$report")" == True ]]'
+expect "report renders Markdown" '"$BF" report | grep -q "Black Fortress compliance report"'
 expect "checks API responds" '[[ "$(curl -s -o /dev/null -w "%{http_code}" "${AUTH[@]}" "$CONTROL/v1/checks")" == 200 ]]'
 
 kill -INT "$BFD_PID"

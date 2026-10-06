@@ -164,3 +164,11 @@ func emitError(emit func([]byte), request []byte, msg string) {
 	})
 	emit(b)
 }
+
+// claudeMCPArgs registers bfd with Claude Code through the `bf mcp-stdio`
+// bridge, which reads the bearer token from secrets.json itself. The token
+// never appears on a command line (visible in ps) or in ~/.claude.json,
+// where the governed agent could read it.
+func claudeMCPArgs(bf string) []string {
+	return []string{"mcp", "add", "--scope", "user", mcpServerName, "--", bf, "mcp-stdio"}
+}

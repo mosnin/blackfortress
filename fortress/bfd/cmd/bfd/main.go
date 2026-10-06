@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 
 	"blackfortress.dev/fortress/bfd/internal/cli"
@@ -74,6 +75,13 @@ func run() int {
 
 	logger := log.New(io.MultiWriter(os.Stderr, logFile), "bfd ", log.LstdFlags|log.Lmsgprefix)
 	logger.Printf("Black Fortress %s starting; data in %s", runtime.Version, home)
+
+	// bf down stops the runtime through this file. A stale one from a crash
+	// is simply overwritten.
+	if err := os.WriteFile(layout.PidFile, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		logger.Printf("cannot write %s: %v", layout.PidFile, err)
+	}
+	defer os.Remove(layout.PidFile)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()

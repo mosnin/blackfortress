@@ -26,6 +26,39 @@ type Postgres struct {
 	Port     int
 	Password string
 	LogPath  string
+	// Cred is the identity initdb and postgres run as (nil: bfd's own).
+	// Set when bfd runs as root, which PostgreSQL refuses.
+	Cred *syscall.Credential
+}
+
+// pgDir holds the data directory, socket directory and password file.
+func (p *Postgres) pgDir() string { return filepath.Dir(p.DataDir) }
+
+func (p *Postgres) runAs(cmd *exec.Cmd) {
+	if p.Cred == nil {
+		return
+	}
+
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+
+	cmd.SysProcAttr.Credential = p.Cred
+	cmd.Dir = p.pgDir()
+}
+
+// prepare hands the pg directory to the PostgreSQL user (when bfd is root)
+// and checks that user can reach the binaries.
+func (p *Postgres) prepare() error {
+	if p.Cred == nil {
+		return nil
+	}
+
+	if err := handOver(p.pgDir(), p.Cred); err != nil {
+		return err
+	}
+
+	return reachable(p.BinDir)
 }
 
 func (p *Postgres) Addr() string { return "127.0.0.1:" + strconv.Itoa(p.Port) }
@@ -46,6 +79,10 @@ func (p *Postgres) Init(ctx context.Context) error {
 	}
 	defer os.Remove(pwFile)
 
+	if err := p.prepare(); err != nil {
+		return err
+	}
+
 	cmd := exec.CommandContext(
 		ctx,
 		filepath.Join(p.BinDir, "initdb"),
@@ -56,6 +93,8 @@ func (p *Postgres) Init(ctx context.Context) error {
 		"--encoding", "UTF8",
 		"--locale", "C",
 	)
+	p.runAs(cmd)
+
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("initdb failed: %w\n%s", err, out)
 	}
@@ -74,6 +113,10 @@ func (p *Postgres) Start(ctx context.Context) (*Proc, error) {
 		_ = os.Remove(pidFile)
 	}
 
+	if err := p.prepare(); err != nil {
+		return nil, err
+	}
+
 	cmd := exec.Command(
 		filepath.Join(p.BinDir, "postgres"),
 		"-D", p.DataDir,
@@ -83,6 +126,7 @@ func (p *Postgres) Start(ctx context.Context) (*Proc, error) {
 		"-c", "max_connections=200",
 		"-c", "shared_buffers=128MB",
 	)
+	p.runAs(cmd)
 
 	proc, err := startProc("postgres", cmd, p.LogPath)
 	if err != nil {

@@ -12,7 +12,13 @@ fortress/
   checks/           bf-checks: Comp's integration checks compiled into one Bun binary
   library/          unified control library (Comp + Probo) and the converter
   macos/            SwiftUI app (menu bar + window), bundles bfd and probod
+  linux/            headless Linux release: installer, Dockerfile, guide
 ```
+
+On Linux (developer machines, cloud agent sandboxes, containers, CI) the
+same runtime runs headless from a release tarball that bundles PostgreSQL;
+`bf up`/`bf down` manage it and `bf report` hands the results back. See
+`linux/README.md`.
 
 ## Processes
 
@@ -42,8 +48,14 @@ users, so:
 ## Data directory (`$BF_HOME`)
 
 Default `~/Library/Application Support/BlackFortress` on macOS,
-`$XDG_DATA_HOME/blackfortress` (or `~/.local/share/blackfortress`) elsewhere.
-Override with `BF_HOME`.
+`$XDG_DATA_HOME/blackfortress` (or `~/.local/share/blackfortress`) elsewhere,
+and `/var/lib/blackfortress` for root on Linux. Override with `BF_HOME`.
+
+PostgreSQL refuses to run as root. When bfd is root it runs initdb and
+postgres as an unprivileged system user (`BF_PG_USER`, default
+`blackfortress`, created on first start), hands that user `$BF_HOME/pg`,
+and gives `$BF_HOME` itself search permission only, so the user can reach
+`pg/` but not list or read the rest (secrets stay root-only).
 
 ```
 $BF_HOME/
@@ -91,7 +103,10 @@ stored in `secrets.json`. The API key is what agents use for MCP.
 | Command | Purpose |
 |---|---|
 | `bf hook <event>` | Claude Code hook handler. Reads the hook JSON on stdin, evaluates guardrails locally, forwards to bfd for the ledger, writes the hook decision JSON to stdout |
+| `bf up` / `bf down` | Starts `bfd run` in the background and waits until ready / stops it (`$BF_HOME/bfd.pid`) and waits |
 | `bf status` | Prints `/v1/status` |
+| `bf report` | Compliance report (Markdown or JSON): verdict, agent activity, guardrail interventions, check findings, framework posture, ledger integrity. `--since`, `--session`, `--fail-on`. With `BF_REPORT_DIR` set, each Claude Code session writes its report there at SessionEnd |
+| `bf login-link` | Prints a one-time console sign-in link |
 | `bf agent-config [claude|cursor|codex|stdio|http]` | Prints MCP + hook configuration for an agent (stdio bridge; `http` prints the URL and token) |
 | `bf mcp-stdio` | stdio MCP server relaying to `/mcp`; reads the token from `secrets.json` so agent configs never hold it |
 | `bf install-claude [--project DIR]` | Writes the MCP server and hooks into Claude Code settings |
@@ -137,8 +152,9 @@ otherwise. Every run is also written to the ledger.
 
 The governed agent must not be able to switch off its own governance.
 Built-in rules that `policy.json` cannot override block agents from reading
-`secrets.json`, writing anything in `$BF_HOME`, and editing Claude Code
-`settings*.json` (where the hooks live). Ledger entries carry an HMAC keyed
+`secrets.json`, writing anything in `$BF_HOME`, editing Claude Code
+`settings*.json` (where the hooks live), and stopping the runtime (`bf down`,
+`pkill bfd`, `systemctl stop blackfortress`). Ledger entries carry an HMAC keyed
 from `secrets.json`, so an agent that cannot read the key cannot rewrite the
 chain undetected. Shell commands are matched on their text, so this is
 defence in depth rather than a sandbox.
