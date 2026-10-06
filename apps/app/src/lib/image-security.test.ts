@@ -21,6 +21,12 @@ vi.mock('botid/next/config', () => ({ withBotId: (config: NextConfig) => config 
 import portalConfig from '../../../portal/next.config';
 import appConfig from '../../next.config';
 
+const previewProps = {
+  previewModeId: '',
+  previewModeSigningKey: '',
+  previewModeEncryptionKey: '',
+};
+
 // Keep the installed Next image request handler intact. Only build manifests
 // and the rendered 404 page are replaced, so this needs no build or listener.
 class ImageTestServer extends NextNodeServer {
@@ -46,12 +52,14 @@ class ImageTestServer extends NextNodeServer {
       routes: {},
       dynamicRoutes: {},
       notFoundRoutes: [],
-      preview: {
-        previewModeId: '',
-        previewModeSigningKey: '',
-        previewModeEncryptionKey: '',
-      },
+      preview: previewProps,
     };
+  }
+
+  // Next 16.4 reads preview keys from their own build manifest when the
+  // server is constructed; older versions take them from the prerender one.
+  protected getPreviewProps() {
+    return previewProps;
   }
 
   async render404(_request: NodeNextRequest, response: NodeNextResponse) {
